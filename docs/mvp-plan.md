@@ -44,7 +44,8 @@ Run it as an experiment and keep the record in [experiments/](experiments/) (it 
 signal we have). Run #1: [plate → door → goal](experiments/2026-11-25-cold-agent-1.md) — PASS in 3 min 58 s.
 Run #2: [tap lever + patrol timing + negative tests](experiments/2026-11-25-cold-agent-2.md) — PASS in
 6 min 7 s. Run #3: [beyond the engine's limits](experiments/2026-11-25-cold-agent-3.md) — PASS with honest
-approximations, but 18 min 42 s because limits were undocumented (now fixed).
+approximations, but 18 min 42 s because limits were undocumented. Run #4: [the same task with the limits
+table](experiments/2026-11-25-cold-agent-4.md) — every verdict at command 2, 14 min 6 s, 0 warnings.
 
 1. Build `slate` and put it on `PATH` (`cargo build --release` → `target/release/slate`).
 2. In an empty folder **outside this repo**, start a fresh coding agent with no other context.
@@ -76,5 +77,5 @@ Deliberate gaps in v0.1 — each waits for a reference game that needs it (guard
 
 ## Next
 
-Re-run run #3's task on the build with the limits table (it should be much faster), decide Q14 (data-level
-logic), then M2 in [roadmap.md](roadmap.md).
+Decide Q14 (data-level logic: counters, conditions, a number display), then M2 in
+[roadmap.md](roadmap.md).

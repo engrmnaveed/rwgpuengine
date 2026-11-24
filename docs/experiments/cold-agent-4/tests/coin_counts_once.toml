@@ -1,0 +1,56 @@
+[test]
+doc = "Walking back onto a collected coin's cell does not count it again: the digit stays at 1."
+scene = "scenes/vault.toml"
+frames = 60
+
+[[input]]
+frame = 0
+hold = "left"        # (2,4) (1,4)
+for = 16
+
+[[input]]
+frame = 16
+hold = "up"          # (1,3) (1,2) = coin 1, taken in step 24
+for = 16
+
+[[input]]
+frame = 32
+press = "down"       # (1,3)
+
+[[input]]
+frame = 40
+press = "up"         # back onto (1,2) in step 40
+
+[[expect]]
+frame = 41
+entity = "player"
+pos = [1, 2]
+
+[[expect]]
+event = "signal"
+entity = "coin1"
+signal = "collected"
+at_least = 1
+at_most = 1
+
+[[expect]]
+event = "signal"
+entity = "count_bit0_sense"
+at_least = 1
+at_most = 1
+
+[[expect]]
+entity = "seg_b"
+enabled = true
+
+[[expect]]
+entity = "seg_c"
+enabled = true
+
+[[expect]]
+entity = "seg_a"
+enabled = false
+
+[[expect]]
+entity = "seg_g"
+enabled = false

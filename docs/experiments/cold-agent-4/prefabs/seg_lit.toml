@@ -1,0 +1,2 @@
+doc = "A lit segment of the on-screen 7-segment coin digit."
+sprite = { shape = "rect", color = "#ffd84a" }

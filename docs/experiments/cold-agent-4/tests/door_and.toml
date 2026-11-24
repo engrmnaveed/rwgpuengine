@@ -1,0 +1,146 @@
+[test]
+doc = """The vault door is passable only while BOTH plates are held, and closes again as soon as either
+golem steps off its plate. (The door is two stacked solid leaves, one per plate: see scenes/vault.toml.)"""
+scene = "scenes/vault.toml"
+frames = 170
+
+# Walk to the cell in front of the door: (4,4) (5,4) (6,4).
+[[input]]
+frame = 0
+hold = "right"
+for = 24
+
+# Frame 30: only plate A is held (golem A arrived in step 29, golem B not until step 39) -> refused.
+[[input]]
+frame = 30
+press = "right"
+
+[[expect]]
+frame = 31
+event = "blocked"
+entity = "player"
+reason = "solid"
+other = "door_leaf_b"
+
+[[expect]]
+frame = 35
+entity = "door_leaf_a"
+enabled = false
+
+[[expect]]
+frame = 35
+entity = "door_leaf_b"
+enabled = true
+
+[[expect]]
+frame = 35
+entity = "player"
+pos = [6, 4]
+
+[[shot]]
+frame = 35
+reference = "tests/refs/door_one_plate_closed.png"
+
+# Frame 40: both plates held -> the player walks into the doorway, then into the vault.
+[[input]]
+frame = 40
+press = "right"
+
+[[expect]]
+frame = 41
+entity = "player"
+pos = [7, 4]
+
+[[expect]]
+frame = 45
+entity = "door_leaf_a"
+enabled = false
+
+[[expect]]
+frame = 45
+entity = "door_leaf_b"
+enabled = false
+
+[[shot]]
+frame = 45
+reference = "tests/refs/door_both_plates_open.png"
+
+[[input]]
+frame = 48
+press = "right"
+
+[[expect]]
+frame = 49
+entity = "player"
+pos = [8, 4]
+
+# Step 59: golem A steps off plate A (B still held) -> leaf A closes the door again.
+[[expect]]
+frame = 61
+entity = "door_leaf_a"
+enabled = true
+
+[[expect]]
+frame = 61
+entity = "door_leaf_b"
+enabled = false
+
+[[expect]]
+frame = 61
+event = "trigger"
+entity = "plate_a"
+other = "golem_a"
+signal = "released"
+
+[[input]]
+frame = 65
+press = "left"
+
+[[expect]]
+frame = 66
+event = "blocked"
+entity = "player"
+reason = "solid"
+other = "door_leaf_a"
+
+[[expect]]
+frame = 66
+entity = "player"
+pos = [8, 4]
+
+# Step 149: golem A back on plate A while B is held -> open again.
+[[expect]]
+frame = 155
+entity = "door_leaf_a"
+enabled = false
+
+[[expect]]
+frame = 155
+entity = "door_leaf_b"
+enabled = false
+
+# Step 159: golem B steps off plate B (A still held) -> leaf B closes the door again.
+[[expect]]
+frame = 161
+entity = "door_leaf_b"
+enabled = true
+
+[[expect]]
+frame = 161
+entity = "door_leaf_a"
+enabled = false
+
+[[input]]
+frame = 165
+press = "left"
+
+[[expect]]
+frame = 166
+event = "blocked"
+entity = "player"
+reason = "solid"
+other = "door_leaf_b"
+
+[[expect]]
+entity = "player"
+pos = [8, 4]

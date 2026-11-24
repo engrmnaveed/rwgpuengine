@@ -357,6 +357,28 @@ impl<'a> SceneLoader<'a> {
                     solid_cells.insert(cell, i);
                 }
             }
+            if e.enabled
+                && e.is_actor()
+                && !allows(e, codes::ACTOR_IN_SOLID.code)
+                && let Some(wall) = entities.iter().find(|o| o.enabled && o.solid && !o.is_actor() && o.cell() == cell)
+            {
+                let what =
+                    |x: &defs::EntityDef| x.name.as_deref().map_or("an entity".to_string(), |n| format!("`{n}`"));
+                self.diags.push(
+                    Diagnostic::new(
+                        &codes::ACTOR_IN_SOLID,
+                        format!(
+                            "actor {} starts inside solid {} on cell [{}, {}]",
+                            what(e),
+                            what(wall),
+                            cell[0],
+                            cell[1]
+                        ),
+                    )
+                    .at(&src, e.origin.span)
+                    .note(format!("the solid one is at {}:{}", wall.origin.file, wall.origin.line)),
+                );
+            }
             if let Some(g) = &ground
                 && (cell[0] < 0 || cell[1] < 0 || cell[0] >= g.size[0] || cell[1] >= g.size[1])
                 && !allows(e, codes::OUTSIDE_GROUND.code)

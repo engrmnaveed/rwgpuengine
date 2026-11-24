@@ -175,6 +175,14 @@ may differ. Docs for the running version: `slate docs`.
 
 Fix: update `engine`, or install the matching slate version.";
 
+    ACTOR_IN_SOLID = "W0206", "actor-in-solid", Warning, "Actor starts inside a solid entity",
+"An actor (an entity with mover, patrol or wander) starts on a cell that also holds
+an enabled solid entity. It can walk out, but nothing can walk in, and it usually
+means a typo in `pos` (a player spawned inside a wall).
+
+Fix: move one of them. If it is deliberate (a hidden stationary actor used as a
+logic piece inside a wall), add `allow = [\"W0206\"]` to the actor.";
+
     // ---- x03xx: runtime and frame report ------------------------------------
     SIGNAL_LIMIT = "E0301", "signal-limit", Error, "Too many signals in one frame",
 "More than 1000 signals were dispatched in a single frame. This almost always
@@ -203,7 +211,7 @@ character behind a wall, a deliberately layered sprite), add
 
 Fix: adjust the camera or display size if the whole entity should be visible.";
 
-    HIDDEN_TRIGGER = "W0304", "hidden-trigger", Warning, "Trigger tile is mostly hidden",
+    HIDDEN_TRIGGER = "W0304", "hidden-trigger", Warning, "Trigger tile is less than 75% visible",
 "Less than three quarters of a trigger's floor tile (a pressure plate, a goal) is visible, usually because
 a tall block in front of it (larger x + y) covers it. Entities standing on the trigger's own cell do not
 count. Players cannot see where to step.

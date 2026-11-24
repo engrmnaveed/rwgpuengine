@@ -594,8 +594,9 @@ impl Ty {
     pub fn label(&self) -> String {
         match self {
             Ty::Bool => "bool".into(),
-            Ty::Int { .. } => "integer".into(),
-            Ty::Num { .. } => "number".into(),
+            Ty::Int { min, max } if *max >= 1_000_000 => format!("integer ≥ {min}"),
+            Ty::Int { min, max } => format!("integer {min}–{max}"),
+            Ty::Num { min, max } => format!("number {min}–{max}"),
             Ty::Str => "string".into(),
             Ty::Name => "name".into(),
             Ty::Path => "path".into(),

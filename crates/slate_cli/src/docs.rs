@@ -107,7 +107,11 @@ files + input + seed = same state hash and same pixels, on every machine.
 
 **Coordinates.** Cells are `[x, y]` integers; `[0, 0]` is the top corner of the ground. +x runs down-right
 on screen, +y down-left, z is height. Direction inputs move movers: `up` = -y, `down` = +y,
-`left` = -x, `right` = +x.
+`left` = -x, `right` = +x. Screen position of grid point (x, y, z), in pixels from the top-left:
+`sx = ox + (x - y) × tile_width / 2`, `sy = oy + (x + y) × tile_height / 2 - z × z_height`, where (ox, oy) is
+chosen so the camera `center` (default: the middle of the ground) lands in the middle of the frame. A sprite's
+bottom edge sits at its cell's (sx, sy); `offset` shifts it. `slate inspect --json` shows each entity's
+`screen` rectangle, which is the easiest way to place things.
 
 **Step order.** Each step: input (taps resolve to the topmost enabled entity drawn under the point and
 emit `tapped`), movers, patrols, wanderers, Rust game systems, triggers, then signal dispatch through
@@ -123,7 +127,10 @@ entity where an actor stands does not push the actor out.
 **Input.** Every enabled `mover` responds to the same input. Only actors set off triggers.
 
 **Signals.** Every entity emits `tapped` when tapped. A `trigger` emits `on_enter` (default `pressed`)
-when its cell goes from empty to occupied by an actor and `on_exit` (default `released`) when it empties.
+when its cell goes from empty to occupied by an enabled actor and `on_exit` (default `released`) when it
+empties. Occupancy is re-checked every step, so enabling or disabling an actor that stands on the cell
+counts too (the signal comes in the next step's trigger phase). A trigger that is already occupied at
+frame 0 does **not** emit: start the connected door in the state you want (e.g. `enabled = false`).
 
 **Events.** Every step logs what happened and what was refused, with a sentence and structured fields.
 Read them with `slate inspect --events` or `slate run --events`; `slate explain events` prints this table.
@@ -218,8 +225,22 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
 - **Door opened by a plate.** Plate: `tile` + `trigger = {{}}` (emits `pressed`/`released`). Door: a `block`
   with `solid = true`. Wire `from = "plate" signal = "pressed" to = "door" action = "disable"`. To close
   it again when the plate is left, add a second `[[connect]]` with `signal = "released"`, `action = "enable"`.
-- **Collectible.** A sprite on a trigger's cell; connect the trigger's signal to the sprite with
-  `action = "disable"`.
+  A door that re-closes while an actor stands in its cell does not push it out; the actor can walk on.
+- **Door that needs two plates held (AND).** Two solid door leaves on the same cell (`allow = ["W0201"]`),
+  each disabled by its own plate's `pressed` and re-enabled by its `released`.
+- **Collectible (counts once).** Put the sprite and the trigger on the **same** entity and connect its signal
+  to itself: `trigger = {{ on_enter = "collected", only = "player" }}` +
+  `[[connect]] from = "coin1" signal = "collected" to = "coin1" action = "disable"`. Disabling it also
+  disables the trigger, so walking over the spot again does nothing. (A separate trigger left enabled would
+  fire again.)
+- **Stationary actor** (a weight on a plate, a hidden logic piece): `patrol = {{ path = [[x, y]] }}` with
+  `pos = [x, y]`. It never moves and logs nothing, but it is an actor, so it holds a plate. A plate that is
+  occupied from frame 0 does not emit `pressed`, so start its door already open (`enabled = false`), or
+  enable the weight later with a `[[connect]]`.
+- **Counting in any order** (no counters exist, see Limits): keep each bit of the count in a stationary
+  actor that is enabled/disabled (`toggle`) by the events being counted, and put a trigger under it: the
+  trigger emits `on_enter`/`on_exit` one step later as the bit flips, and those signals drive the display.
+  It works, but it costs entities, connections and a one-step delay; say it is an approximation.
 - **Prove something is blocked** (a negative test): `[[expect]] event = "blocked"`, `entity = "player"`,
   `reason = "solid"` (reasons: `solid`, `actor`, `edge`, `area`, `cooldown`). Blocked *by whom*: add
   `other = "guard"`. With `event`, `entity` is the event's subject and `other` its other party;
@@ -361,9 +382,9 @@ then build the closest honest approximation.
 | not in this version | what you can do instead (and what it costs) |
 |---|---|
 | **Text and numbers on screen** (labels, scores, timers) | Nothing renders text. A small fixed range of values can be shown with layered sprites switched by `[[connect]]` (e.g. a 7-segment digit made of `rect` sprites): many entities and connections, and `allow = ["W0302"]` on hidden layers. Say it is an approximation. |
-| **Counters, variables, arithmetic** | `props` are read-only at runtime from data files; no action adds or compares. Count with entity states (one sprite per collected item, a chain of toggles). Playtests check entity states, not a number. |
+| **Counters, variables, arithmetic** | `props` are read-only at runtime from data files; no action adds or compares. Count with entity states: one sprite per item if order does not matter for the display, or the "Counting in any order" recipe (stationary actors as bits, read by triggers). Playtests check entity states, not a number. |
 | **Conditions on connections** (AND, "only if") | A `[[connect]]` always fires. AND for passage: put two solid door leaves on the same cell, each disabled by its own plate (`allow = ["W0201"]`); the cell opens only while both are held. OR: several `[[connect]]` to the same target. |
-| **Holding a plate with an object** (pushable blocks, weights) | Only actors (`mover`, `patrol`, `wander`) set off triggers. Use a patrol or wanderer as the "weight". |
+| **Holding a plate with an object** (pushable blocks, weights) | Only actors (`mover`, `patrol`, `wander`) set off triggers. Use a patrol as the "weight": a pacing one, or a stationary one (`patrol = { path = [[x, y]] }` on its own cell). |
 | **Several independently controlled characters** | Every enabled `mover` responds to the same input, so they move together. Use one mover; other characters are patrols or wanderers. |
 | **A screen-space HUD layer** | Everything is in the world. A `sprite` `offset` can place a sprite anywhere on screen relative to its cell, which works because the camera never moves. |
 | **Image sprites, audio, animation** | Shapes only (`circle`, `rect`, `diamond`), colors, blocks and tiles. |

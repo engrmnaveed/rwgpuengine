@@ -1,0 +1,79 @@
+[test]
+doc = """The player can be one of the two weights: standing on plate B while golem A holds plate A opens the
+door; the player stepping off plate B closes it again although plate A is still held."""
+scene = "scenes/vault.toml"
+frames = 110
+
+# (4,4) (5,4), then (5,5) (5,6): wait beside plate B until golem B leaves it (step 79).
+[[input]]
+frame = 0
+hold = "right"
+for = 16
+
+[[input]]
+frame = 16
+hold = "down"
+for = 16
+
+[[input]]
+frame = 80
+press = "down"            # (5,7) = plate B
+
+[[expect]]
+frame = 81
+entity = "player"
+pos = [5, 7]
+
+[[expect]]
+frame = 81
+event = "trigger"
+entity = "plate_b"
+other = "player"
+signal = "pressed"
+
+[[expect]]
+frame = 81
+entity = "door_leaf_b"
+enabled = false
+
+# Step 89: golem A reaches plate A -> both plates held -> door open.
+[[expect]]
+frame = 95
+entity = "door_leaf_a"
+enabled = false
+
+[[expect]]
+frame = 95
+entity = "door_leaf_b"
+enabled = false
+
+# Frame 100: the player steps off plate B; plate A is still held by golem A until step 119.
+[[input]]
+frame = 100
+press = "up"
+
+[[expect]]
+frame = 101
+event = "trigger"
+entity = "plate_b"
+other = "player"
+signal = "released"
+
+[[expect]]
+frame = 101
+entity = "door_leaf_b"
+enabled = true
+
+[[expect]]
+frame = 101
+entity = "door_leaf_a"
+enabled = false
+
+[[expect]]
+frame = 101
+entity = "golem_a"
+pos = [5, 0]
+
+[[shot]]
+frame = 95
+reference = "tests/refs/player_and_golem_hold_plates.png"

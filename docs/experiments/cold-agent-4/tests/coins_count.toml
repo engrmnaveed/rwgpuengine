@@ -1,0 +1,268 @@
+[test]
+doc = """Collect coin 1 (yard), then coin 3 and coin 2 (vault). The 7-segment digit reads 0, 1, 2, 3.
+The digit is an approximation of a score counter: slate renders no text and has no counter variable."""
+scene = "scenes/vault.toml"
+frames = 240
+
+# digit shows 0
+[[expect]]
+frame = 5
+entity = "seg_a"
+enabled = true
+
+[[expect]]
+frame = 5
+entity = "seg_b"
+enabled = true
+
+[[expect]]
+frame = 5
+entity = "seg_c"
+enabled = true
+
+[[expect]]
+frame = 5
+entity = "seg_d"
+enabled = true
+
+[[expect]]
+frame = 5
+entity = "seg_e"
+enabled = true
+
+[[expect]]
+frame = 5
+entity = "seg_f"
+enabled = true
+
+[[expect]]
+frame = 5
+entity = "seg_g"
+enabled = false
+
+# (2,4) (1,4), then (1,3) (1,2) = coin 1, taken in step 24.
+[[input]]
+frame = 0
+hold = "left"
+for = 16
+
+[[input]]
+frame = 16
+hold = "up"
+for = 16
+
+[[expect]]
+frame = 30
+entity = "coin1"
+enabled = false
+
+[[expect]]
+frame = 30
+entity = "coin2"
+enabled = true
+
+[[expect]]
+frame = 30
+entity = "coin3"
+enabled = true
+
+# digit shows 1
+[[expect]]
+frame = 30
+entity = "seg_a"
+enabled = false
+
+[[expect]]
+frame = 30
+entity = "seg_b"
+enabled = true
+
+[[expect]]
+frame = 30
+entity = "seg_c"
+enabled = true
+
+[[expect]]
+frame = 30
+entity = "seg_d"
+enabled = false
+
+[[expect]]
+frame = 30
+entity = "seg_e"
+enabled = false
+
+[[expect]]
+frame = 30
+entity = "seg_f"
+enabled = false
+
+[[expect]]
+frame = 30
+entity = "seg_g"
+enabled = false
+
+[[shot]]
+frame = 30
+reference = "tests/refs/count_1.png"
+
+# Back down to (1,4), then right to the door: (2,4) .. (6,4) by frame 81.
+[[input]]
+frame = 32
+hold = "down"
+for = 16
+
+[[input]]
+frame = 48
+hold = "right"
+for = 40
+
+# Door window [150, 160): into the doorway at step 150, into the vault at step 158.
+[[input]]
+frame = 150
+press = "right"
+
+[[input]]
+frame = 158
+press = "right"
+
+[[expect]]
+frame = 159
+entity = "player"
+pos = [8, 4]
+
+# (8,5) (8,6) = coin 3, taken in step 174.
+[[input]]
+frame = 166
+hold = "down"
+for = 16
+
+[[expect]]
+frame = 180
+entity = "coin1"
+enabled = false
+
+[[expect]]
+frame = 180
+entity = "coin2"
+enabled = true
+
+[[expect]]
+frame = 180
+entity = "coin3"
+enabled = false
+
+# digit shows 2
+[[expect]]
+frame = 180
+entity = "seg_a"
+enabled = true
+
+[[expect]]
+frame = 180
+entity = "seg_b"
+enabled = true
+
+[[expect]]
+frame = 180
+entity = "seg_c"
+enabled = false
+
+[[expect]]
+frame = 180
+entity = "seg_d"
+enabled = true
+
+[[expect]]
+frame = 180
+entity = "seg_e"
+enabled = true
+
+[[expect]]
+frame = 180
+entity = "seg_f"
+enabled = false
+
+[[expect]]
+frame = 180
+entity = "seg_g"
+enabled = true
+
+[[shot]]
+frame = 180
+reference = "tests/refs/count_2.png"
+
+# (9,6), then up to (9,1) = coin 2, taken in step 222.
+[[input]]
+frame = 182
+hold = "right"
+for = 8
+
+[[input]]
+frame = 190
+hold = "up"
+for = 40
+
+[[expect]]
+frame = 230
+entity = "coin1"
+enabled = false
+
+[[expect]]
+frame = 230
+entity = "coin2"
+enabled = false
+
+[[expect]]
+frame = 230
+entity = "coin3"
+enabled = false
+
+# digit shows 3
+[[expect]]
+frame = 230
+entity = "seg_a"
+enabled = true
+
+[[expect]]
+frame = 230
+entity = "seg_b"
+enabled = true
+
+[[expect]]
+frame = 230
+entity = "seg_c"
+enabled = true
+
+[[expect]]
+frame = 230
+entity = "seg_d"
+enabled = true
+
+[[expect]]
+frame = 230
+entity = "seg_e"
+enabled = false
+
+[[expect]]
+frame = 230
+entity = "seg_f"
+enabled = false
+
+[[expect]]
+frame = 230
+entity = "seg_g"
+enabled = true
+
+[[expect]]
+event = "signal"
+signal = "collected"
+at_least = 3
+at_most = 3
+
+[[expect]]
+entity = "player"
+pos = [9, 1]
+
+[[shot]]
+reference = "tests/refs/count_3.png"

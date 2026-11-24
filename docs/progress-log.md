@@ -3,6 +3,19 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Cold-agent test #4: the limits table works
+
+- Run #3's task again, same prompt, with the new limits table. Every verdict came at command 2
+  (`slate explain limits`) instead of commands 7–21. 14 min 6 s vs 18 min 42 s, 37 vs 59 tool calls,
+  0 warnings vs 40. Re-verified independently.
+- It spent the saved time on a better approximation: a 2-bit counter kept in hidden stationary actors read by
+  triggers, correct in any pickup order, with 6 thorough playtests.
+- Remaining gaps were recipes that were vague or subtly wrong (collectibles could double-count, "a chain of
+  toggles" can't count in any order). Fixed with a one-shot collectible recipe, a stationary-actor recipe, an
+  any-order counting recipe, documented trigger semantics (enable/disable counts; occupied at frame 0 does not
+  fire), value ranges in the reference, the projection formula, and a new W0206 actor-in-solid warning.
+- Across four runs, each round removed one class of gap and the next found a subtler one.
+
 ## 2026-11-25 — Cold-agent test #3: PASS, honestly, but slow
 
 - Task deliberately beyond the engine: a door that opens only while two plates are both held, plus an

@@ -1,0 +1,3 @@
+doc = "A section of the vault's outer wall. Blocks movement."
+block = { color = "#5b6372", height = 0.75 }
+solid = true

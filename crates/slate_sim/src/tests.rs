@@ -223,3 +223,51 @@ sprite = {}
     assert_eq!(last.kind, EventKind::Error);
     assert!(last.message.contains("E0301"));
 }
+
+/// The behaviours the "stationary actor" and "counting in any order"
+/// recipes in the project AGENTS.md rely on.
+#[test]
+fn stationary_actors_and_triggers_behave_as_documented() {
+    let scene = r#"
+[ground]
+size = [4, 4]
+
+[[entity]]
+name = "plate"
+pos = [0, 0]
+tile = {}
+trigger = {}
+
+[[entity]]
+name = "start_on"
+pos = [0, 0]
+patrol = { path = [[0, 0]] }
+
+[[entity]]
+name = "sense"
+pos = [2, 2]
+tile = {}
+trigger = { on_enter = "bit_on", on_exit = "bit_off" }
+
+[[entity]]
+name = "bit"
+pos = [2, 2]
+patrol = { path = [[2, 2]], step_frames = 1 }
+enabled = false
+"#;
+    let mut w = world(scene, 1);
+    // Occupied at frame 0: no signal, ever. A stationary patrol never moves and logs nothing.
+    idle(&mut w, 100);
+    assert!(w.events.is_empty(), "{:?}", kinds(&w));
+    assert_eq!(w.by_name("start_on").unwrap().cell(), [0, 0]);
+
+    // Enabling an actor on a trigger's cell fires on_enter in the next step's trigger phase.
+    let bit = w.find("bit").unwrap();
+    w.get_mut(bit).unwrap().enabled = true;
+    idle(&mut w, 1);
+    let e = w.events.all().last().unwrap();
+    assert_eq!((e.kind, e.signal.as_deref()), (EventKind::Signal, Some("bit_on")));
+    w.get_mut(bit).unwrap().enabled = false;
+    idle(&mut w, 1);
+    assert_eq!(w.events.all().last().unwrap().signal.as_deref(), Some("bit_off"));
+}

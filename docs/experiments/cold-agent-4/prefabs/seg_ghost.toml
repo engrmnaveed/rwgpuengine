@@ -1,0 +1,3 @@
+doc = "An unlit (dim) segment of the 7-segment digit, drawn under the lit one."
+sprite = { shape = "rect", color = "#343b4a" }
+allow = ["W0302"]

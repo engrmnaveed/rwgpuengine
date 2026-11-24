@@ -1,0 +1,46 @@
+[test]
+doc = """KNOWN LIMITATION, recorded on purpose. If a plate is released while the player is standing IN the
+doorway, the door leaf closes on top of the player (enabled, solid, drawn) but slate does not push the
+player out (`slate explain limits`: "Enabling a solid entity on a cell where an actor stands does not push
+the actor out"), so the player can still walk on. The door re-closes, but it does not stop someone
+already inside the door cell."""
+scene = "scenes/vault.toml"
+frames = 80
+
+[[input]]
+frame = 0
+hold = "right"       # (4,4) (5,4) (6,4)
+for = 24
+
+[[input]]
+frame = 56
+press = "right"      # into the doorway at step 56, three steps before golem A leaves plate A (step 59)
+
+[[expect]]
+frame = 57
+entity = "player"
+pos = [7, 4]
+
+[[expect]]
+frame = 61
+entity = "door_leaf_a"
+enabled = true       # the door has closed again ...
+
+[[expect]]
+frame = 61
+entity = "player"
+pos = [7, 4]         # ... with the player still standing in it
+
+[[input]]
+frame = 66
+press = "right"
+
+[[expect]]
+frame = 67
+entity = "player"
+pos = [8, 4]         # and the player walks on into the vault
+
+[[expect]]
+event = "blocked"
+entity = "player"
+at_most = 0

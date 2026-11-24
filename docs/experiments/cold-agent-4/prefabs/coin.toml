@@ -1,0 +1,3 @@
+doc = "A coin: a sprite plus a player-only trigger. Wire `collected` to disable itself (one-shot)."
+sprite = { shape = "circle", color = "#ffd84a", size = [16, 16], offset = [0, -6] }
+trigger = { on_enter = "collected", only = "player" }

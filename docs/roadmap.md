@@ -8,8 +8,9 @@ decision in [open-questions.md](open-questions.md).
 
 - ~~Run the cold-agent test~~ — done: [run #1](experiments/2026-11-25-cold-agent-1.md) and
   [run #2](experiments/2026-11-25-cold-agent-2.md) and [run #3](experiments/2026-11-25-cold-agent-3.md)
-  (beyond the engine's limits) all PASS; their findings are fixed. Next: repeat run #3's task on the build
-  with the limits table and compare the time.
+  (beyond the engine's limits) and [run #4](experiments/2026-11-25-cold-agent-4.md) (run #3 again with the
+  limits table: verdicts at command 2, −25% time) all PASS; their findings are fixed. Next cold run after
+  Q14 is decided and built.
 - Push to a remote and get CI green on GitHub (Q10).
 - Small fixes found during M1: validate required keys after prefab merge; `tap_ground` event with the
   cell under a tap; block edge shading so adjacent blocks read as separate.

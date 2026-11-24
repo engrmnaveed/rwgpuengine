@@ -1,0 +1,2 @@
+doc = "Invisible counter bit: a stationary actor (wanders inside its own cell only) that a trigger on the same cell senses when it is enabled or disabled."
+wander = { step_frames = 6000 }

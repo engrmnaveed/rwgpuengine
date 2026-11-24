@@ -224,3 +224,20 @@ fn allow_silences_intended_warnings_and_only_warnings() {
     let bad = r.diagnostics.iter().find(|d| d.code == "E0105").expect("E0105");
     assert_eq!(bad.hint.as_deref(), Some("did you mean `W0201`?"));
 }
+
+#[test]
+fn actors_starting_inside_solids_are_warned_unless_allowed() {
+    let scene = |allow: &str| {
+        project(&[
+            ("prefabs/wall.toml", WALL),
+            (
+                "scenes/main.toml",
+                &format!(
+                    "[[entity]]\nprefab = \"wall\"\npos = [1, 1]\n\n[[entity]]\nname = \"bit\"\npos = [1, 1]\npatrol = {{ path = [[1, 1]] }}\n{allow}\n"
+                ),
+            ),
+        ])
+    };
+    assert_eq!(codes(&scene("")), vec!["W0206"]);
+    assert!(codes(&scene("allow = [\"W0206\"]")).is_empty());
+}

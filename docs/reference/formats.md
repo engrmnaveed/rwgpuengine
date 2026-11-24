@@ -34,8 +34,8 @@ The rendered frame. Screenshots and the web player use exactly this size.
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `width` | integer | `640` | Frame width in pixels. |
-| `height` | integer | `480` | Frame height in pixels. |
+| `width` | integer 1–4096 | `640` | Frame width in pixels. |
+| `height` | integer 1–4096 | `480` | Frame height in pixels. |
 | `background` | color | `"#1d2330"` | Color behind everything. |
 
 ### `[iso]`
@@ -44,9 +44,9 @@ Isometric projection. A cell's diamond is tile_width × tile_height pixels; one 
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `tile_width` | integer | `64` | Diamond width in pixels. Usually 2 × tile_height. |
-| `tile_height` | integer | `32` | Diamond height in pixels. |
-| `z_height` | integer | `32` | Pixels per unit of height (z, block height). |
+| `tile_width` | integer 4–1024 | `64` | Diamond width in pixels. Usually 2 × tile_height. |
+| `tile_height` | integer 2–512 | `32` | Diamond height in pixels. |
+| `z_height` | integer 1–1024 | `32` | Pixels per unit of height (z, block height). |
 
 ### `[sim]`
 
@@ -54,8 +54,8 @@ The fixed-step simulation. A frame is one simulation step.
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `tick_rate` | integer | `60` | Steps per second. |
-| `seed` | integer | `1` | Seed for all randomness. Playtests and `--seed` can override it. |
+| `tick_rate` | integer 1–1000 | `60` | Steps per second. |
+| `seed` | integer ≥ 0 | `1` | Seed for all randomness. Playtests and `--seed` can override it. |
 
 
 ## Scenes: scenes/*.toml
@@ -82,7 +82,7 @@ Scene metadata.
 |---|---|---|---|
 | `name` | string | — | Display name. Default: the file name. |
 | `doc` | string | — | What the scene is for. |
-| `seed` | integer | — | Overrides the project seed for this scene. |
+| `seed` | integer ≥ 0 | — | Overrides the project seed for this scene. |
 
 ### `[camera]`
 
@@ -180,7 +180,7 @@ An isometric box filling the entity's cell. Left and right faces are shaded auto
 | key | type | default | meaning |
 |---|---|---|---|
 | `color` | color | `"#9aa0a6"` | Top face color. |
-| `height` | number | `1.0` | Height in z units. |
+| `height` | number 0–64 | `1.0` | Height in z units. |
 
 ### `sprite`
 
@@ -199,7 +199,7 @@ Moves one cell per `up`/`down`/`left`/`right` input: up = -y, down = +y, left = 
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `step_frames` | integer | `8` | Frames from one move to the next. `hold` for `step_frames × N` frames gives exactly N steps. |
+| `step_frames` | integer 1–600 | `8` | Frames from one move to the next. `hold` for `step_frames × N` frames gives exactly N steps. |
 
 ### `patrol`
 
@@ -208,7 +208,7 @@ Walks `path` one cell at a time (x first, then y), starting from its `pos` towar
 | key | type | default | meaning |
 |---|---|---|---|
 | `path` | [[x, y], ...] | **required** | Cells to visit, in order. |
-| `step_frames` | integer | `30` | Frames between step attempts. |
+| `step_frames` | integer 1–6000 | `30` | Frames between step attempts. |
 | `mode` | loop \| pingpong | `"loop"` | loop: back to the first cell; pingpong: walk the path backwards. |
 
 ### `wander`
@@ -217,7 +217,7 @@ Every `step_frames` (attempt k in step k × step_frames − 1, like patrol), dra
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `step_frames` | integer | `45` | Frames between steps. |
+| `step_frames` | integer 1–6000 | `45` | Frames between steps. |
 | `area` | [[x, y], ...] | — | Two corner cells [[x0, y0], [x1, y1]] to stay inside. Default: the whole ground. |
 
 ### `trigger`
@@ -254,8 +254,8 @@ Playtest settings.
 |---|---|---|---|
 | `doc` | string | — | What the playtest checks. |
 | `scene` | path | — | Scene to run. Default: the project's main_scene. |
-| `frames` | integer | `300` | Number of frames (steps) to run. |
-| `seed` | integer | — | Overrides the project and scene seed. |
+| `frames` | integer ≥ 1 | `300` | Number of frames (steps) to run. |
+| `seed` | integer ≥ 0 | — | Overrides the project and scene seed. |
 
 ### `[[input]]`
 
@@ -263,10 +263,10 @@ One input event. Use exactly one of `press`, `hold` or `tap`. Input at frame N i
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `frame` | integer | **required** | Frame at which the input happens. |
+| `frame` | integer ≥ 0 | **required** | Frame at which the input happens. |
 | `press` | up \| down \| left \| right \| confirm \| cancel | — | Press and release an action within the frame. |
 | `hold` | up \| down \| left \| right \| confirm \| cancel | — | Hold an action down for `for` frames. |
-| `for` | integer | `1` | With `hold`: number of frames to hold. |
+| `for` | integer ≥ 1 | `1` | With `hold`: number of frames to hold. |
 | `tap` | [x, y] | — | Tap the screen at pixel [x, y]; hits the topmost enabled entity drawn there. |
 
 ### `[[expect]]`
@@ -275,7 +275,7 @@ A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `frame` | integer | — | When to check. Default: the last frame. |
+| `frame` | integer ≥ 0 | — | When to check. Default: the last frame. |
 | `entity` | name | — | Entity to check, by name. |
 | `pos` | [x, y, z?] | — | Expected position. |
 | `enabled` | bool | — | Expected enabled state. |
@@ -285,8 +285,8 @@ A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`
 | `other` | name | — | With `event`: only events whose other party is this entity (the blocker of `blocked`, the actor of `trigger`, the emitter of `action`). |
 | `signal` | name | — | With `event`: only count events about this signal. |
 | `reason` | solid \| actor \| edge \| area \| cooldown | — | With `event = "blocked"`: only count refusals for this reason (e.g. `solid`, not `cooldown`). |
-| `at_least` | integer | `1` | With `event`: minimum number of matching events (0 when only `at_most` is given). |
-| `at_most` | integer | — | With `event`: maximum number of matching events. `at_most = 0` asserts it never happened. |
+| `at_least` | integer ≥ 0 | `1` | With `event`: minimum number of matching events (0 when only `at_most` is given). |
+| `at_most` | integer ≥ 0 | — | With `event`: maximum number of matching events. `at_most = 0` asserts it never happened. |
 
 ### `[[shot]]`
 
@@ -294,9 +294,9 @@ Render a frame and compare it with a reference PNG. Create or refresh references
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `frame` | integer | — | Frame to render. Default: the last frame. |
+| `frame` | integer ≥ 0 | — | Frame to render. Default: the last frame. |
 | `reference` | path | **required** | Reference PNG, relative to the project root (e.g. tests/refs/smoke.png). |
-| `max_diff_pixels` | integer | `0` | Pixels allowed to differ. |
+| `max_diff_pixels` | integer ≥ 0 | `0` | Pixels allowed to differ. |
 
 
 ## Runtime rules
@@ -308,7 +308,11 @@ files + input + seed = same state hash and same pixels, on every machine.
 
 **Coordinates.** Cells are `[x, y]` integers; `[0, 0]` is the top corner of the ground. +x runs down-right
 on screen, +y down-left, z is height. Direction inputs move movers: `up` = -y, `down` = +y,
-`left` = -x, `right` = +x.
+`left` = -x, `right` = +x. Screen position of grid point (x, y, z), in pixels from the top-left:
+`sx = ox + (x - y) × tile_width / 2`, `sy = oy + (x + y) × tile_height / 2 - z × z_height`, where (ox, oy) is
+chosen so the camera `center` (default: the middle of the ground) lands in the middle of the frame. A sprite's
+bottom edge sits at its cell's (sx, sy); `offset` shifts it. `slate inspect --json` shows each entity's
+`screen` rectangle, which is the easiest way to place things.
 
 **Step order.** Each step: input (taps resolve to the topmost enabled entity drawn under the point and
 emit `tapped`), movers, patrols, wanderers, Rust game systems, triggers, then signal dispatch through
@@ -324,7 +328,10 @@ entity where an actor stands does not push the actor out.
 **Input.** Every enabled `mover` responds to the same input. Only actors set off triggers.
 
 **Signals.** Every entity emits `tapped` when tapped. A `trigger` emits `on_enter` (default `pressed`)
-when its cell goes from empty to occupied by an actor and `on_exit` (default `released`) when it empties.
+when its cell goes from empty to occupied by an enabled actor and `on_exit` (default `released`) when it
+empties. Occupancy is re-checked every step, so enabling or disabling an actor that stands on the cell
+counts too (the signal comes in the next step's trigger phase). A trigger that is already occupied at
+frame 0 does **not** emit: start the connected door in the state you want (e.g. `enabled = false`).
 
 **Events.** Every step logs what happened and what was refused, with a sentence and structured fields.
 Read them with `slate inspect --events` or `slate run --events`; `slate explain events` prints this table.

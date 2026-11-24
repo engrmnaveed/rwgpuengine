@@ -1,0 +1,237 @@
+[test]
+doc = """Order independence: take the vault coins first (coin 2, then coin 3) and the yard coin last.
+The digit still reads 1, 2, 3, because the count is kept by relays, not by which coin was taken."""
+scene = "scenes/vault.toml"
+frames = 285
+
+# (4,4) (5,4) (6,4); door window [40, 60): doorway at step 40, vault at step 48.
+[[input]]
+frame = 0
+hold = "right"
+for = 24
+
+[[input]]
+frame = 40
+press = "right"
+
+[[input]]
+frame = 48
+press = "right"
+
+# (9,4), then (9,3) (9,2) (9,1) = coin 2, taken in step 80.
+[[input]]
+frame = 56
+hold = "right"
+for = 8
+
+[[input]]
+frame = 64
+hold = "up"
+for = 24
+
+[[expect]]
+frame = 90
+entity = "coin1"
+enabled = true
+
+[[expect]]
+frame = 90
+entity = "coin2"
+enabled = false
+
+[[expect]]
+frame = 90
+entity = "coin3"
+enabled = true
+
+# digit shows 1
+[[expect]]
+frame = 90
+entity = "seg_a"
+enabled = false
+
+[[expect]]
+frame = 90
+entity = "seg_b"
+enabled = true
+
+[[expect]]
+frame = 90
+entity = "seg_c"
+enabled = true
+
+[[expect]]
+frame = 90
+entity = "seg_d"
+enabled = false
+
+[[expect]]
+frame = 90
+entity = "seg_e"
+enabled = false
+
+[[expect]]
+frame = 90
+entity = "seg_f"
+enabled = false
+
+[[expect]]
+frame = 90
+entity = "seg_g"
+enabled = false
+
+# Down to (9,6), left to (8,6) = coin 3, taken in step 128.
+[[input]]
+frame = 88
+hold = "down"
+for = 40
+
+[[input]]
+frame = 128
+hold = "left"
+for = 8
+
+[[expect]]
+frame = 135
+entity = "coin1"
+enabled = true
+
+[[expect]]
+frame = 135
+entity = "coin2"
+enabled = false
+
+[[expect]]
+frame = 135
+entity = "coin3"
+enabled = false
+
+# digit shows 2
+[[expect]]
+frame = 135
+entity = "seg_a"
+enabled = true
+
+[[expect]]
+frame = 135
+entity = "seg_b"
+enabled = true
+
+[[expect]]
+frame = 135
+entity = "seg_c"
+enabled = false
+
+[[expect]]
+frame = 135
+entity = "seg_d"
+enabled = true
+
+[[expect]]
+frame = 135
+entity = "seg_e"
+enabled = true
+
+[[expect]]
+frame = 135
+entity = "seg_f"
+enabled = false
+
+[[expect]]
+frame = 135
+entity = "seg_g"
+enabled = true
+
+# Up to (8,4) (steps 136, 144); the mover is not ready again before step 152, too late for the
+# [150, 160) window, so wait for the next one, [210, 240): doorway at step 210, yard at step 218.
+[[input]]
+frame = 136
+hold = "up"
+for = 16
+
+[[expect]]
+frame = 200
+entity = "player"
+pos = [8, 4]
+
+[[input]]
+frame = 210
+press = "left"
+
+[[input]]
+frame = 218
+press = "left"
+
+[[expect]]
+frame = 219
+entity = "player"
+pos = [6, 4]
+
+# Left to (1,4), up to (1,2) = coin 1, taken in step 274.
+[[input]]
+frame = 226
+hold = "left"
+for = 40
+
+[[input]]
+frame = 266
+hold = "up"
+for = 16
+
+[[expect]]
+frame = 280
+entity = "coin1"
+enabled = false
+
+[[expect]]
+frame = 280
+entity = "coin2"
+enabled = false
+
+[[expect]]
+frame = 280
+entity = "coin3"
+enabled = false
+
+# digit shows 3
+[[expect]]
+frame = 280
+entity = "seg_a"
+enabled = true
+
+[[expect]]
+frame = 280
+entity = "seg_b"
+enabled = true
+
+[[expect]]
+frame = 280
+entity = "seg_c"
+enabled = true
+
+[[expect]]
+frame = 280
+entity = "seg_d"
+enabled = true
+
+[[expect]]
+frame = 280
+entity = "seg_e"
+enabled = false
+
+[[expect]]
+frame = 280
+entity = "seg_f"
+enabled = false
+
+[[expect]]
+frame = 280
+entity = "seg_g"
+enabled = true
+
+[[expect]]
+entity = "player"
+pos = [1, 2]
+
+[[shot]]
+reference = "tests/refs/count_3_other_order.png"

@@ -1,0 +1,2 @@
+doc = "A clockwork golem that paces onto a pressure plate and off again (the plate's 'weight')."
+sprite = { shape = "diamond", color = "#9fb4c8", size = [22, 28] }

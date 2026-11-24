@@ -1,0 +1,358 @@
+# The vault.
+#
+# Grid: +x runs down-right on screen, +y down-left. Ground 10x8: cells (0, 0) .. (9, 7).
+#   yard        x = 0..6   (player starts here; coin 1)
+#   vault wall  x = 7      (door at (7, 4))
+#   vault       x = 8..9   (coins 2 and 3)
+#
+# DOOR (AND of two plates). slate has no conditions on [[connect]] (`slate explain limits`), so the
+# door is two solid leaves stacked on (7, 4). Plate A opens/closes leaf A, plate B opens/closes leaf B:
+# the cell is passable only while BOTH plates are held, and releasing either plate re-closes it.
+# Caveat: a leaf that re-closes while the player stands IN the doorway does not push the player out,
+# and the player can still walk on (tests/doorway_caveat.toml).
+# Only actors set off triggers and there is only one controllable character, so each plate is held
+# by a pacing golem (a patrol) - the docs' suggested "weight". The player times the dash. The plates
+# are open floor: the player may also stand on one (it then holds that plate itself).
+#   golem A on plate A: frames [30,60) [90,120) [150,180) [210,240) ...  (period 60)
+#   golem B on plate B: frames [40,80) [120,160) [200,240) ...           (period 80)
+#   door open (both held): [40,60) [150,160) [210,240) ...
+#
+# COIN DIGIT. slate renders no text and has no counters (`slate explain limits`). The count is held
+# in two invisible relay actors inside the vault wall (cells (7, 1) and (7, 2)) whose triggers fire
+# when the relays are toggled, so the digit advances 0 -> 1 -> 2 -> 3 whichever coin is taken. The
+# digit is drawn as a 7-segment display of rect sprites, pinned to the top-left of the screen with
+# `offset` (the camera never moves). It updates 1-2 frames after a coin is taken (relay delay).
+
+[scene]
+name = "Vault"
+doc = "Hold both plates (via the golems) to open the vault; collect three coins; a 7-segment digit counts them."
+
+[ground]
+size = [10, 8]
+color = "#6b8f71"
+
+# ---------------------------------------------------------------- player
+[[entity]]
+name = "player"
+prefab = "player"
+pos = [3, 4]
+sprite = { color = "#e070ff" }   # not coin-gold, so the player is not mistaken for a coin
+
+# ---------------------------------------------------------------- vault wall + door
+[[entity]]
+prefab = "vault_wall"
+cells = [[7, 0], [7, 1], [7, 2], [7, 3], [7, 5], [7, 6], [7, 7]]
+
+[[entity]]
+name = "door_leaf_a"            # held open by plate A
+prefab = "door"
+pos = [7, 4]
+block = { height = 0.75 }
+allow = ["W0201"]               # deliberately stacked with door_leaf_b (AND)
+
+[[entity]]
+name = "door_leaf_b"            # held open by plate B
+prefab = "door"
+pos = [7, 4]
+block = { height = 0.75 }
+allow = ["W0201"]
+
+# ---------------------------------------------------------------- plates and their golems
+[[entity]]
+name = "plate_a"
+prefab = "plate"
+pos = [5, 0]
+
+[[entity]]
+name = "plate_b"
+prefab = "plate"
+pos = [5, 7]
+
+[[entity]]
+name = "golem_a"
+prefab = "golem"
+pos = [4, 0]
+patrol = { path = [[4, 0], [5, 0]], mode = "pingpong", step_frames = 30 }
+
+[[entity]]
+name = "golem_b"
+prefab = "golem"
+pos = [4, 7]
+patrol = { path = [[4, 7], [5, 7]], mode = "pingpong", step_frames = 40 }
+
+# ---------------------------------------------------------------- coins
+[[entity]]
+name = "coin1"
+prefab = "coin"
+pos = [1, 2]
+
+[[entity]]
+name = "coin2"
+prefab = "coin"
+pos = [9, 1]
+
+[[entity]]
+name = "coin3"
+prefab = "coin"
+pos = [8, 6]
+
+# ---------------------------------------------------------------- hidden count relays (inside the wall)
+# count_bit0 is enabled while the count is odd. Its sense trigger turns "became_odd" into a toggle of
+# count_phase, which is enabled after the 1st coin and disabled after the 3rd.
+[[entity]]
+name = "count_bit0"
+prefab = "relay_token"
+pos = [7, 1]
+enabled = false
+wander = { area = [[7, 1], [7, 1]] }
+
+[[entity]]
+name = "count_bit0_sense"
+pos = [7, 1]
+trigger = { on_enter = "became_odd", on_exit = "became_even", only = "count_bit0" }
+
+[[entity]]
+name = "count_phase"
+prefab = "relay_token"
+pos = [7, 2]
+enabled = false
+wander = { area = [[7, 2], [7, 2]] }
+
+[[entity]]
+name = "count_phase_sense"
+pos = [7, 2]
+trigger = { on_enter = "reached_1", on_exit = "reached_3", only = "count_phase" }
+
+# ---------------------------------------------------------------- HUD: coin icon + 7-segment digit
+# All anchored on cell (9, 7), the front-most cell, so nothing is drawn over them; `offset` moves them
+# to the top-left corner of the screen. Segment layout:  a = top, b = top-right, c = bottom-right,
+# d = bottom, e = bottom-left, f = top-left, g = middle.
+[[entity]]
+name = "hud_coin_icon"
+pos = [9, 7]
+sprite = { shape = "circle", color = "#ffd84a", size = [16, 16], offset = [-292, -312] }
+
+[[entity]]
+name = "ghost_a"
+prefab = "seg_ghost"
+pos = [9, 7]
+sprite = { size = [12, 6], offset = [-256, -338] }
+
+[[entity]]
+name = "ghost_b"
+prefab = "seg_ghost"
+pos = [9, 7]
+sprite = { size = [6, 18], offset = [-247, -323] }
+
+[[entity]]
+name = "ghost_c"
+prefab = "seg_ghost"
+pos = [9, 7]
+sprite = { size = [6, 18], offset = [-247, -299] }
+
+[[entity]]
+name = "ghost_d"
+prefab = "seg_ghost"
+pos = [9, 7]
+sprite = { size = [12, 6], offset = [-256, -296] }
+
+[[entity]]
+name = "ghost_e"
+prefab = "seg_ghost"
+pos = [9, 7]
+sprite = { size = [6, 18], offset = [-265, -299] }
+
+[[entity]]
+name = "ghost_f"
+prefab = "seg_ghost"
+pos = [9, 7]
+sprite = { size = [6, 18], offset = [-265, -323] }
+
+[[entity]]
+name = "ghost_g"
+prefab = "seg_ghost"
+pos = [9, 7]
+sprite = { size = [12, 6], offset = [-256, -317] }
+
+# Lit segments: start showing "0" (a b c d e f on, g off).
+[[entity]]
+name = "seg_a"
+prefab = "seg_lit"
+pos = [9, 7]
+sprite = { size = [12, 6], offset = [-256, -338] }
+
+[[entity]]
+name = "seg_b"
+prefab = "seg_lit"
+pos = [9, 7]
+sprite = { size = [6, 18], offset = [-247, -323] }
+
+[[entity]]
+name = "seg_c"
+prefab = "seg_lit"
+pos = [9, 7]
+sprite = { size = [6, 18], offset = [-247, -299] }
+
+[[entity]]
+name = "seg_d"
+prefab = "seg_lit"
+pos = [9, 7]
+sprite = { size = [12, 6], offset = [-256, -296] }
+
+[[entity]]
+name = "seg_e"
+prefab = "seg_lit"
+pos = [9, 7]
+sprite = { size = [6, 18], offset = [-265, -299] }
+
+[[entity]]
+name = "seg_f"
+prefab = "seg_lit"
+pos = [9, 7]
+sprite = { size = [6, 18], offset = [-265, -323] }
+
+[[entity]]
+name = "seg_g"
+prefab = "seg_lit"
+pos = [9, 7]
+enabled = false
+sprite = { size = [12, 6], offset = [-256, -317] }
+
+# ================================================================ wiring
+# Door: each plate holds its own leaf open only while pressed.
+[[connect]]
+from = "plate_a"
+signal = "pressed"
+to = "door_leaf_a"
+action = "disable"
+
+[[connect]]
+from = "plate_a"
+signal = "released"
+to = "door_leaf_a"
+action = "enable"
+
+[[connect]]
+from = "plate_b"
+signal = "pressed"
+to = "door_leaf_b"
+action = "disable"
+
+[[connect]]
+from = "plate_b"
+signal = "released"
+to = "door_leaf_b"
+action = "enable"
+
+# Coins: one-shot (each disables itself) and each flips the count's low bit.
+[[connect]]
+from = "coin1"
+signal = "collected"
+to = "coin1"
+action = "disable"
+
+[[connect]]
+from = "coin1"
+signal = "collected"
+to = "count_bit0"
+action = "toggle"
+
+[[connect]]
+from = "coin2"
+signal = "collected"
+to = "coin2"
+action = "disable"
+
+[[connect]]
+from = "coin2"
+signal = "collected"
+to = "count_bit0"
+action = "toggle"
+
+[[connect]]
+from = "coin3"
+signal = "collected"
+to = "coin3"
+action = "disable"
+
+[[connect]]
+from = "coin3"
+signal = "collected"
+to = "count_bit0"
+action = "toggle"
+
+# Count relays: odd counts (1st and 3rd coin) toggle count_phase; its sense tells them apart.
+[[connect]]
+from = "count_bit0_sense"
+signal = "became_odd"
+to = "count_phase"
+action = "toggle"
+
+# Digit 0 -> 1: keep b c.
+[[connect]]
+from = "count_phase_sense"
+signal = "reached_1"
+to = "seg_a"
+action = "disable"
+
+[[connect]]
+from = "count_phase_sense"
+signal = "reached_1"
+to = "seg_d"
+action = "disable"
+
+[[connect]]
+from = "count_phase_sense"
+signal = "reached_1"
+to = "seg_e"
+action = "disable"
+
+[[connect]]
+from = "count_phase_sense"
+signal = "reached_1"
+to = "seg_f"
+action = "disable"
+
+# Digit 1 -> 2 (the count only becomes even once, at 2): a b g e d.
+[[connect]]
+from = "count_bit0_sense"
+signal = "became_even"
+to = "seg_a"
+action = "enable"
+
+[[connect]]
+from = "count_bit0_sense"
+signal = "became_even"
+to = "seg_d"
+action = "enable"
+
+[[connect]]
+from = "count_bit0_sense"
+signal = "became_even"
+to = "seg_e"
+action = "enable"
+
+[[connect]]
+from = "count_bit0_sense"
+signal = "became_even"
+to = "seg_g"
+action = "enable"
+
+[[connect]]
+from = "count_bit0_sense"
+signal = "became_even"
+to = "seg_c"
+action = "disable"
+
+# Digit 2 -> 3: a b g c d.
+[[connect]]
+from = "count_phase_sense"
+signal = "reached_3"
+to = "seg_c"
+action = "enable"
+
+[[connect]]
+from = "count_phase_sense"
+signal = "reached_3"
+to = "seg_e"
+action = "disable"

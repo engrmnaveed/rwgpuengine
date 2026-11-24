@@ -25,11 +25,12 @@ Codes are stable: never renumbered or reused. `E` codes are errors (the command 
 | [W0203](#w0203) | `signal-never-emitted` | Connected signal is never emitted |
 | [W0204](#w0204) | `input-after-end` | Input is scheduled after the last frame |
 | [W0205](#w0205) | `engine-mismatch` | Project targets a different engine version |
+| [W0206](#w0206) | `actor-in-solid` | Actor starts inside a solid entity |
 | [E0301](#e0301) | `signal-limit` | Too many signals in one frame |
 | [W0301](#w0301) | `offscreen` | Entity is drawn entirely off-screen |
 | [W0302](#w0302) | `occluded` | Sprite is mostly hidden |
 | [W0303](#w0303) | `clipped` | Entity is partly off-screen |
-| [W0304](#w0304) | `hidden-trigger` | Trigger tile is mostly hidden |
+| [W0304](#w0304) | `hidden-trigger` | Trigger tile is less than 75% visible |
 | [E0401](#e0401) | `expect-failed` | Playtest expectation failed |
 | [E0402](#e0402) | `image-mismatch` | Screenshot differs from reference image |
 | [E0403](#e0403) | `reference-missing` | Reference image not found |
@@ -229,6 +230,17 @@ may differ. Docs for the running version: `slate docs`.
 
 Fix: update `engine`, or install the matching slate version.
 
+## W0206
+
+**Actor starts inside a solid entity** (`actor-in-solid`, warning)
+
+An actor (an entity with mover, patrol or wander) starts on a cell that also holds
+an enabled solid entity. It can walk out, but nothing can walk in, and it usually
+means a typo in `pos` (a player spawned inside a wall).
+
+Fix: move one of them. If it is deliberate (a hidden stationary actor used as a
+logic piece inside a wall), add `allow = ["W0206"]` to the actor.
+
 ## E0301
 
 **Too many signals in one frame** (`signal-limit`, error)
@@ -270,7 +282,7 @@ Fix: adjust the camera or display size if the whole entity should be visible.
 
 ## W0304
 
-**Trigger tile is mostly hidden** (`hidden-trigger`, warning)
+**Trigger tile is less than 75% visible** (`hidden-trigger`, warning)
 
 Less than three quarters of a trigger's floor tile (a pressure plate, a goal) is visible, usually because
 a tall block in front of it (larger x + y) covers it. Entities standing on the trigger's own cell do not
