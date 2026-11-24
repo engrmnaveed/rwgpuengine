@@ -3,6 +3,18 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Cold-agent test #2: PASS (harder task)
+
+- Task: tap a lever to open gate 1, slip past a patrolling guard, press a plate for gate 2, reach the goal;
+  plus playtests proving the guard blocks bad timing and gate 2 stays shut without the plate.
+- PASS in **6 min 7 s** (26 tool calls). Tap coordinates, guard timing and the solution were right on the
+  first try. Re-verified independently. Record: [experiments/2026-11-25-cold-agent-2.md](experiments/2026-11-25-cold-agent-2.md).
+- Gaps moved from "how do I write this" (run #1) to "how do I prove this precisely": it couldn't assert
+  *who* blocked the player or that something *never* happened, and it had to measure patrol timing.
+- Fixed: `[[expect]] other` and `at_most`; exact event-frame, patrol, wander and mover-retry semantics;
+  `slate explain events`; `run --track NAME` (cell timeline with frame ranges); guaranteed `tap` points in
+  `inspect`; runtime state in the text table; the template's smoke test names its scene.
+
 ## 2026-11-25 — Cold-agent test #1: PASS
 
 - A fresh agent with only the binary and an empty folder ran `slate new`, read AGENTS.md and built an

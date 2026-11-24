@@ -1,0 +1,96 @@
+# Castle level.
+#
+# Grid: +x runs down-right on screen, +y down-left. Ground 10 x 5: (0, 0) .. (9, 4).
+#
+#   x:   0  1  2  3  4  5  6  7  8  9
+#   y=0  L  .  W  g  W  P  .  W  F  .      L = lever (tap it)     P = pressure plate
+#   y=1  .  .  W  g  W  .  .  W  .  .      g = guard patrol column (pingpong (3,0)..(3,4))
+#   y=2  S  .  .  g  G1 .  .  G2 .  X      S = player start       X = goal
+#   y=3  .  .  W  g  W  .  .  W  .  .      G1 = gate 1 (lever)    G2 = gate 2 (plate)
+#   y=4  .  .  W  g  W  .  .  W  .  .      F = flag, raised when the goal is reached
+#
+# Solution: tap the lever (gate 1 opens), wait until the guard has passed (3, 2),
+# walk right through the doorway, the guard's column and gate 1, step up onto the
+# plate at (5, 0) (gate 2 opens), come back down and walk right to the goal.
+
+[scene]
+name = "Castle"
+doc = "Tap the lever, slip past the guard, press the plate, reach the goal."
+
+[ground]
+size = [10, 5]
+color = "#8c8577"
+
+[[entity]]
+name = "player"
+prefab = "player"
+pos = [0, 2]
+
+[[entity]]
+name = "lever"
+prefab = "lever"
+pos = [0, 0]
+
+[[entity]]
+name = "guard"
+prefab = "guard"
+pos = [3, 0]
+
+# Outer wall (x = 2) with an open doorway at (2, 2).
+[[entity]]
+prefab = "wall"
+cells = [[2, 0], [2, 1], [2, 3], [2, 4]]
+
+# Inner wall (x = 4) with gate 1 at (4, 2).
+[[entity]]
+prefab = "wall"
+cells = [[4, 0], [4, 1], [4, 3], [4, 4]]
+
+[[entity]]
+name = "gate1"
+prefab = "gate"
+pos = [4, 2]
+
+[[entity]]
+name = "plate"
+prefab = "plate"
+pos = [5, 0]
+
+# Keep wall (x = 7) with gate 2 at (7, 2).
+[[entity]]
+prefab = "wall"
+cells = [[7, 0], [7, 1], [7, 3], [7, 4]]
+
+[[entity]]
+name = "gate2"
+prefab = "gate"
+pos = [7, 2]
+
+[[entity]]
+name = "goal"
+prefab = "goal"
+pos = [9, 2]
+
+[[entity]]
+name = "flag"
+pos = [8, 0]
+sprite = { shape = "diamond", color = "#3fb950", size = [26, 40] }
+enabled = false
+
+[[connect]]
+from = "lever"
+signal = "tapped"
+to = "gate1"
+action = "disable"
+
+[[connect]]
+from = "plate"
+signal = "pressed"
+to = "gate2"
+action = "disable"
+
+[[connect]]
+from = "goal"
+signal = "reached"
+to = "flag"
+action = "enable"

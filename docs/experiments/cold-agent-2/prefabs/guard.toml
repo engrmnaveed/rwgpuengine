@@ -1,0 +1,3 @@
+doc = "A guard: an actor that walks a patrol path. Blocks whoever tries to step into its cell."
+sprite = { shape = "rect", color = "#c0392b", size = [20, 34] }
+patrol = { path = [[3, 0], [3, 4]], mode = "pingpong", step_frames = 12 }

@@ -73,6 +73,11 @@ pub static COMMANDS: &[Command] = &[
             SEED,
             flag("--events", None, "Include the event log."),
             flag("--hash-every", Some("N"), "Record the state hash every N frames (to find where two runs diverge)."),
+            flag(
+                "--track",
+                Some("NAME"),
+                "Print the cells an entity occupies, with frame ranges (timing puzzles, patrols).",
+            ),
             JSON,
         ],
         details: "Deterministic: the same files, input and seed always give the same state hash, on every \
@@ -80,6 +85,7 @@ pub static COMMANDS: &[Command] = &[
         examples: &[
             "slate run --frames 300",
             "slate run tests/walkthrough.toml --events",
+            "slate run --frames 120 --track guard",
             "slate run scenes/garden.toml --input tests/walkthrough.toml --json",
         ],
     },
@@ -124,8 +130,9 @@ pub static COMMANDS: &[Command] = &[
             flag("--since", Some("N"), "With --events: only events from frame N on."),
             JSON,
         ],
-        details: "Answers what exists, where it is, and why something happened. Entities include every \
-                  component, runtime state (cooldowns, patrol targets, trigger occupants) and their screen rectangle.",
+        details: "Answers what exists, where it is, and why something happened. The text table is a summary \
+                  (cell, components, solid, cooldown, patrol target, screen rectangle, tap point); --json has every \
+                  component and all runtime state. `tap` is a pixel where a tap is guaranteed to hit the entity.",
         examples: &[
             "slate inspect --json",
             "slate inspect --input tests/walkthrough.toml --frame 60 --entity player --events",

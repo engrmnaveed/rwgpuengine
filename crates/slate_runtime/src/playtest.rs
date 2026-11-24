@@ -113,36 +113,48 @@ fn check_expect(session: &Session, def: &PlaytestDef, exp: &ExpectDef, frame: u6
     if let Some(kind) = &exp.event {
         let kind = EventKind::parse(kind)?;
         let id = exp.entity.as_ref().and_then(|n| world.find(n));
-        let n = world
+        let other = exp.other.as_ref().and_then(|n| world.find(n));
+        let matching: Vec<_> = world
             .events
             .all()
             .iter()
             .filter(|e| e.kind == kind && e.frame < frame)
             .filter(|e| id.is_none_or(|id| e.entity == Some(id)))
+            .filter(|e| other.is_none_or(|o| e.other == Some(o)))
             .filter(|e| exp.signal.as_ref().is_none_or(|s| e.signal.as_ref() == Some(s)))
             .filter(|e| exp.reason.as_ref().is_none_or(|r| e.data.get("reason").and_then(|v| v.as_str()) == Some(r)))
-            .count() as u64;
-        if n >= exp.at_least {
+            .collect();
+        let n = matching.len() as u64;
+        if n >= exp.at_least && exp.at_most.is_none_or(|hi| n <= hi) {
             return None;
         }
-        let mut what = format!("`{}` event", kind.name());
+        let mut what = format!("`{}` event(s)", kind.name());
+        if let Some(e) = &exp.entity {
+            what.push_str(&format!(" whose subject is `{e}`"));
+        }
+        if let Some(o) = &exp.other {
+            what.push_str(&format!(" with other party `{o}`"));
+        }
         if let Some(s) = &exp.signal {
             what.push_str(&format!(" with signal '{s}'"));
         }
         if let Some(r) = &exp.reason {
             what.push_str(&format!(" with reason '{r}'"));
         }
-        if let Some(e) = &exp.entity {
-            what.push_str(&format!(" whose subject is `{e}`"));
+        let bound = match exp.at_most {
+            Some(0) => "no".to_string(),
+            Some(hi) if exp.at_least == 0 => format!("at most {hi}"),
+            Some(hi) => format!("{} to {hi}", exp.at_least),
+            None => format!("at least {}", exp.at_least),
+        };
+        let mut d =
+            Diagnostic::new(&codes::EXPECT_FAILED, format!("expected {bound} {what} before frame {frame}, found {n}"))
+                .at(&def.src, exp.span)
+                .hint(inspect_hint(exp.entity.as_deref()));
+        for ev in matching.iter().take(3) {
+            d = d.note(format!("[{}] {}", ev.frame, ev.message));
         }
-        return Some(
-            Diagnostic::new(
-                &codes::EXPECT_FAILED,
-                format!("expected at least {} {what} before frame {frame}, found {n}", exp.at_least),
-            )
-            .at(&def.src, exp.span)
-            .hint(inspect_hint(exp.entity.as_deref())),
-        );
+        return Some(d);
     }
 
     let name = exp.entity.as_deref()?;

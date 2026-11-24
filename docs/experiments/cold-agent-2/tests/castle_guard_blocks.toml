@@ -1,0 +1,58 @@
+# (b) Bad timing: the player walks right at once instead of waiting for the guard,
+# and is refused at the doorway (2, 2) because the guard stands on the crossing (3, 2).
+#
+# Event log for this run (`slate run --input tests/castle_guard_blocks.toml --events`):
+#   [24] blocked 'player' could not move right from (2, 2) to (3, 2): blocked by actor 'guard'
+# An event logged at [N] happens in step N, so an [[expect]] sees it from frame N + 1 on.
+
+[test]
+doc = "Walking into the guard's column while the guard is on the crossing gets the player blocked by the guard."
+scene = "scenes/castle.toml"
+frames = 34
+
+[[input]]
+frame = 2
+tap = [240, 129]     # lever: gate 1 opens, so only the guard can be in the way
+
+[[input]]
+frame = 8
+hold = "right"       # (1,2)@8 (2,2)@16, then the step to (3,2) is refused at 24: the guard is there
+for = 24
+
+# Gate 1 is open: the gate is not what stops the player.
+[[expect]]
+entity = "gate1"
+enabled = false
+
+# Frame 24, when the player tries to step onto the crossing: the guard is standing on it.
+[[expect]]
+frame = 24
+entity = "guard"
+pos = [3, 2]
+
+[[expect]]
+frame = 24
+entity = "player"
+pos = [2, 2]
+
+# The refusal at step 24 is by an actor (the guard is the only other actor in the scene; the
+# event's `other` field is 'guard'), not by a wall or the gate.
+[[expect]]
+frame = 25
+event = "blocked"
+entity = "player"
+reason = "actor"
+
+# Still held in the doorway while the guard occupies the crossing.
+[[expect]]
+frame = 30
+entity = "guard"
+pos = [3, 2]
+
+[[expect]]
+entity = "player"
+pos = [2, 2]
+
+[[expect]]
+entity = "flag"
+enabled = false

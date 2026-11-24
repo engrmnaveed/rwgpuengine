@@ -332,7 +332,8 @@ pub static MOVER: Spec = Spec {
     doc: "Moves one cell per `up`/`down`/`left`/`right` input: up = -y, down = +y, left = -x, right = +x. \
           A press or hold moves on its first frame if the mover is ready, then every `step_frames` while held. \
           Input during the wait is not queued: a press is dropped (logged as `blocked`, reason `cooldown`); a hold \
-          moves as soon as the wait ends. Solids, other actors and the ground's edge also block, each logged as \
+          moves as soon as the wait ends. A refused move also starts the wait, so a held direction retries every \
+          `step_frames`. Solids, other actors and the ground's edge also block, each logged as \
           a `blocked` event with its reason.",
     fields: &[opt(
         "step_frames",
@@ -345,10 +346,12 @@ pub static MOVER: Spec = Spec {
 pub static PATROL: Spec = Spec {
     id: "patrol",
     title: "patrol",
-    doc: "Steps toward the next cell of `path` every `step_frames`, one cell at a time, waiting while blocked.",
+    doc: "Walks `path` one cell at a time (x first, then y), starting from its `pos` toward `path[0]` (or \
+          `path[1]` if it starts on `path[0]`). The k-th step attempt happens in step k × step_frames − 1, so it is \
+          visible from frame k × step_frames. A blocked attempt is retried at the next attempt time.",
     fields: &[
         req("path", Ty::Cells, "Cells to visit, in order."),
-        opt("step_frames", Ty::Int { min: 1, max: 6000 }, Some("30"), "Frames between steps."),
+        opt("step_frames", Ty::Int { min: 1, max: 6000 }, Some("30"), "Frames between step attempts."),
         opt(
             "mode",
             Ty::Enum(PATROL_MODES),
@@ -361,7 +364,8 @@ pub static PATROL: Spec = Spec {
 pub static WANDER: Spec = Spec {
     id: "wander",
     title: "wander",
-    doc: "Every `step_frames`, tries one random step (or stays). Uses the world's seeded RNG, so runs repeat exactly.",
+    doc: "Every `step_frames` (attempt k in step k × step_frames − 1, like patrol), draws one number from the \
+          world's seeded RNG: stay, or try one step up/down/left/right. Runs with the same seed repeat exactly.",
     fields: &[
         opt("step_frames", Ty::Int { min: 1, max: 6000 }, Some("45"), "Frames between steps."),
         opt(
@@ -442,9 +446,10 @@ pub static EXPECT: Spec = Spec {
     id: "playtest.expect",
     title: "[[expect]]",
     doc: "A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`) or the event log \
-          (`event`, optionally filtered by `entity`, `signal` and `reason`). With `event`, `entity` matches the \
-          event's subject: the mover for `moved`/`blocked`, the trigger for `trigger`, the emitter for `signal`, \
-          the target for `action`, the hit entity for `tap`.",
+          (`event`, filtered by `entity`, `other`, `signal`, `reason`, counted with `at_least`/`at_most`). Events \
+          are counted if they happened *before* `frame`: an event logged as `[N]` happened in step N and counts \
+          from `frame = N + 1`. `entity` matches the event's subject and `other` its other party \
+          (`slate explain events` lists both for every kind).",
     fields: &[
         opt("frame", FRAME, None, "When to check. Default: the last frame."),
         opt("entity", Ty::Name, None, "Entity to check, by name."),
@@ -452,7 +457,14 @@ pub static EXPECT: Spec = Spec {
         opt("enabled", Ty::Bool, None, "Expected enabled state."),
         opt("solid", Ty::Bool, None, "Expected solid state."),
         opt("props", Ty::Props, None, "Expected values of these props (others are ignored)."),
-        opt("event", Ty::Enum(EVENT_KINDS), None, "Expect events of this kind up to `frame`."),
+        opt("event", Ty::Enum(EVENT_KINDS), None, "Count events of this kind that happened before `frame`."),
+        opt(
+            "other",
+            Ty::Name,
+            None,
+            "With `event`: only events whose other party is this entity (the blocker of `blocked`, the actor of \
+             `trigger`, the emitter of `action`).",
+        ),
         opt("signal", Ty::Name, None, "With `event`: only count events about this signal."),
         opt(
             "reason",
@@ -464,7 +476,13 @@ pub static EXPECT: Spec = Spec {
             "at_least",
             Ty::Int { min: 0, max: 1_000_000 },
             Some("1"),
-            "With `event`: minimum number of matching events.",
+            "With `event`: minimum number of matching events (0 when only `at_most` is given).",
+        ),
+        opt(
+            "at_most",
+            Ty::Int { min: 0, max: 1_000_000 },
+            None,
+            "With `event`: maximum number of matching events. `at_most = 0` asserts it never happened.",
         ),
     ],
 };

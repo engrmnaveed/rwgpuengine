@@ -103,3 +103,33 @@ fn event_expects_match_the_subject_and_filter_by_reason() {
     assert_eq!(failures("tests/b.toml"), 0);
     assert_eq!(failures("tests/c.toml"), 1);
 }
+
+#[test]
+fn event_expects_filter_by_other_party_and_bound_counts() {
+    let mut vfs = garden();
+    let base = vfs.get("tests/closed_gate.toml").unwrap().split("[[expect]]").next().unwrap().to_string();
+    let with = |expect: &str| format!("{base}[[expect]]\n{expect}\n");
+    vfs.insert("tests/by_gate.toml", with("event = \"blocked\"\nentity = \"player\"\nother = \"gate\""));
+    vfs.insert("tests/by_hen.toml", with("event = \"blocked\"\nentity = \"player\"\nother = \"hen\""));
+    vfs.insert("tests/never.toml", with("event = \"signal\"\nentity = \"goal\"\nsignal = \"reached\"\nat_most = 0"));
+    vfs.insert("tests/not_never.toml", with("event = \"blocked\"\nentity = \"player\"\nat_most = 0"));
+    let run = |p: &str| run_playtest(&vfs, p, Box::new(DataOnly)).unwrap();
+    assert!(run("tests/by_gate.toml").failures.is_empty());
+    assert_eq!(run("tests/by_hen.toml").failures.len(), 1);
+    assert!(run("tests/never.toml").failures.is_empty());
+    let d = &run("tests/not_never.toml").failures[0];
+    assert!(d.message.starts_with("expected no `blocked` event(s) whose subject is `player`"), "{}", d.message);
+    assert!(d.notes[0].contains("blocked by solid 'gate'"), "{:?}", d.notes);
+}
+
+#[test]
+fn inspect_gives_tap_points_that_really_hit() {
+    let mut vfs = garden();
+    vfs.insert("scenes/garden.toml", vfs.get("scenes/garden.toml").unwrap().replace("enabled = false", ""));
+    let mut s = Session::load(&vfs, &SessionConfig::default(), Box::new(DataOnly)).unwrap();
+    let j = s.inspect(&InspectOptions { entity: Some("guard".into()), ..Default::default() });
+    let tap = j.pointer("entities/0/tap").and_then(|t| t.as_array()).expect("tap point").to_vec();
+    let (x, y) = (tap[0].as_i64().unwrap() as f32, tap[1].as_i64().unwrap() as f32);
+    s.step(&LiveInput { taps: vec![(x, y)], ..Default::default() });
+    assert_eq!(s.world.events.all()[0].entity, s.world.find("guard"));
+}

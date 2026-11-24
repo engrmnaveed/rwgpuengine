@@ -14,7 +14,7 @@ pub mod events;
 pub mod input;
 pub mod world;
 
-pub use events::{Event, EventKind, EventLog};
+pub use events::{EVENT_DOCS, Event, EventDoc, EventKind, EventLog, events_markdown};
 pub use input::{ActionSet, InputFrame, Tap};
 pub use world::{Connection, Entity, EntityId, NoSystems, Systems, World};
 

@@ -77,7 +77,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "description": "A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`) or the event log (`event`, optionally filtered by `entity`, `signal` and `reason`). With `event`, `entity` matches the event's subject: the mover for `moved`/`blocked`, the trigger for `trigger`, the emitter for `signal`, the target for `action`, the hit entity for `tap`.",
+        "description": "A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`) or the event log (`event`, filtered by `entity`, `other`, `signal`, `reason`, counted with `at_least`/`at_most`). Events are counted if they happened *before* `frame`: an event logged as `[N]` happened in step N and counts from `frame = N + 1`. `entity` matches the event's subject and `other` its other party (`slate explain events` lists both for every kind).",
         "properties": {
           "frame": {
             "type": "integer",
@@ -116,7 +116,12 @@
           },
           "event": {
             "enum": ["input", "tap", "tap_miss", "moved", "blocked", "trigger", "signal", "action", "error", "custom"],
-            "description": "Expect events of this kind up to `frame`."
+            "description": "Count events of this kind that happened before `frame`."
+          },
+          "other": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_/-]+$",
+            "description": "With `event`: only events whose other party is this entity (the blocker of `blocked`, the actor of `trigger`, the emitter of `action`)."
           },
           "signal": {
             "type": "string",
@@ -131,7 +136,13 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 1000000,
-            "description": "With `event`: minimum number of matching events. Default: 1."
+            "description": "With `event`: minimum number of matching events (0 when only `at_most` is given). Default: 1."
+          },
+          "at_most": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000,
+            "description": "With `event`: maximum number of matching events. `at_most = 0` asserts it never happened."
           }
         },
         "additionalProperties": false

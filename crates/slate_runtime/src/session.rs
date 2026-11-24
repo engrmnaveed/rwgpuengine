@@ -217,6 +217,7 @@ impl Session {
     /// optionally, events.
     pub fn inspect(&self, opts: &InspectOptions) -> Json {
         let list = self.draw_list(false);
+        let pick_list = self.draw_list(true);
         let ids: Option<Vec<u32>> =
             opts.entity.as_ref().map(|n| self.world.find(n).map(|id| vec![id]).unwrap_or_default());
         let mut entities = Vec::new();
@@ -229,6 +230,8 @@ impl Session {
                 continue;
             }
             j.set("screen", screen_json(&list, e.id));
+            // A pixel where a tap is guaranteed to hit this entity.
+            j.set("tap", pick::tap_point(&pick_list, e.id).map(Json::from));
             entities.push(j);
         }
         let mut out = dump::world_summary(&self.world)

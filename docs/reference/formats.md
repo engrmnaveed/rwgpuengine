@@ -193,7 +193,7 @@ An upright shape whose bottom edge stands on the middle of the entity's cell.
 
 ### `mover`
 
-Moves one cell per `up`/`down`/`left`/`right` input: up = -y, down = +y, left = -x, right = +x. A press or hold moves on its first frame if the mover is ready, then every `step_frames` while held. Input during the wait is not queued: a press is dropped (logged as `blocked`, reason `cooldown`); a hold moves as soon as the wait ends. Solids, other actors and the ground's edge also block, each logged as a `blocked` event with its reason.
+Moves one cell per `up`/`down`/`left`/`right` input: up = -y, down = +y, left = -x, right = +x. A press or hold moves on its first frame if the mover is ready, then every `step_frames` while held. Input during the wait is not queued: a press is dropped (logged as `blocked`, reason `cooldown`); a hold moves as soon as the wait ends. A refused move also starts the wait, so a held direction retries every `step_frames`. Solids, other actors and the ground's edge also block, each logged as a `blocked` event with its reason.
 
 | key | type | default | meaning |
 |---|---|---|---|
@@ -201,17 +201,17 @@ Moves one cell per `up`/`down`/`left`/`right` input: up = -y, down = +y, left = 
 
 ### `patrol`
 
-Steps toward the next cell of `path` every `step_frames`, one cell at a time, waiting while blocked.
+Walks `path` one cell at a time (x first, then y), starting from its `pos` toward `path[0]` (or `path[1]` if it starts on `path[0]`). The k-th step attempt happens in step k × step_frames − 1, so it is visible from frame k × step_frames. A blocked attempt is retried at the next attempt time.
 
 | key | type | default | meaning |
 |---|---|---|---|
 | `path` | [[x, y], ...] | **required** | Cells to visit, in order. |
-| `step_frames` | integer | `30` | Frames between steps. |
+| `step_frames` | integer | `30` | Frames between step attempts. |
 | `mode` | loop \| pingpong | `"loop"` | loop: back to the first cell; pingpong: walk the path backwards. |
 
 ### `wander`
 
-Every `step_frames`, tries one random step (or stays). Uses the world's seeded RNG, so runs repeat exactly.
+Every `step_frames` (attempt k in step k × step_frames − 1, like patrol), draws one number from the world's seeded RNG: stay, or try one step up/down/left/right. Runs with the same seed repeat exactly.
 
 | key | type | default | meaning |
 |---|---|---|---|
@@ -269,7 +269,7 @@ One input event. Use exactly one of `press`, `hold` or `tap`. Input at frame N i
 
 ### `[[expect]]`
 
-A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`) or the event log (`event`, optionally filtered by `entity`, `signal` and `reason`). With `event`, `entity` matches the event's subject: the mover for `moved`/`blocked`, the trigger for `trigger`, the emitter for `signal`, the target for `action`, the hit entity for `tap`.
+A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`) or the event log (`event`, filtered by `entity`, `other`, `signal`, `reason`, counted with `at_least`/`at_most`). Events are counted if they happened *before* `frame`: an event logged as `[N]` happened in step N and counts from `frame = N + 1`. `entity` matches the event's subject and `other` its other party (`slate explain events` lists both for every kind).
 
 | key | type | default | meaning |
 |---|---|---|---|
@@ -279,10 +279,12 @@ A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`
 | `enabled` | bool | — | Expected enabled state. |
 | `solid` | bool | — | Expected solid state. |
 | `props` | table | — | Expected values of these props (others are ignored). |
-| `event` | input \| tap \| tap_miss \| moved \| blocked \| trigger \| signal \| action \| error \| custom | — | Expect events of this kind up to `frame`. |
+| `event` | input \| tap \| tap_miss \| moved \| blocked \| trigger \| signal \| action \| error \| custom | — | Count events of this kind that happened before `frame`. |
+| `other` | name | — | With `event`: only events whose other party is this entity (the blocker of `blocked`, the actor of `trigger`, the emitter of `action`). |
 | `signal` | name | — | With `event`: only count events about this signal. |
 | `reason` | solid \| actor \| edge \| area \| cooldown | — | With `event = "blocked"`: only count refusals for this reason (e.g. `solid`, not `cooldown`). |
-| `at_least` | integer | `1` | With `event`: minimum number of matching events. |
+| `at_least` | integer | `1` | With `event`: minimum number of matching events (0 when only `at_most` is given). |
+| `at_most` | integer | — | With `event`: maximum number of matching events. `at_most = 0` asserts it never happened. |
 
 ### `[[shot]]`
 
@@ -320,7 +322,23 @@ count for triggers. `[[connect]]` actions `enable`, `disable` and `toggle` chang
 when its cell goes from empty to occupied by an actor and `on_exit` (default `released`) when it empties.
 
 **Events.** Every step logs what happened and what was refused, with a sentence and structured fields.
-Kinds: `input`, `tap`, `tap_miss`, `moved`, `blocked`, `trigger`, `signal`, `action`, `error`, `custom`. Read them with `slate inspect --events` or `slate run --events`.
+Read them with `slate inspect --events` or `slate run --events`; `slate explain events` prints this table.
+
+Every event has `frame` (the step that produced it: `[N]` happened in step N, so it is part of the state from frame N + 1), `kind`, `entity` (the subject), `other` (if any) and `message`.
+
+| kind | `entity` (subject) | `other` | extra fields | meaning |
+|---|---|---|---|---|
+| `input` | — | — | pressed | Actions that went down this step. |
+| `tap` | the entity hit | — | x, y, signal | A tap hit the topmost enabled entity under the point; it emits `tapped`. |
+| `tap_miss` | topmost disabled entity under the point, if any | — | x, y, under_disabled | A tap hit nothing enabled. |
+| `moved` | the mover | — | cause, from, to | One cell of movement. `cause` is the direction, `patrol` or `wander`. |
+| `blocked` | the mover | the blocker (for `solid` and `actor`) | cause, from, to, reason, frames_left | A move was refused. `reason`: solid, actor, edge, area or cooldown. |
+| `trigger` | the trigger | the actor that entered or left | signal, by | The trigger's cell became occupied or empty; it emits `signal`. |
+| `signal` | the emitter | — | signal, connections | A signal was dispatched to this many `[[connect]]` tables (0 = nothing listens). |
+| `action` | the target | the emitter | signal, action, before, after | A connection enabled, disabled or toggled its target. |
+| `error` | the emitter | — | code, signal | A runtime error, such as more than 1000 signals in one step (E0301). |
+| `custom` | set by game code | set by game code | set by game code | Logged by Rust game code. |
+
 
 **Drawing.** Ground first, then tiles, then blocks and sprites back to front by `x + y`, then height.
 Blocks shade their left and right faces automatically. A sprite's bottom edge stands on its cell's center.

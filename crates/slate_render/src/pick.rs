@@ -46,3 +46,31 @@ pub fn entities_at(list: &DrawList, x: f32, y: f32) -> Vec<EntityId> {
     }
     out
 }
+
+/// A screen pixel where a tap hits `id` (resolved exactly as a real tap is),
+/// as close as possible to the middle of its front-most visible part.
+/// `None` if the entity is disabled, off-screen or completely covered.
+/// The list must be built with `include_disabled = true`.
+pub fn tap_point(list: &DrawList, id: EntityId) -> Option<[i32; 2]> {
+    let (w, h) = (list.view.width as i32, list.view.height as i32);
+    for item in list.items.iter().rev().filter(|i| i.entity == Some(id) && i.enabled) {
+        let r = item.shape.bbox();
+        let (cx, cy) = ((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2);
+        let mut candidates: Vec<(i64, i32, i32)> = Vec::new();
+        for py in r.y0.max(0)..r.y1.min(h) {
+            for px in r.x0.max(0)..r.x1.min(w) {
+                if item.shape.covers(px, py) {
+                    let d = (px - cx) as i64 * (px - cx) as i64 + (py - cy) as i64 * (py - cy) as i64;
+                    candidates.push((d, py, px));
+                }
+            }
+        }
+        candidates.sort_unstable();
+        for (_, py, px) in candidates {
+            if pick(list, px as f32 + 0.5, py as f32 + 0.5).hit == Some(id) {
+                return Some([px, py]);
+            }
+        }
+    }
+    None
+}

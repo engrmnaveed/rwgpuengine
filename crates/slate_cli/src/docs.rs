@@ -95,7 +95,7 @@ pub fn formats_body(h: &str) -> String {
 
 /// How the pieces behave at runtime: frames, coordinates, signals, events.
 pub fn semantics_markdown(h: &str) -> String {
-    let events = schema::EVENT_KINDS.join("`, `");
+    let event_table = slate_sim::events_markdown();
     format!(
         r#"
 {h} Runtime rules
@@ -123,7 +123,9 @@ count for triggers. `[[connect]]` actions `enable`, `disable` and `toggle` chang
 when its cell goes from empty to occupied by an actor and `on_exit` (default `released`) when it empties.
 
 **Events.** Every step logs what happened and what was refused, with a sentence and structured fields.
-Kinds: `{events}`. Read them with `slate inspect --events` or `slate run --events`.
+Read them with `slate inspect --events` or `slate run --events`; `slate explain events` prints this table.
+
+{event_table}
 
 **Drawing.** Ground first, then tiles, then blocks and sprites back to front by `x + y`, then height.
 Blocks shade their left and right faces automatically. A sprite's bottom edge stands on its cell's center.
@@ -209,12 +211,15 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
 - **Collectible.** A sprite on a trigger's cell; connect the trigger's signal to the sprite with
   `action = "disable"`.
 - **Prove something is blocked** (a negative test): `[[expect]] event = "blocked"`, `entity = "player"`,
-  `reason = "solid"` (reasons: `solid`, `actor`, `edge`, `area`, `cooldown`). With `event`, `entity` matches
-  the event's subject: the mover for `blocked`, the trigger for `trigger`, the emitter for `signal`, the target
-  for `action`.
-- **Buttons you tap.** Every entity emits `tapped` when tapped; wire it with `[[connect]]`. Find its pixels
-  with `slate inspect --json` (`screen` is `[x, y, w, h]`) and tap the middle: `[[input]] frame = 5`,
-  `tap = [x + w/2, y + h/2]`.
+  `reason = "solid"` (reasons: `solid`, `actor`, `edge`, `area`, `cooldown`). Blocked *by whom*: add
+  `other = "guard"`. With `event`, `entity` is the event's subject and `other` its other party;
+  `slate explain events` lists both for every kind.
+- **Prove something never happened**: `[[expect]] event = "signal"`, `entity = "goal"`, `signal = "reached"`,
+  `at_most = 0`.
+- **Buttons you tap.** Every entity emits `tapped` when tapped; wire it with `[[connect]]`. Get a pixel that
+  is guaranteed to hit it from `slate inspect --entity lever --json` (field `tap`, also shown in the text
+  table), then `[[input]] frame = 5` with `tap = [x, y]`. The tap point is for that frame: things in front
+  of the entity can move.
 
 ## Tips
 
@@ -222,8 +227,15 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   `step_frames` (default 8) while held, so `hold = "right"` with `for = 8 × N` gives exactly N steps. Input
   during the wait is not queued: a press is dropped (logged as `blocked`, reason `cooldown`); a hold moves as
   soon as the wait ends. Leave at least `step_frames` between separate inputs.
+- **Timing puzzles.** Event-log entries are labeled with the step that produced them: `[N]` happened in step
+  N, so it is visible from frame N + 1 (an `[[expect]]` at `frame = N + 1` counts it). `slate run --frames 200
+  --track guard` prints the cells an entity occupies with frame ranges: read patrol windows there instead of
+  guessing. Patrols and wanderers make their k-th step attempt in step k × step_frames − 1.
 - To check a level is solvable, write a playtest that plays it and `[[expect]]` the end state, then add a
   `[[shot]]` and run `slate test --update-refs` once; look at the PNG before committing it.
+- `main_scene` (slate.toml) is only the default for commands given no scene and the scene the web player opens
+  first. Playtests should name their scene (`[test] scene = "scenes/level2.toml"`), so changing `main_scene`
+  never changes what a test runs.
 - `slate test` and `slate shot` warn when a sprite (W0302) or a trigger's tile (W0304) is mostly hidden
   behind blocks in front of it, or when something is off-screen (W0301/W0303). `slate shot --input
   tests/X.toml --frame N --report` lists what is drawn where.

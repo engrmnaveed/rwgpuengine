@@ -473,6 +473,23 @@ fn load_playtest_lenient(vfs: &Vfs, path: &str) -> (Option<PlaytestDef>, Vec<Dia
             );
             continue;
         }
+        for key in ["other", "at_most", "at_least", "signal"] {
+            if t.has(key) && !t.has("event") {
+                diags.push(
+                    Diagnostic::new(&codes::INVALID_VALUE, format!("`{key}` only applies to event expectations"))
+                        .at(&src, t.key_span(key, node.span))
+                        .hint("add `event = \"...\"`, or remove it"),
+                );
+            }
+        }
+        if let (Some(lo), Some(hi)) = (t.int("at_least"), t.int("at_most"))
+            && lo > hi
+        {
+            diags.push(
+                Diagnostic::new(&codes::INVALID_VALUE, format!("`at_least = {lo}` is more than `at_most = {hi}`"))
+                    .at(&src, t.value_span("at_least", node.span)),
+            );
+        }
         if t.has("reason") && t.str("event") != Some("blocked") {
             diags.push(
                 Diagnostic::new(&codes::INVALID_VALUE, "`reason` only applies to `event = \"blocked\"`")
@@ -581,6 +598,20 @@ pub fn check_project(vfs: &Vfs) -> CheckReport {
         let Some(scene) = scene else { continue };
         let names: Vec<&str> = scene.entities.iter().filter_map(|e| e.name.as_deref()).collect();
         for exp in &def.expects {
+            if let Some(name) = &exp.other
+                && !names.contains(&name.as_str())
+            {
+                let hint = did_you_mean(name, names.iter().copied())
+                    .unwrap_or_else(|| format!("{scene_path} has no entity named `{name}`"));
+                diagnostics.push(
+                    Diagnostic::new(
+                        &codes::UNKNOWN_ENTITY,
+                        format!("[[expect]] `other` names unknown entity `{name}`"),
+                    )
+                    .at(&def.src, exp.other_span)
+                    .hint(hint),
+                );
+            }
             if let Some(name) = &exp.entity
                 && !names.contains(&name.as_str())
             {

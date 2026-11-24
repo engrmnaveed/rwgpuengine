@@ -310,7 +310,12 @@ pub struct ExpectDef {
     pub signal: Option<String>,
     /// With `event = "blocked"`: solid, actor, edge, area or cooldown.
     pub reason: Option<String>,
+    /// With `event`: the event's other party (blocker, actor, emitter).
+    pub other: Option<String>,
     pub at_least: u64,
+    pub at_most: Option<u64>,
+    /// Span of the `other` value, for messages.
+    pub other_span: Span,
     /// Span of the `entity` value (or the table), for messages.
     pub span: Span,
     pub line: usize,
@@ -464,7 +469,15 @@ pub(crate) fn decode_expect(t: &Table, span: Span, line: usize) -> ExpectDef {
         event: e.opt_str("event"),
         signal: e.opt_str("signal"),
         reason: e.opt_str("reason"),
-        at_least: e.int("at_least") as u64,
+        other: e.opt_str("other"),
+        at_most: e.opt_int("at_most").map(|v| v as u64),
+        // An explicit at_least wins; otherwise 1, or 0 when only at_most is given.
+        at_least: match (t.int("at_least"), t.has("at_most")) {
+            (Some(v), _) => v as u64,
+            (None, true) => 0,
+            (None, false) => 1,
+        },
+        other_span: t.value_span("other", span),
         span: t.value_span("entity", span),
         line,
     }

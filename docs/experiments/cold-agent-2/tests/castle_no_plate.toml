@@ -1,0 +1,36 @@
+# (c) Without stepping on the plate, gate 2 stays shut and the goal is not reached.
+
+[test]
+doc = "Skipping the plate: gate 2 stays closed and blocks the player; the goal is never reached."
+scene = "scenes/castle.toml"
+frames = 140
+
+[[input]]
+frame = 2
+tap = [240, 129]     # lever: gate 1 opens
+
+[[input]]
+frame = 40
+hold = "right"       # (1,2)@40 (2,2)@48 (3,2)@56 (4,2)@64 (5,2)@72 (6,2)@80, (7,2) gate 2 refused from 88
+for = 64
+
+[[expect]]
+entity = "gate1"
+enabled = false
+
+[[expect]]
+entity = "gate2"
+enabled = true
+
+[[expect]]
+event = "blocked"
+entity = "player"
+reason = "solid"
+
+[[expect]]
+entity = "player"
+pos = [6, 2]
+
+[[expect]]
+entity = "flag"
+enabled = false

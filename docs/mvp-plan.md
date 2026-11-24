@@ -41,7 +41,9 @@ images), `explain`, `schema`, `docs`, `help --json`, `serve` with instant data r
 ### The cold-agent test
 
 Run it as an experiment and keep the record in [experiments/](experiments/) (it is the most important
-signal we have). Run #1: [2026-11-25](experiments/2026-11-25-cold-agent-1.md) — PASS.
+signal we have). Run #1: [plate → door → goal](experiments/2026-11-25-cold-agent-1.md) — PASS in 3 min 58 s.
+Run #2: [tap lever + patrol timing + negative tests](experiments/2026-11-25-cold-agent-2.md) — PASS in
+6 min 7 s.
 
 1. Build `slate` and put it on `PATH` (`cargo build --release` → `target/release/slate`).
 2. In an empty folder **outside this repo**, start a fresh coding agent with no other context.
@@ -71,4 +73,5 @@ Deliberate gaps in v0.1 — each waits for a reference game that needs it (guard
 
 ## Next
 
-A second cold-agent run with a different task on the fixed build, then M2 in [roadmap.md](roadmap.md).
+Cold-agent run #3 on a task the engine cannot do yet (to test how fast limits are recognised), then M2 in
+[roadmap.md](roadmap.md).

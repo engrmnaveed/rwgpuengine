@@ -73,6 +73,12 @@ fn kinds(w: &World) -> Vec<&'static str> {
 }
 
 #[test]
+fn every_event_kind_is_documented_in_order() {
+    let documented: Vec<EventKind> = crate::events::EVENT_DOCS.iter().map(|d| d.kind).collect();
+    assert_eq!(documented, EventKind::ALL);
+}
+
+#[test]
 fn event_kind_names_match_the_schema() {
     let names: Vec<&str> = EventKind::ALL.iter().map(|k| k.name()).collect();
     assert_eq!(names, slate_data::schema::EVENT_KINDS);

@@ -1,0 +1,69 @@
+# (a) The intended solution reaches the goal with both gates open.
+#
+# Guard timing (patrol step_frames = 12, pingpong (3,0)..(3,4)): the guard stands on
+# the crossing (3, 2) during frames 24-35 and 72-83, and is at (3, 4) during 48-59.
+# Lever: `slate inspect --entity lever` gives screen [208, 106, 64, 46]; the middle
+# (240, 129) is on the lever's handle.
+
+[test]
+doc = "Tap the lever, cross the guard's column while it is away, press the plate, reach the goal."
+scene = "scenes/castle.toml"
+frames = 200
+
+[[input]]
+frame = 2
+tap = [240, 129]     # lever: gate 1 opens
+
+[[input]]
+frame = 40
+hold = "right"       # (1,2)@40 (2,2)@48 (3,2)@56 guard is at (3,4) (4,2)@64 gate 1 (5,2)@72
+for = 40
+
+[[input]]
+frame = 88
+hold = "up"          # (5,1)@88 (5,0)@96 = plate: gate 2 opens
+for = 16
+
+[[input]]
+frame = 112
+hold = "down"        # (5,1)@112 (5,2)@120
+for = 16
+
+[[input]]
+frame = 136
+hold = "right"       # (6,2)@136 (7,2)@144 gate 2 (8,2)@152 (9,2)@160 = goal
+for = 32
+
+[[expect]]
+entity = "player"
+pos = [9, 2]
+
+[[expect]]
+entity = "gate1"
+enabled = false
+
+[[expect]]
+entity = "gate2"
+enabled = false
+
+[[expect]]
+entity = "flag"
+enabled = true
+
+[[expect]]
+event = "signal"
+entity = "lever"
+signal = "tapped"
+
+[[expect]]
+event = "signal"
+entity = "plate"
+signal = "pressed"
+
+[[expect]]
+event = "signal"
+entity = "goal"
+signal = "reached"
+
+[[shot]]
+reference = "tests/refs/castle_solved.png"

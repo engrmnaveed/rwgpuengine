@@ -150,3 +150,34 @@ block = { height = 1.6 }
     assert!(d.message.contains("trigger tile of goal at cell (1, 1)"), "{}", d.message);
     assert!(d.message.contains("covered by tree"), "{}", d.message);
 }
+
+#[test]
+fn tap_points_hit_their_entity_or_are_none_when_hidden() {
+    let scene = r##"
+[ground]
+size = [4, 4]
+
+[[entity]]
+name = "lever"
+pos = [0, 0]
+tile = {}
+sprite = { shape = "rect", size = [4, 24] }
+
+[[entity]]
+name = "buried"
+pos = [1, 1]
+tile = {}
+
+[[entity]]
+name = "tower"
+pos = [2, 2]
+block = { height = 2 }
+"##;
+    let (world, view, def) = setup(scene);
+    let list = build(&world, &view, def.ground.as_ref(), true);
+    let lever = world.find("lever").unwrap();
+    let [x, y] = crate::pick::tap_point(&list, lever).expect("lever is tappable");
+    assert_eq!(pick(&list, x as f32 + 0.5, y as f32 + 0.5).hit, Some(lever));
+    // A floor tile completely behind a tall block cannot be tapped.
+    assert_eq!(crate::pick::tap_point(&list, world.find("buried").unwrap()), None);
+}

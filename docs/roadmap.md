@@ -6,8 +6,9 @@ decision in [open-questions.md](open-questions.md).
 
 ## M1.5 — Close the loop on the idea (next)
 
-- ~~Run the cold-agent test~~ — done, PASS ([run #1](experiments/2026-11-25-cold-agent-1.md)); its findings
-  are fixed. Run #2 with a different task (e.g. two plates that must both be held) on the fixed build.
+- ~~Run the cold-agent test~~ — done: [run #1](experiments/2026-11-25-cold-agent-1.md) and
+  [run #2](experiments/2026-11-25-cold-agent-2.md) both PASS; their findings are fixed. Run #3: a task the
+  engine cannot do yet (two plates held at once needs AND logic), to test how fast limits are recognised.
 - Push to a remote and get CI green on GitHub (Q10).
 - Small fixes found during M1: validate required keys after prefab merge; `tap_ground` event with the
   cell under a tap; block edge shading so adjacent blocks read as separate.

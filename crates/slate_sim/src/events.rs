@@ -66,6 +66,111 @@ impl EventKind {
     }
 }
 
+/// Reference for one event kind: who the subject (`entity`) and the other
+/// party (`other`) are, and which extra fields the JSON carries.
+#[derive(Debug)]
+pub struct EventDoc {
+    pub kind: EventKind,
+    pub subject: &'static str,
+    pub other: &'static str,
+    pub fields: &'static str,
+    pub meaning: &'static str,
+}
+
+/// One entry per [`EventKind`], in the same order (a test keeps them aligned).
+pub const EVENT_DOCS: &[EventDoc] = &[
+    EventDoc {
+        kind: EventKind::Input,
+        subject: "—",
+        other: "—",
+        fields: "pressed",
+        meaning: "Actions that went down this step.",
+    },
+    EventDoc {
+        kind: EventKind::Tap,
+        subject: "the entity hit",
+        other: "—",
+        fields: "x, y, signal",
+        meaning: "A tap hit the topmost enabled entity under the point; it emits `tapped`.",
+    },
+    EventDoc {
+        kind: EventKind::TapMiss,
+        subject: "topmost disabled entity under the point, if any",
+        other: "—",
+        fields: "x, y, under_disabled",
+        meaning: "A tap hit nothing enabled.",
+    },
+    EventDoc {
+        kind: EventKind::Moved,
+        subject: "the mover",
+        other: "—",
+        fields: "cause, from, to",
+        meaning: "One cell of movement. `cause` is the direction, `patrol` or `wander`.",
+    },
+    EventDoc {
+        kind: EventKind::Blocked,
+        subject: "the mover",
+        other: "the blocker (for `solid` and `actor`)",
+        fields: "cause, from, to, reason, frames_left",
+        meaning: "A move was refused. `reason`: solid, actor, edge, area or cooldown.",
+    },
+    EventDoc {
+        kind: EventKind::Trigger,
+        subject: "the trigger",
+        other: "the actor that entered or left",
+        fields: "signal, by",
+        meaning: "The trigger's cell became occupied or empty; it emits `signal`.",
+    },
+    EventDoc {
+        kind: EventKind::Signal,
+        subject: "the emitter",
+        other: "—",
+        fields: "signal, connections",
+        meaning: "A signal was dispatched to this many `[[connect]]` tables (0 = nothing listens).",
+    },
+    EventDoc {
+        kind: EventKind::Action,
+        subject: "the target",
+        other: "the emitter",
+        fields: "signal, action, before, after",
+        meaning: "A connection enabled, disabled or toggled its target.",
+    },
+    EventDoc {
+        kind: EventKind::Error,
+        subject: "the emitter",
+        other: "—",
+        fields: "code, signal",
+        meaning: "A runtime error, such as more than 1000 signals in one step (E0301).",
+    },
+    EventDoc {
+        kind: EventKind::Custom,
+        subject: "set by game code",
+        other: "set by game code",
+        fields: "set by game code",
+        meaning: "Logged by Rust game code.",
+    },
+];
+
+/// Markdown table of [`EVENT_DOCS`].
+pub fn events_markdown() -> String {
+    let mut out = String::from(
+        "Every event has `frame` (the step that produced it: `[N]` happened in step N, so it is part of the state \
+         from frame N + 1), `kind`, `entity` (the subject), `other` (if any) and `message`.\n\n\
+         | kind | `entity` (subject) | `other` | extra fields | meaning |\n|---|---|---|---|---|\n",
+    );
+    for d in EVENT_DOCS {
+        out.push_str(&format!(
+            "| `{}` | {} | {} | {} | {} |\n",
+            d.kind.name(),
+            d.subject,
+            d.other,
+            d.fields,
+            d.meaning
+        ));
+    }
+    out
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Event {
     /// The frame whose step produced the event.

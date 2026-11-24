@@ -75,6 +75,7 @@ Flags:
   --seed N           Override the random seed.
   --events           Include the event log.
   --hash-every N     Record the state hash every N frames (to find where two runs diverge).
+  --track NAME       Print the cells an entity occupies, with frame ranges (timing puzzles, patrols).
   --json             Print one JSON object on stdout instead of text.
 
 Deterministic: the same files, input and seed always give the same state hash, on every platform. No window and no GPU are used.
@@ -82,6 +83,7 @@ Deterministic: the same files, input and seed always give the same state hash, o
 Examples:
   slate run --frames 300
   slate run tests/walkthrough.toml --events
+  slate run --frames 120 --track guard
   slate run scenes/garden.toml --input tests/walkthrough.toml --json
 ```
 
@@ -133,7 +135,7 @@ Flags:
   --since N          With --events: only events from frame N on.
   --json             Print one JSON object on stdout instead of text.
 
-Answers what exists, where it is, and why something happened. Entities include every component, runtime state (cooldowns, patrol targets, trigger occupants) and their screen rectangle.
+Answers what exists, where it is, and why something happened. The text table is a summary (cell, components, solid, cooldown, patrol target, screen rectangle, tap point); --json has every component and all runtime state. `tap` is a pixel where a tap is guaranteed to hit the entity.
 
 Examples:
   slate inspect --json

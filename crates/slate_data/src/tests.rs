@@ -190,3 +190,15 @@ fn reason_needs_a_blocked_event() {
     ]);
     assert_eq!(codes(&vfs), vec!["E0105"]);
 }
+
+#[test]
+fn event_only_keys_and_bounds_are_checked() {
+    let vfs = project(&[
+        ("scenes/main.toml", "[[entity]]\nname = \"p\"\n"),
+        (
+            "tests/t.toml",
+            "[[expect]]\nentity = \"p\"\nenabled = true\nother = \"p\"\n\n[[expect]]\nevent = \"moved\"\nat_least = 3\nat_most = 1\n\n[[expect]]\nevent = \"blocked\"\nother = \"ghost\"\n",
+        ),
+    ]);
+    assert_eq!(codes(&vfs), vec!["E0105", "E0105", "E0202"]);
+}

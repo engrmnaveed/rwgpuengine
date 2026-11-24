@@ -4,6 +4,7 @@
 
 [test]
 doc = "Step on the plate, walk through the opened door."
+scene = "scenes/main.toml"
 frames = 120
 
 [[input]]

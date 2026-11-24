@@ -165,8 +165,38 @@ pub fn run(p: &Parsed, games: &GameFactory) -> Outcome {
         Err(d) => return Outcome::usage(d),
     };
     let mut trace = Vec::new();
+    let tracked = match p.value("--track") {
+        None => None,
+        Some(name) => match session.world.find(name) {
+            Some(id) => Some((name.to_string(), id)),
+            None => {
+                let names: Vec<String> = session.world.entities.iter().filter_map(|e| e.name.clone()).collect();
+                let hint = did_you_mean(name, names.iter().map(String::as_str))
+                    .unwrap_or_else(|| format!("named entities: {}", names.join(", ")));
+                return Outcome::failed(vec![
+                    Diagnostic::new(&codes::UNKNOWN_ENTITY, format!("no entity named `{name}` to track")).hint(hint),
+                ])
+                .with_root(&loc.root);
+            }
+        },
+    };
+    // (cell, first frame, last frame): consecutive frames on the same cell.
+    let mut spans: Vec<([i32; 2], u64, u64)> = Vec::new();
+    let mut record = |session: &Session| {
+        if let Some((_, id)) = &tracked
+            && let Some(e) = session.world.get(*id)
+        {
+            let (cell, f) = (e.cell(), session.frame());
+            match spans.last_mut() {
+                Some(last) if last.0 == cell && last.2 + 1 == f => last.2 = f,
+                _ => spans.push((cell, f, f)),
+            }
+        }
+    };
+    record(&session);
     while session.frame() < frames {
         session.step(&Default::default());
+        record(&session);
         if let Some(n) = every
             && session.frame() % n == 0
         {
@@ -197,6 +227,17 @@ pub fn run(p: &Parsed, games: &GameFactory) -> Outcome {
             t.get("frame").and_then(Json::as_i64).unwrap_or(0),
             t.get("state_hash").and_then(Json::as_str).unwrap_or("")
         ));
+    }
+    if let Some((name, _)) = &tracked {
+        let list: Vec<Json> = spans
+            .iter()
+            .map(|(c, a, b)| Json::object().with("cell", *c).with("from_frame", *a).with("to_frame", *b))
+            .collect();
+        o.data.set("track", Json::object().with("entity", name.as_str()).with("spans", list));
+        o.line(format!("  track {name} (cell: frames, inclusive)"));
+        for (c, a, b) in &spans {
+            o.line(format!("    ({}, {}): {a}-{b}", c[0], c[1]));
+        }
     }
     if p.has("--events") {
         let events: Vec<Json> = w.events.all().iter().map(|e| dump::event_json(w, e)).collect();
@@ -417,7 +458,18 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
         let enabled = if e.get("enabled").and_then(Json::as_bool) == Some(true) { "" } else { "  (disabled)" };
         let solid = if e.get("solid").and_then(Json::as_bool) == Some(true) { " solid" } else { "" };
         let screen = e.get("screen").map(Json::to_compact).unwrap_or_default();
-        o.line(format!("  {id:>3} {label:<12} cell {cell:<8} {:<20}{solid} screen {screen}{enabled}", comps.join("+")));
+        let tap = e.get("tap").filter(|t| !t.is_null()).map(|t| format!(" tap {}", t.to_compact())).unwrap_or_default();
+        let mut state = String::new();
+        if let Some(cd) = e.pointer("mover/cooldown").and_then(Json::as_i64).filter(|c| *c > 0) {
+            state.push_str(&format!(" cooldown {cd}"));
+        }
+        if let Some(next) = e.pointer("patrol/next").filter(|n| !n.is_null()) {
+            state.push_str(&format!(" next {}", next.to_compact()));
+        }
+        o.line(format!(
+            "  {id:>3} {label:<12} cell {cell:<8} {:<20}{solid}{state} screen {screen}{tap}{enabled}",
+            comps.join("+")
+        ));
         if let Some(t) = e.get("trigger").and_then(|t| t.get("occupied_by")).and_then(Json::as_array)
             && !t.is_empty()
         {
@@ -592,6 +644,23 @@ pub fn explain(p: &Parsed) -> Outcome {
         return explain_topics();
     };
     let mut o = Outcome::new(true);
+    if topic == "events" || topic == "event" {
+        let text = slate_sim::events_markdown();
+        let kinds: Vec<Json> = slate_sim::EVENT_DOCS
+            .iter()
+            .map(|d| {
+                Json::object()
+                    .with("kind", d.kind.name())
+                    .with("subject", d.subject)
+                    .with("other", d.other)
+                    .with("fields", d.fields)
+                    .with("meaning", d.meaning)
+            })
+            .collect();
+        o.data = Json::object().with("topic", "events").with("kind", "events").with("events", kinds);
+        o.text = format!("# Events\n\n{text}");
+        return o;
+    }
     if let Some(c) = codes::lookup(topic) {
         o.data = Json::object()
             .with("topic", c.code)
@@ -646,7 +715,7 @@ pub fn explain(p: &Parsed) -> Outcome {
 /// `slate explain` with no topic: everything that can be explained.
 fn explain_topics() -> Outcome {
     let mut o = Outcome::new(true);
-    o.line("slate explain <TOPIC> — topics:\n\nFile formats and components:");
+    o.line("slate explain <TOPIC> — topics:\n\n  events             event kinds: subject, other party, fields\n\nFile formats and components:");
     for s in schema::ALL_SPECS {
         o.line(format!("  {:<18} {}", s.id, s.title));
     }
