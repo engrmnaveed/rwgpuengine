@@ -1,0 +1,19 @@
+# Architecture decision records
+
+One file per decision: context, decision, consequences, and **when to revisit**. Decisions are changed by
+adding a new ADR that supersedes the old one (and marking the old one), never by silently editing.
+
+| ADR | decision | status |
+|---|---|---|
+| [0001](0001-build-from-scratch.md) | Build from scratch; own the core, rent platform layers | accepted |
+| [0002](0002-cli-first-agent-surface.md) | Files + CLI with JSON are the agent interface; MCP is a later, thin adapter | accepted |
+| [0003](0003-toml-and-schema-registry.md) | TOML text formats behind a span tree; one schema registry for validation, defaults, docs, schemas | accepted |
+| [0004](0004-few-dependencies-no-proc-macros.md) | Few dependencies, zero proc macros in the runtime tree | accepted |
+| [0005](0005-determinism-model.md) | Determinism contract: fixed step, seeded PCG32, exact float ops, integer raster | accepted |
+| [0006](0006-fat-entities-and-game-trait.md) | Fat entities + props instead of an ECS; Rust code via a `Game` trait | accepted (revisit at M3) |
+| [0007](0007-draw-list-and-cpu-rasterizer.md) | The draw list is the central render artifact; deterministic CPU rasterizer first | accepted (revisit for GPU) |
+| [0008](0008-web-via-c-abi.md) | Web: wasm32 cdylib with a hand-written C ABI, no wasm-bindgen | accepted |
+| [0009](0009-stable-diagnostics.md) | Stable diagnostic codes, rustc-style text, `explain` | accepted |
+| [0010](0010-input-actions-taps-scripts.md) | Input = abstract actions + taps (touch first); scripted input = playtest files | accepted |
+
+Template: copy any ADR; keep it under a page.

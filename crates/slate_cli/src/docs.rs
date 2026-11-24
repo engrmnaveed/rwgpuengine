@@ -159,6 +159,7 @@ pub fn errors_markdown() -> String {
 /// reference for this version. Written for an agent starting cold.
 pub fn project_agents_md(project_name: &str) -> String {
     let v = slate_core::ENGINE_VERSION;
+    let example = EXAMPLE_DOC.replace("{scene}", EXAMPLE_SCENE).replace("{test}", EXAMPLE_PLAYTEST);
     let mut out = format!(
         r#"# AGENTS.md — {project_name}
 
@@ -193,7 +194,7 @@ tests/refs/*.png    reference screenshots for [[shot]] (create with `slate test 
 out/                generated output (screenshots, diffs); safe to delete
 ```
 
-## Tips
+{example}## Tips
 
 - Movers step once every `step_frames` (default 8) while a direction is held, and a press during that wait
   is ignored (logged as `blocked` with reason `cooldown`). Space presses at least `step_frames` apart, or use
@@ -222,4 +223,111 @@ out/                generated output (screenshots, diffs); safe to delete
     }
     out.push_str("\n`slate explain <CODE>` explains a code and how to fix it.\n");
     out
+}
+
+const EXAMPLE_DOC: &str = r#"## Example: a complete scene and its playtest
+
+Start from the files `slate new` created (`scenes/main.toml`, `prefabs/*.toml`, `tests/smoke.toml`). A
+new level in the same project looks like this (this exact example is tested in slate's own test suite):
+
+```toml
+{scene}```
+
+```toml
+{test}```
+
+Run it with `slate test --filter level2`. The first run reports E0403 (no reference image yet): run
+`slate test --update-refs`, open `tests/refs/level2.png`, and check it shows what you expect.
+
+"#;
+
+/// The example level shown in the project AGENTS.md (uses the starter prefabs).
+pub const EXAMPLE_SCENE: &str = r##"# scenes/level2.toml
+[scene]
+name = "Level 2"
+
+[ground]
+size = [6, 4]                     # cells (0, 0) .. (5, 3)
+
+[[entity]]
+name = "player"
+prefab = "player"                 # prefabs/player.toml
+pos = [0, 0]
+
+[[entity]]
+prefab = "crate"
+cells = [[2, 0], [2, 1], [2, 2]]  # one crate per cell (no `name` allowed)
+
+[[entity]]
+name = "plate"
+pos = [1, 3]
+tile = { color = "#d9c27a" }      # components inline, no prefab needed
+trigger = {}                      # emits "pressed" / "released"
+
+[[entity]]
+name = "door"
+pos = [2, 3]
+block = { color = "#b5523b", height = 1.2 }
+solid = true
+
+[[connect]]
+from = "plate"
+signal = "pressed"
+to = "door"
+action = "disable"
+"##;
+
+/// The playtest for [`EXAMPLE_SCENE`].
+pub const EXAMPLE_PLAYTEST: &str = r##"# tests/level2.toml
+[test]
+scene = "scenes/level2.toml"
+frames = 120
+
+[[input]]
+frame = 0
+hold = "down"        # 3 steps, one every 8 frames: (0, 1) (0, 2) (0, 3)
+for = 24
+
+[[input]]
+frame = 40
+hold = "right"       # (1, 3) = plate: door opens; (2, 3) through the door; (3, 3)
+for = 24
+
+[[expect]]
+entity = "player"
+pos = [3, 3]
+
+[[expect]]
+entity = "door"
+enabled = false
+
+[[shot]]
+reference = "tests/refs/level2.png"
+"##;
+
+#[cfg(test)]
+mod tests {
+    use slate_data::{Vfs, check_project};
+    use slate_runtime::{DataOnly, run_playtest};
+
+    use super::*;
+
+    #[test]
+    fn the_agents_md_example_really_works() {
+        let mut vfs = Vfs::new();
+        for (path, text) in crate::commands::template_files("t") {
+            if path.ends_with(".toml") {
+                vfs.insert(path, text);
+            }
+        }
+        vfs.insert("scenes/level2.toml", EXAMPLE_SCENE);
+        vfs.insert("tests/level2.toml", EXAMPLE_PLAYTEST);
+        let report = check_project(&vfs);
+        assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
+        let run = run_playtest(&vfs, "tests/level2.toml", Box::new(DataOnly)).unwrap();
+        assert!(run.failures.is_empty(), "{:#?}", run.failures);
+        assert_eq!(run.shots.len(), 1);
+        let md = project_agents_md("t");
+        assert!(md.contains("name = \"Level 2\"") && md.contains("hold = \"right\""));
+    }
 }
