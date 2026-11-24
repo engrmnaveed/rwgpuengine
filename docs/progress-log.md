@@ -3,6 +3,17 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Q14 decided on KPIs: data logic first, Rust as the escape hatch
+
+- Owner's rule: choose on KPIs only (performance and flexibility trade-off). Measured edit loops: data edit →
+  `check` + `test` 0.01 s warm with no build; Rust edit → 0.39–0.49 s dev rebuild, 1.4 s release, 0.9–1.3 s
+  browser module (and per-game web builds don't exist yet).
+- Rust is more flexible and faster per operation, but loses every agent-loop KPI (static checks,
+  queryability, guaranteed determinism, web delivery, authoring time). Its per-operation speed doesn't matter
+  for event-driven logic at this scale. So: a small data-level logic set for the common cases, Rust for the
+  rest. [ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md) has the KPI table, the spec and
+  the acceptance targets (run #3's task in ≤ 5 min with no approximations).
+
 ## 2026-11-25 — Cold-agent test #4: the limits table works
 
 - Run #3's task again, same prompt, with the new limits table. Every verdict came at command 2

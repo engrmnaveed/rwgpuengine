@@ -14,10 +14,19 @@ decision in [open-questions.md](open-questions.md).
 - Push to a remote and get CI green on GitHub (Q10).
 - Small fixes found during M1: validate required keys after prefab merge; `tap_ground` event with the
   cell under a tap; block edge shading so adjacent blocks read as separate.
-- Feature candidates from [cold-agent run #3](experiments/2026-11-25-cold-agent-3.md), pending Q14 and a
-  reference game that needs them, in the order the agent ranked them: a text/number sprite bound to a prop;
-  prop actions (`action = "add"`); conditional connections (`when_all`); a screen-space HUD layer; pushable
-  blocks or weights for plates; a single "cell is passable" expectation.
+- Feature candidates from [cold-agent run #3](experiments/2026-11-25-cold-agent-3.md): text/number display,
+  prop actions, conditions and a HUD layer are scheduled as M1.6 (ADR 0011). Still candidates, waiting for a
+  game that needs them: pushable blocks or weights for plates; a single "cell is passable" expectation.
+
+## M1.6 — Data logic v1 ([ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)) — next
+
+Need: scores, counts and conditions (cold-agent runs #3/#4 spent 14–19 min building them from parts).
+
+- `[[connect]]` actions `add` / `set` on props (target emits `changed`); props become runtime state.
+- `when = [...]` conditions on `[[connect]]` (occupied / enabled / prop comparisons; all must hold).
+- `label` component with `{prop}` placeholders, owned bitmap font; `screen = [x, y]` anchoring for HUDs.
+- Static checks, events (condition results, prop before/after), frame report "clipped text".
+- Acceptance: run #3's task with no approximations in ≤ 5 min; budgets and determinism hold.
 
 ## M2 — The live loop
 
@@ -26,7 +35,7 @@ Need: people (and agents) iterate on feel, not just on end states.
 - `slate export web` → static site (wasm + page + bundle) for hosting on any static server (Q11).
 - Record from the web player: export the live session as a playtest (`[[input]]` list) — record/replay.
 - `slate watch`: re-run `check`/`test` on file change, JSON lines out.
-- Text: labels and UI text with a deterministic renderer (Q5); frame report gains "clipped text".
+- (Text labels moved to M1.6.)
 - Image sprites from PNG files (Q6), still deterministic in the CPU rasterizer.
 - Native window player (winit + softbuffer or wgpu) — only if the web player is not enough (Q4).
 

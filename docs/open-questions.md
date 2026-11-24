@@ -9,7 +9,7 @@ the answer here (and an ADR if it is architectural), then remove it from the "op
 | Q2 | **License.** Nothing is licensed yet (`publish = false`, no LICENSE file). | `MIT OR Apache-2.0`, the Rust ecosystem default. | open-sourcing, outside contributions |
 | Q3 | **First reference game** and its one-page spec: isometric builder, puzzle, or tracing? | Isometric builder: it exercises the most engine (placement, multi-cell objects, tap-to-build, sorting). The puzzle is already half there (iso_garden). | M3 scope |
 | Q4 | **GPU backend timing.** v0.1 renders on the CPU (deterministic, 467 KB wasm). When do we add wgpu? | Only when a reference game misses 60 fps on the target tablet. Keep CPU as the reference renderer forever (tests, reports). | M2/M3 perf work |
-| Q5 | **Text rendering.** Owned bitmap font (deterministic, tiny) vs rented shaping (cosmic-text/fontdue; complex scripts). | Bitmap font for UI/debug now; rent shaping when lessons need non-Latin scripts. | quiz/lessons kit, UI |
+| Q5 | **Text rendering.** Latin text is decided ([ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md): owned bitmap font for `label`). Still open: rented shaping for non-Latin scripts, and when. | Rent shaping (cosmic-text) only when lessons need non-Latin scripts. | quiz/lessons kit in other languages |
 | Q6 | **Image assets.** PNG sprites and atlases: how are they referenced, packed and validated? | `sprite = { image = "art/hero.png" }` resolved via the Vfs; `check` validates paths/sizes; atlas packing later. | art-heavy games |
 | Q7 | **Rust game code delivery.** Game binary embedding the CLI (`slate_cli::main_with`) natively; for the web, compile the game crate to wasm with the same C ABI. Hot-patching via subsecond. | As described; prototype in M4 with one reference game. | M4 |
 | Q8 | **Target tablet** and budget numbers (startup ms, frame ms, download size). The direction doc asks for "a mid-range tablet". | Pick one Android tablet and one iPad as the reference devices; measure the web player cold start there. | `tablet.startup_ms` budget |
@@ -18,7 +18,6 @@ the answer here (and an ADR if it is architectural), then remove it from the "op
 | Q11 | **Web distribution.** Embed the wasm in the `slate` binary (bigger CLI, zero setup) or ship it separately? Add `slate export web`? | Embed at release time via a build feature; add `export web` in M2. | `slate serve` outside the repo |
 | Q12 | **Iso input mapping.** `up` = −y (screen up-right), swipes follow iso axes. Is that intuitive for children on tablets? | Validate with a quick playtest with real users; the mapping is one table to change. | M5 UX |
 | Q13 | **Audio crate** (kira / cpal / web audio) | Decide when a reference game needs sound. | M5 |
-| Q14 | **Where does game logic live: data or Rust?** Cold-agent run #3 needed a score counter and an AND door. Today data has only `enable`/`disable`/`toggle`; counters and conditions need Rust (not loadable from `slate new` projects yet). Options: (a) small data-level logic — `action = "add"` on props, `when_all = [...]` on connections, a `text` sprite bound to a prop; (b) keep data minimal and make Rust game code easy (M4) | (a), deliberately small: counters, all-of conditions and a number/text display are what learning games (scores, quizzes) need constantly, and agents handle them best as data. Keep anything more general in Rust. | M2/M3 scope, quiz kit |
 
 ## Decided
 
@@ -26,3 +25,4 @@ the answer here (and an ADR if it is architectural), then remove it from the "op
 |---|---|---|
 | — | Build from scratch, files + CLI first, Rust game code, web + tablets first (the direction doc) | 2026-11-24 |
 | — | Working codename "slate" (provisional, see Q1) | 2026-11-24 |
+| Q14 | **Game logic: data first, Rust as the escape hatch.** A small data-level set (prop `add`/`set`, `when` conditions, a `label` component with a bitmap font, screen anchoring), chosen on KPIs: it wins the edit loop, static checking, queryability, determinism and web delivery; Rust keeps unbounded flexibility for the rest. [ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md) | 2026-11-25 |
