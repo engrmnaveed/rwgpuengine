@@ -37,10 +37,11 @@ pub fn entities_at(list: &DrawList, x: f32, y: f32) -> Vec<EntityId> {
     let (px, py) = (x.floor() as i32, y.floor() as i32);
     let mut out = Vec::new();
     for item in list.items.iter().rev() {
-        if let Some(id) = item.entity {
-            if item.shape.covers(px, py) && !out.contains(&id) {
-                out.push(id);
-            }
+        if let Some(id) = item.entity
+            && item.shape.covers(px, py)
+            && !out.contains(&id)
+        {
+            out.push(id);
         }
     }
     out

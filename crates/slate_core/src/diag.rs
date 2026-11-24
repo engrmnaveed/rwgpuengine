@@ -216,11 +216,7 @@ impl Diagnostic {
         if let (Some(line), Some(col), Some(text)) = (self.line, self.column, &self.source_line) {
             out.push_str(&format!("{pad} |\n"));
             out.push_str(&format!("{line} | {text}\n"));
-            let lead: String = text
-                .chars()
-                .take(col - 1)
-                .map(|c| if c == '\t' { '\t' } else { ' ' })
-                .collect();
+            let lead: String = text.chars().take(col - 1).map(|c| if c == '\t' { '\t' } else { ' ' }).collect();
             out.push_str(&format!("{pad} | {lead}{}\n", "^".repeat(self.width)));
         }
         if let Some(hint) = &self.hint {
@@ -242,9 +238,7 @@ pub fn count(diags: &[Diagnostic]) -> (usize, usize) {
 
 /// Sort for stable output: by file, line, column, then code.
 pub fn sort(diags: &mut [Diagnostic]) {
-    diags.sort_by(|a, b| {
-        (&a.file, a.line, a.column, a.code).cmp(&(&b.file, b.line, b.column, b.code))
-    });
+    diags.sort_by(|a, b| (&a.file, a.line, a.column, a.code).cmp(&(&b.file, b.line, b.column, b.code)));
 }
 
 #[cfg(test)]

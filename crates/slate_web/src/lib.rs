@@ -1,0 +1,327 @@
+//! `slate_web` — slate in the browser.
+//!
+//! Compiled to `wasm32-unknown-unknown` (`cargo xtask web`) and driven by
+//! `web/player.js` through the small C ABI below. No wasm-bindgen: the
+//! boundary is a handful of functions passing integers, floats and
+//! (pointer, length) pairs into linear memory (ADR 0008).
+//!
+//! The same runtime runs natively and here, so a scripted run in the
+//! browser reaches the same state hash and the same pixels as
+//! `slate run` / `slate shot`.
+//!
+//! Text results (errors, JSON, hashes) are written to an output buffer read
+//! with `slate_out_ptr` / `slate_out_len`.
+
+// The C ABI boundary needs raw pointers into linear memory.
+#![allow(unsafe_code)]
+
+use std::cell::RefCell;
+
+use slate_core::diag::Diagnostic;
+use slate_core::json::Json;
+use slate_data::Vfs;
+use slate_runtime::{DataOnly, InspectOptions, LiveInput, Session, SessionConfig};
+use slate_sim::{ActionSet, dump};
+
+#[derive(Default)]
+struct State {
+    vfs: Option<Vfs>,
+    session: Option<Session>,
+    out: Vec<u8>,
+    pixels: Vec<u8>,
+}
+
+thread_local! {
+    static STATE: RefCell<State> = RefCell::new(State::default());
+}
+
+fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
+    STATE.with(|s| f(&mut s.borrow_mut()))
+}
+
+fn set_out(s: &mut State, text: String) -> u32 {
+    s.out = text.into_bytes();
+    s.out.len() as u32
+}
+
+fn diags_json(diags: &[Diagnostic]) -> String {
+    Json::object()
+        .with("ok", false)
+        .with("diagnostics", diags.iter().map(Diagnostic::to_json).collect::<Vec<_>>())
+        .to_compact()
+}
+
+/// Read a UTF-8 string the caller placed in linear memory.
+///
+/// # Safety
+/// `ptr..ptr+len` must be a valid, initialized region (allocated with
+/// [`slate_alloc`] and filled by the caller).
+unsafe fn read_str(ptr: *const u8, len: usize) -> String {
+    if ptr.is_null() || len == 0 {
+        return String::new();
+    }
+    // SAFETY: guaranteed by the caller (see above).
+    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// Allocate `len` bytes for the caller to fill (e.g. with a bundle).
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_alloc(len: usize) -> *mut u8 {
+    let mut v = Vec::<u8>::with_capacity(len.max(1));
+    let ptr = v.as_mut_ptr();
+    std::mem::forget(v);
+    ptr
+}
+
+/// Free memory from [`slate_alloc`].
+///
+/// # Safety
+/// `ptr` and `len` must come from one `slate_alloc(len)` call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn slate_free(ptr: *mut u8, len: usize) {
+    if !ptr.is_null() {
+        // SAFETY: allocated by slate_alloc with capacity len.max(1).
+        drop(unsafe { Vec::from_raw_parts(ptr, 0, len.max(1)) });
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_out_ptr() -> *const u8 {
+    with(|s| s.out.as_ptr())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_out_len() -> u32 {
+    with(|s| s.out.len() as u32)
+}
+
+/// Writes the engine version to the output buffer.
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_version() -> u32 {
+    with(|s| set_out(s, slate_core::ENGINE_VERSION.to_string()))
+}
+
+/// Load a project bundle (see `Vfs::to_bundle`). Returns 0 on success, 1 on
+/// error (message in the output buffer).
+///
+/// # Safety
+/// See [`read_str`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn slate_set_bundle(ptr: *const u8, len: usize) -> u32 {
+    // SAFETY: forwarded caller contract.
+    let text = unsafe { read_str(ptr, len) };
+    with(|s| match Vfs::from_bundle(&text) {
+        Ok(vfs) => {
+            s.vfs = Some(vfs);
+            s.session = None;
+            0
+        }
+        Err(e) => {
+            set_out(s, Json::object().with("ok", false).with("error", e).to_compact());
+            1
+        }
+    })
+}
+
+/// Start a session. Empty strings mean "default" (main scene, no script).
+/// Returns 0 on success; on failure the output buffer holds
+/// `{"ok": false, "diagnostics": [...]}`.
+///
+/// # Safety
+/// See [`read_str`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn slate_start(
+    scene_ptr: *const u8,
+    scene_len: usize,
+    input_ptr: *const u8,
+    input_len: usize,
+) -> u32 {
+    // SAFETY: forwarded caller contract.
+    let (scene, input) = unsafe { (read_str(scene_ptr, scene_len), read_str(input_ptr, input_len)) };
+    with(|s| {
+        let Some(vfs) = &s.vfs else {
+            set_out(s, Json::object().with("ok", false).with("error", "no bundle loaded").to_compact());
+            return 1;
+        };
+        let cfg = SessionConfig {
+            scene: Some(scene).filter(|x| !x.is_empty()),
+            script: Some(input).filter(|x| !x.is_empty()),
+            seed: None,
+        };
+        match Session::load(vfs, &cfg, Box::new(DataOnly)) {
+            Ok(session) => {
+                let warnings = diags_json(&session.warnings);
+                s.session = Some(session);
+                set_out(s, warnings);
+                0
+            }
+            Err(diags) => {
+                let text = diags_json(&diags);
+                set_out(s, text);
+                s.session = None;
+                1
+            }
+        }
+    })
+}
+
+/// One fixed step. `pressed`/`down` are action bit masks (up=1, down=2,
+/// left=4, right=8, confirm=16, cancel=32); `tap` != 0 adds a tap at
+/// (tap_x, tap_y) in frame pixels.
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_step(pressed: u32, down: u32, tap: u32, tap_x: f32, tap_y: f32) {
+    with(|s| {
+        if let Some(session) = s.session.as_mut() {
+            let live = LiveInput {
+                pressed: ActionSet::from_bits(pressed),
+                down: ActionSet::from_bits(down),
+                taps: if tap != 0 { vec![(tap_x, tap_y)] } else { vec![] },
+            };
+            session.step(&live);
+        }
+    })
+}
+
+/// Step (with scripted input only) until `frame`.
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_run_to(frame: u32) {
+    with(|s| {
+        if let Some(session) = s.session.as_mut() {
+            session.run_to(frame as u64);
+        }
+    })
+}
+
+/// Render the current frame; returns a pointer to width*height*4 RGBA bytes,
+/// valid until the next call.
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_render() -> *const u8 {
+    with(|s| {
+        if let Some(session) = &s.session {
+            let (frame, _) = session.render();
+            s.pixels = frame.rgba;
+        }
+        s.pixels.as_ptr()
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_width() -> u32 {
+    with(|s| s.session.as_ref().map_or(0, |x| x.view.width))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_height() -> u32 {
+    with(|s| s.session.as_ref().map_or(0, |x| x.view.height))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_frame() -> u32 {
+    with(|s| s.session.as_ref().map_or(0, |x| x.frame() as u32))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_tick_rate() -> u32 {
+    with(|s| s.session.as_ref().map_or(60, |x| x.project.sim.tick_rate))
+}
+
+/// Frames the loaded input script asks for (0 if none).
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_script_frames() -> u32 {
+    with(|s| s.session.as_ref().and_then(|x| x.script_frames()).unwrap_or(0) as u32)
+}
+
+/// Writes the state hash (16 hex digits) to the output buffer.
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_hash() -> u32 {
+    with(|s| {
+        let h = s.session.as_ref().map(Session::hash_hex).unwrap_or_default();
+        set_out(s, h)
+    })
+}
+
+/// Writes the image hash of the current frame to the output buffer.
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_image_hash() -> u32 {
+    with(|s| {
+        let h = s.session.as_ref().map(|x| slate_core::hash::hex(x.render().0.image_hash())).unwrap_or_default();
+        set_out(s, h)
+    })
+}
+
+/// Writes the world JSON (like `slate inspect --json`) to the output buffer.
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_inspect() -> u32 {
+    with(|s| {
+        let j = s.session.as_ref().map(|x| x.inspect(&InspectOptions::default())).unwrap_or(Json::Null);
+        set_out(s, j.to_compact())
+    })
+}
+
+/// Writes events from frame `since` on, as a JSON array.
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_events(since: u32) -> u32 {
+    with(|s| {
+        let j = match &s.session {
+            Some(x) => Json::Arr(
+                x.world
+                    .events
+                    .all()
+                    .iter()
+                    .filter(|e| e.frame >= since as u64)
+                    .map(|e| dump::event_json(&x.world, e))
+                    .collect(),
+            ),
+            None => Json::array(),
+        };
+        set_out(s, j.to_compact())
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn out() -> String {
+        with(|s| String::from_utf8(s.out.clone()).unwrap())
+    }
+
+    #[test]
+    fn abi_round_trip_matches_the_native_runtime() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/iso_garden");
+        let vfs = Vfs::from_dir(&root).unwrap();
+        let bundle = vfs.to_bundle();
+        let input = "tests/walkthrough.toml";
+        // SAFETY: pointers come from live Rust strings.
+        unsafe {
+            assert_eq!(slate_set_bundle(bundle.as_ptr(), bundle.len()), 0);
+            assert_eq!(slate_start(std::ptr::null(), 0, input.as_ptr(), input.len()), 0, "{}", out());
+        }
+        assert_eq!(slate_script_frames(), 300);
+        slate_run_to(300);
+        slate_hash();
+        let web_hash = out();
+
+        let cfg = SessionConfig { script: Some(input.into()), ..Default::default() };
+        let mut native = Session::load(&vfs, &cfg, Box::new(DataOnly)).unwrap();
+        native.run_to(300);
+        assert_eq!(web_hash, native.hash_hex());
+        assert_eq!(slate_width(), 640);
+        assert!(!slate_render().is_null());
+    }
+
+    #[test]
+    fn start_errors_come_back_as_json() {
+        let mut vfs = Vfs::new();
+        vfs.insert("slate.toml", "[project]\nname = \"x\"\n");
+        let bundle = vfs.to_bundle();
+        // SAFETY: pointers come from live Rust strings.
+        unsafe {
+            assert_eq!(slate_set_bundle(bundle.as_ptr(), bundle.len()), 0);
+            assert_eq!(slate_start(std::ptr::null(), 0, std::ptr::null(), 0), 1);
+        }
+        let j = Json::parse(&out()).unwrap();
+        assert_eq!(j.pointer("diagnostics/0/code").and_then(Json::as_str), Some("E0204"));
+    }
+}

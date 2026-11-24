@@ -99,10 +99,10 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
             p.1 += s.visible;
         }
         for (&other_idx, &n) in &s.covered_by {
-            if let Some(other) = list.items[other_idx].entity {
-                if other != id {
-                    *covered.entry(id).or_default().entry(other).or_insert(0) += n;
-                }
+            if let Some(other) = list.items[other_idx].entity
+                && other != id
+            {
+                *covered.entry(id).or_default().entry(other).or_insert(0) += n;
             }
         }
     }
@@ -120,33 +120,40 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
         let [x, y, w, h] = r.bounds.xywh();
         if r.offscreen {
             issues.push(
-                Diagnostic::new(&codes::OFFSCREEN, format!("{} is drawn entirely off-screen at [{x}, {y}, {w}, {h}]", r.label))
-                    .hint("move it or the camera ([camera] center in the scene)"),
+                Diagnostic::new(
+                    &codes::OFFSCREEN,
+                    format!("{} is drawn entirely off-screen at [{x}, {y}, {w}, {h}]", r.label),
+                )
+                .hint("move it or the camera ([camera] center in the scene)"),
             );
         } else if r.clipped {
             issues.push(Diagnostic::new(
                 &codes::CLIPPED,
-                format!("{} is partly off-screen at [{x}, {y}, {w}, {h}] (frame {}x{})", r.label, frame.width, frame.height),
+                format!(
+                    "{} is partly off-screen at [{x}, {y}, {w}, {h}] (frame {}x{})",
+                    r.label, frame.width, frame.height
+                ),
             ));
         }
-        if let Some(&(drawn, visible)) = sprite_px.get(&id) {
-            if drawn > 0 && (visible as f64) < OCCLUDED_BELOW * drawn as f64 {
-                let by: Vec<String> = r
-                    .covered_by
-                    .iter()
-                    .take(3)
-                    .map(|(o, n)| format!("{} ({n} px)", world.get(*o).map_or_else(|| format!("#{o}"), |e| e.label())))
-                    .collect();
-                issues.push(Diagnostic::new(
-                    &codes::OCCLUDED,
-                    format!(
-                        "sprite of {} is {}% visible; covered by {}",
-                        r.label,
-                        visible * 100 / drawn,
-                        if by.is_empty() { "nothing on screen".to_string() } else { by.join(", ") }
-                    ),
-                ));
-            }
+        if let Some(&(drawn, visible)) = sprite_px.get(&id)
+            && drawn > 0
+            && (visible as f64) < OCCLUDED_BELOW * drawn as f64
+        {
+            let by: Vec<String> = r
+                .covered_by
+                .iter()
+                .take(3)
+                .map(|(o, n)| format!("{} ({n} px)", world.get(*o).map_or_else(|| format!("#{o}"), |e| e.label())))
+                .collect();
+            issues.push(Diagnostic::new(
+                &codes::OCCLUDED,
+                format!(
+                    "sprite of {} is {}% visible; covered by {}",
+                    r.label,
+                    visible * 100 / drawn,
+                    if by.is_empty() { "nothing on screen".to_string() } else { by.join(", ") }
+                ),
+            ));
         }
         entities.push(r);
     }

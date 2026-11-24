@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "slate-web-iso-garden",
+      "runtimeExecutable": "cargo",
+      "runtimeArgs": ["run", "--quiet", "--bin", "slate", "--", "serve", "examples/iso_garden", "--port", "4410"],
+      "port": 4410
+    }
+  ]
+}

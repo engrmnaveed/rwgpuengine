@@ -222,7 +222,14 @@ impl World {
     }
 
     /// Append an event for the current frame.
-    pub fn log(&mut self, kind: EventKind, entity: Option<EntityId>, other: Option<EntityId>, message: String, data: Json) {
+    pub fn log(
+        &mut self,
+        kind: EventKind,
+        entity: Option<EntityId>,
+        other: Option<EntityId>,
+        message: String,
+        data: Json,
+    ) {
         let signal = data.get("signal").and_then(Json::as_str).map(str::to_string);
         self.events.push(Event { frame: self.frame, kind, entity, other, signal, message, data });
     }
@@ -272,7 +279,13 @@ impl World {
                         msg.push_str(&format!("; disabled {} is under the pointer", self.describe(d)));
                     }
                     let under: Vec<Json> = tap.under_disabled.iter().map(|id| Json::from(*id)).collect();
-                    self.log(EventKind::TapMiss, tap.under_disabled.first().copied(), None, msg, data.with("under_disabled", under));
+                    self.log(
+                        EventKind::TapMiss,
+                        tap.under_disabled.first().copied(),
+                        None,
+                        msg,
+                        data.with("under_disabled", under),
+                    );
                 }
             }
         }
@@ -280,18 +293,15 @@ impl World {
 
     /// The entity that stops something entering `cell`, if any.
     pub fn blocker_at(&self, cell: [i32; 2], except: EntityId) -> Option<(EntityId, &'static str)> {
-        self.entities
-            .iter()
-            .filter(|e| e.id != except && e.enabled && e.cell() == cell)
-            .find_map(|e| {
-                if e.solid {
-                    Some((e.id, "solid"))
-                } else if e.is_actor() {
-                    Some((e.id, "actor"))
-                } else {
-                    None
-                }
-            })
+        self.entities.iter().filter(|e| e.id != except && e.enabled && e.cell() == cell).find_map(|e| {
+            if e.solid {
+                Some((e.id, "solid"))
+            } else if e.is_actor() {
+                Some((e.id, "actor"))
+            } else {
+                None
+            }
+        })
     }
 
     /// Move one cell. Every refusal is logged with its reason.
@@ -301,16 +311,16 @@ impl World {
         let to = [from[0] + dx, from[1] + dy];
         let who = e.describe();
         let base = Json::object().with("cause", cause).with("from", from).with("to", to);
-        if let Some([w, h]) = self.bounds {
-            if to[0] < 0 || to[1] < 0 || to[0] >= w || to[1] >= h {
-                let msg = format!(
-                    "{who} could not move {cause} from {} to {}: outside the {w}x{h} ground",
-                    fmt_cell(from),
-                    fmt_cell(to)
-                );
-                self.log(EventKind::Blocked, Some(id), None, msg, base.with("reason", "edge"));
-                return false;
-            }
+        if let Some([w, h]) = self.bounds
+            && (to[0] < 0 || to[1] < 0 || to[0] >= w || to[1] >= h)
+        {
+            let msg = format!(
+                "{who} could not move {cause} from {} to {}: outside the {w}x{h} ground",
+                fmt_cell(from),
+                fmt_cell(to)
+            );
+            self.log(EventKind::Blocked, Some(id), None, msg, base.with("reason", "edge"));
+            return false;
         }
         if let Some((blocker, reason)) = self.blocker_at(to, id) {
             let what = if reason == "solid" { "solid" } else { "actor" };
@@ -336,7 +346,9 @@ impl World {
             let mover = self.entities[id as usize].mover.as_mut().expect("mover");
             mover.cooldown = mover.cooldown.saturating_sub(1);
             let (cooldown, step) = (mover.cooldown, mover.step_frames);
-            let Some(dir) = Action::DIRECTIONS.into_iter().find(|a| input.down.contains(*a)) else { continue };
+            let Some(dir) = Action::DIRECTIONS.into_iter().find(|a| input.down.contains(*a)) else {
+                continue;
+            };
             if cooldown == 0 {
                 let (dx, dy) = dir.delta().expect("direction");
                 self.try_move(id, dx, dy, dir.name());
@@ -349,7 +361,8 @@ impl World {
                     "{who} ignored '{}': still waiting {cooldown} frame(s) after its last move (mover.step_frames = {step})",
                     dir.name()
                 );
-                let data = Json::object().with("cause", dir.name()).with("reason", "cooldown").with("frames_left", cooldown);
+                let data =
+                    Json::object().with("cause", dir.name()).with("reason", "cooldown").with("frames_left", cooldown);
                 self.log(EventKind::Blocked, Some(id), None, msg, data);
             }
         }
@@ -401,19 +414,20 @@ impl World {
             let (dx, dy) = dir.delta().expect("direction");
             let cell = self.entities[id as usize].cell();
             let to = [cell[0] + dx, cell[1] + dy];
-            if let Some([lo, hi]) = area {
-                if to[0] < lo[0] || to[1] < lo[1] || to[0] > hi[0] || to[1] > hi[1] {
-                    let msg = format!(
-                        "{} stayed: {} is outside its wander area {}..{}",
-                        self.describe(id),
-                        fmt_cell(to),
-                        fmt_cell(lo),
-                        fmt_cell(hi)
-                    );
-                    let data = Json::object().with("cause", "wander").with("reason", "area").with("from", cell).with("to", to);
-                    self.log(EventKind::Blocked, Some(id), None, msg, data);
-                    continue;
-                }
+            if let Some([lo, hi]) = area
+                && (to[0] < lo[0] || to[1] < lo[1] || to[0] > hi[0] || to[1] > hi[1])
+            {
+                let msg = format!(
+                    "{} stayed: {} is outside its wander area {}..{}",
+                    self.describe(id),
+                    fmt_cell(to),
+                    fmt_cell(lo),
+                    fmt_cell(hi)
+                );
+                let data =
+                    Json::object().with("cause", "wander").with("reason", "area").with("from", cell).with("to", to);
+                self.log(EventKind::Blocked, Some(id), None, msg, data);
+                continue;
             }
             self.try_move(id, dx, dy, "wander");
         }
@@ -422,7 +436,9 @@ impl World {
     /// Actors on a trigger's cell, honoring `only`.
     fn occupants_of(&self, trigger_id: EntityId) -> Vec<EntityId> {
         let t = &self.entities[trigger_id as usize];
-        let Some(trigger) = &t.trigger else { return Vec::new() };
+        let Some(trigger) = &t.trigger else {
+            return Vec::new();
+        };
         let cell = t.cell();
         self.entities
             .iter()
@@ -473,7 +489,13 @@ impl World {
                      This is usually a loop of connections (E0301)",
                     self.describe(from)
                 );
-                self.log(EventKind::Error, Some(from), None, msg, Json::object().with("code", "E0301").with("signal", signal.as_str()));
+                self.log(
+                    EventKind::Error,
+                    Some(from),
+                    None,
+                    msg,
+                    Json::object().with("code", "E0301").with("signal", signal.as_str()),
+                );
                 self.pending.clear();
                 break;
             }
@@ -502,7 +524,9 @@ impl World {
     }
 
     fn apply_action(&mut self, from: EntityId, signal: &str, to: EntityId, action: ConnectAction) {
-        let Some(target) = self.entities.get_mut(to as usize) else { return };
+        let Some(target) = self.entities.get_mut(to as usize) else {
+            return;
+        };
         let before = target.enabled;
         let after = match action {
             ConnectAction::Enable => true,
@@ -597,11 +621,7 @@ fn advance(p: &mut Patrol) {
 
 /// One axis at a time, x first.
 fn step_toward(from: [i32; 2], to: [i32; 2]) -> (i32, i32) {
-    if from[0] != to[0] {
-        ((to[0] - from[0]).signum(), 0)
-    } else {
-        (0, (to[1] - from[1]).signum())
-    }
+    if from[0] != to[0] { ((to[0] - from[0]).signum(), 0) } else { (0, (to[1] - from[1]).signum()) }
 }
 
 pub fn fmt_cell(c: [i32; 2]) -> String {

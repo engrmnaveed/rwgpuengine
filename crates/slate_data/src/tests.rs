@@ -88,10 +88,8 @@ pos = [1, 0]
 
 #[test]
 fn missing_prefab_suggests_a_name() {
-    let vfs = project(&[
-        ("prefabs/wall.toml", WALL),
-        ("scenes/main.toml", "[[entity]]\nprefab = \"wal\"\npos = [0, 0]\n"),
-    ]);
+    let vfs =
+        project(&[("prefabs/wall.toml", WALL), ("scenes/main.toml", "[[entity]]\nprefab = \"wal\"\npos = [0, 0]\n")]);
     let r = check_project(&vfs);
     assert_eq!(r.diagnostics[0].code, "E0201");
     assert_eq!(r.diagnostics[0].hint.as_deref(), Some("did you mean `wall`?"));

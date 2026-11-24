@@ -120,7 +120,8 @@ fn plate_opens_gate_through_a_connection() {
     assert_eq!(w.by_name("player").unwrap().cell(), [1, 2]);
 
     // Leaving the plate emits `released`, which nothing listens to.
-    let released = w.events.all().iter().find(|e| e.signal.as_deref() == Some("released") && e.kind == EventKind::Signal);
+    let released =
+        w.events.all().iter().find(|e| e.signal.as_deref() == Some("released") && e.kind == EventKind::Signal);
     assert!(released.unwrap().message.contains("nothing is connected"));
 }
 
@@ -129,9 +130,18 @@ fn taps_emit_tapped_and_misses_explain_themselves() {
     let mut w = world(SCENE, 1);
     let bell = w.find("bell").unwrap();
     let gate = w.find("gate").unwrap();
-    step(&mut w, InputFrame { taps: vec![Tap { x: 1.0, y: 2.0, hit: Some(bell), under_disabled: vec![] }], ..Default::default() });
+    step(
+        &mut w,
+        InputFrame {
+            taps: vec![Tap { x: 1.0, y: 2.0, hit: Some(bell), under_disabled: vec![] }],
+            ..Default::default()
+        },
+    );
     assert_eq!(kinds(&w), vec!["tap", "signal"]);
-    step(&mut w, InputFrame { taps: vec![Tap { x: 3.0, y: 4.0, hit: None, under_disabled: vec![gate] }], ..Default::default() });
+    step(
+        &mut w,
+        InputFrame { taps: vec![Tap { x: 3.0, y: 4.0, hit: None, under_disabled: vec![gate] }], ..Default::default() },
+    );
     let miss = w.events.all().last().unwrap();
     assert_eq!(miss.kind, EventKind::TapMiss);
     assert!(miss.message.contains("disabled 'gate' (#3) is under the pointer"), "{}", miss.message);

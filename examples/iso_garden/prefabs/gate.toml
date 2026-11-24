@@ -1,0 +1,3 @@
+doc = "A wooden gate. Solid while enabled; a [[connect]] usually disables it."
+block = { color = "#b5523b", height = 1.2 }
+solid = true

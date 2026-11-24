@@ -39,6 +39,9 @@ disallowed_methods = "deny"
 disallowed_types = "deny"
 dbg_macro = "warn"
 todo = "warn"
+# Diagnostics are rich (message, location, hint, notes) and only travel on
+# the error path; boxing them would buy nothing.
+result_large_err = "allow"
 
 [profile.dev]
 # Keep debug info light: faster links, faster edit-and-verify loop.

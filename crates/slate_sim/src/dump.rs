@@ -68,7 +68,10 @@ pub fn entity_json(world: &World, e: &Entity) -> Json {
     }
     if let Some(w) = &e.wander {
         let area = w.def.area.map(|[a, b]| Json::Arr(vec![Json::from(a), Json::from(b)]));
-        j.set("wander", Json::object().with("step_frames", w.def.step_frames).with("area", area).with("timer", w.timer));
+        j.set(
+            "wander",
+            Json::object().with("step_frames", w.def.step_frames).with("area", area).with("timer", w.timer),
+        );
     }
     if let Some(t) = &e.trigger {
         let occ: Vec<Json> = t.occupants.iter().map(|id| Json::from(label(world, *id))).collect();

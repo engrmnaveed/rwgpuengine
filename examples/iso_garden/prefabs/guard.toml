@@ -1,0 +1,2 @@
+doc = "A guard token. Give it a patrol path in the scene."
+sprite = { shape = "diamond", color = "#c0392b", size = [24, 30] }

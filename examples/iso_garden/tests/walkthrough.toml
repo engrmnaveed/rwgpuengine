@@ -1,0 +1,40 @@
+# The intended solution: plate first, then through the gate to the goal.
+# Movers step every 8 frames while a direction is held, so `for = 32`
+# gives exactly four steps.
+
+[test]
+doc = "Walk onto the plate, through the opened gate, to the goal."
+frames = 300
+
+[[input]]
+frame = 10
+press = "right"      # (1, 1) -> (2, 1)
+
+[[input]]
+frame = 30
+hold = "down"        # (2, 2) (2, 3) (2, 4) (2, 5) = plate: gate opens
+for = 32
+
+[[input]]
+frame = 80
+hold = "right"       # (3, 5) (4, 5) open gate, (5, 5) (6, 5) = goal
+for = 32
+
+[[expect]]
+entity = "player"
+pos = [6, 5]
+
+[[expect]]
+entity = "gate"
+enabled = false
+
+[[expect]]
+entity = "flag"
+enabled = true
+
+[[expect]]
+event = "signal"
+signal = "reached"
+
+[[shot]]
+reference = "tests/refs/walkthrough_300.png"

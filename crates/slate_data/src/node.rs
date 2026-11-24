@@ -196,11 +196,7 @@ pub fn parse_toml(src: &SourceFile) -> Result<Table, Diagnostic> {
 fn convert_table(t: &dyn TableLike, fallback: Span) -> Table {
     let mut entries = Vec::new();
     for (key, item) in t.iter() {
-        let key_span = t
-            .get_key_value(key)
-            .and_then(|(k, _)| k.span())
-            .map(Span::from)
-            .unwrap_or(fallback);
+        let key_span = t.get_key_value(key).and_then(|(k, _)| k.span()).map(Span::from).unwrap_or(fallback);
         if let Some(value) = convert_item(item, key_span) {
             entries.push(Entry { key: key.to_string(), key_span, value });
         }

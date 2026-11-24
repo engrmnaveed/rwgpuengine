@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>slate player</title>
+<style>
+  :root { color-scheme: dark; --bg: #12151c; --panel: #1b202b; --line: #2a3140; --text: #d7dce5; --dim: #8a93a6; --accent: #ffcc33; --bad: #ff6b5b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .dim { color: var(--dim); }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; padding: 16px; }
+  @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+  .stage { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  canvas { width: 100%; max-width: 960px; height: auto; image-rendering: pixelated; border-radius: 6px; touch-action: none; background: #000; }
+  .controls, .status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
+  button, select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--dim); }
+  .status code { background: var(--panel); padding: 2px 6px; border-radius: 4px; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .pad { display: grid; grid-template-columns: repeat(2, 64px); gap: 8px; }
+  .pad button { height: 52px; font-size: 18px; touch-action: none; }
+  aside { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 6px; }
+  #events { margin: 0; padding: 0; list-style: none; max-height: 360px; overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #events li { padding: 2px 0; border-bottom: 1px dashed var(--line); }
+  #events .f { color: var(--dim); }
+  #errors { display: none; color: var(--bad); white-space: pre-wrap; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .help { color: var(--dim); font-size: 13px; margin: 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>slate player</h1>
+  <span class="dim" id="project">loading…</span>
+  <label class="dim">scene <select id="scene"></select></label>
+  <label class="dim">input <select id="input"><option value="">(live)</option></select></label>
+</header>
+<main>
+  <div class="stage">
+    <canvas id="screen" width="640" height="480"></canvas>
+    <div class="status">
+      frame <code id="frame">0</code>
+      state <code id="hash">-</code>
+      <span class="dim" id="note"></span>
+    </div>
+    <div class="controls">
+      <button id="play">Pause</button>
+      <button id="step">Step</button>
+      <button id="restart">Restart</button>
+      <div class="pad" aria-label="direction pad">
+        <button data-action="left" title="left (-x)">↖</button>
+        <button data-action="up" title="up (-y)">↗</button>
+        <button data-action="down" title="down (+y)">↙</button>
+        <button data-action="right" title="right (+x)">↘</button>
+      </div>
+    </div>
+  </div>
+  <aside>
+    <section>
+      <h2>Problems</h2>
+      <div id="errors"></div>
+      <p class="help" id="noerrors">None.</p>
+    </section>
+    <section>
+      <h2>Events</h2>
+      <ul id="events"></ul>
+    </section>
+    <section>
+      <h2>Controls</h2>
+      <p class="help">Arrow keys / WASD or the pad move; swipe on the screen to move, tap to tap an entity.
+      Edit any project file and the player reloads it. URL: <code>?scene=…&amp;input=…&amp;frames=N</code> runs N
+      frames at once and pauses; the state hash matches <code>slate run</code>.</p>
+    </section>
+  </aside>
+</main>
+<script src="player.js"></script>
+</body>
+</html>

@@ -1,0 +1,3 @@
+doc = "A low garden hedge. Blocks movement."
+block = { color = "#3f7d4e", height = 0.6 }
+solid = true

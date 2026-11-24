@@ -1,0 +1,3 @@
+doc = "A pressure plate: emits `pressed` when an actor steps on it, `released` when it leaves."
+tile = { color = "#d9c27a" }
+trigger = {}

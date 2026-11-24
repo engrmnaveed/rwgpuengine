@@ -21,7 +21,8 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 6] = [Action::Up, Action::Down, Action::Left, Action::Right, Action::Confirm, Action::Cancel];
+    pub const ALL: [Action; 6] =
+        [Action::Up, Action::Down, Action::Left, Action::Right, Action::Confirm, Action::Cancel];
     /// Directions in the order movers check them when several are held.
     pub const DIRECTIONS: [Action; 4] = [Action::Up, Action::Down, Action::Left, Action::Right];
 
@@ -334,7 +335,11 @@ pub(crate) fn decode_project(root: &Table) -> ProjectDef {
         name: p.str("name"),
         engine: p.opt_str("engine"),
         main_scene: p.str("main_scene"),
-        display: DisplayDef { width: d.int("width") as u32, height: d.int("height") as u32, background: d.color("background") },
+        display: DisplayDef {
+            width: d.int("width") as u32,
+            height: d.int("height") as u32,
+            background: d.color("background"),
+        },
         iso: IsoDef {
             tile_width: i.int("tile_width") as i32,
             tile_height: i.int("tile_height") as i32,
@@ -380,7 +385,8 @@ pub(crate) fn decode_entity(t: &Table, pos: [f32; 3], origin: Origin) -> EntityD
             };
             SpriteDef { shape, color: s.color("color"), size: s.vec2("size"), offset: s.vec2("offset") }
         }),
-        mover: comp("mover").map(|t| MoverDef { step_frames: Fields::new(t, &schema::MOVER).int("step_frames") as u32 }),
+        mover: comp("mover")
+            .map(|t| MoverDef { step_frames: Fields::new(t, &schema::MOVER).int("step_frames") as u32 }),
         patrol: comp("patrol").map(|t| {
             let p = Fields::new(t, &schema::PATROL);
             let mode = if p.str("mode") == "pingpong" { PatrolMode::PingPong } else { PatrolMode::Loop };

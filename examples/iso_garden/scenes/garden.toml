@@ -1,0 +1,72 @@
+# Step on the plate to open the gate, then reach the golden tile.
+#
+# Grid: +x runs down-right on screen, +y down-left. The ground is 8x8,
+# cells (0, 0) to (7, 7). A hedge splits the garden along x = 4.
+
+[scene]
+name = "Garden gate"
+doc = "Step on the plate to open the gate, then reach the golden tile."
+
+[ground]
+size = [8, 8]
+color = "#6fa86a"
+alt_color = "#64995f"
+
+[[entity]]
+prefab = "hedge"
+cells = [[4, 0], [4, 1], [4, 2], [4, 3], [4, 4], [4, 6], [4, 7]]
+
+[[entity]]
+name = "gate"
+prefab = "gate"
+pos = [4, 5]
+
+[[entity]]
+name = "plate"
+prefab = "plate"
+pos = [2, 5]
+
+[[entity]]
+name = "goal"
+prefab = "goal"
+pos = [6, 5]
+
+[[entity]]
+name = "flag"
+prefab = "flag"
+pos = [7, 5]
+
+[[entity]]
+name = "player"
+prefab = "player"
+pos = [1, 1]
+
+[[entity]]
+name = "guard"
+prefab = "guard"
+pos = [6, 1]
+patrol = { path = [[6, 1], [6, 3]], step_frames = 30, mode = "pingpong" }
+
+[[entity]]
+name = "hen"
+prefab = "chicken"
+pos = [0, 7]
+wander = { area = [[0, 6], [1, 7]] }
+
+[[entity]]
+prefab = "crate"
+cells = [[0, 3], [7, 7]]
+
+# Standing on the plate opens the gate.
+[[connect]]
+from = "plate"
+signal = "pressed"
+to = "gate"
+action = "disable"
+
+# Reaching the goal raises the flag.
+[[connect]]
+from = "goal"
+signal = "reached"
+to = "flag"
+action = "enable"

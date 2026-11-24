@@ -1,0 +1,4 @@
+# Dense code is cheaper for agents (and people) to read: fewer lines, same
+# structure. See docs/conventions.md#formatting.
+max_width = 120
+use_small_heuristics = "Max"

@@ -1,0 +1,3 @@
+doc = "A victory flag, hidden until enabled."
+sprite = { shape = "rect", color = "#e74c3c", size = [6, 40] }
+enabled = false

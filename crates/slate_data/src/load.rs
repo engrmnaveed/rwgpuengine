@@ -122,7 +122,12 @@ fn walk(root: &Path, dir: &Path, vfs: &mut Vfs) -> std::io::Result<()> {
 }
 
 /// Parse and validate one file against a file-level spec.
-fn parse_checked(vfs: &Vfs, path: &str, spec: &'static schema::Spec, diags: &mut Vec<Diagnostic>) -> Option<(SourceFile, Table, bool)> {
+fn parse_checked(
+    vfs: &Vfs,
+    path: &str,
+    spec: &'static schema::Spec,
+    diags: &mut Vec<Diagnostic>,
+) -> Option<(SourceFile, Table, bool)> {
     let text = vfs.get(path)?;
     let src = SourceFile::new(path, text);
     let root = match parse_toml(&src) {
@@ -150,9 +155,8 @@ pub fn load_project(vfs: &Vfs) -> (Option<ProjectDef>, Vec<Diagnostic>) {
         return (None, diags);
     };
     let project = defs::decode_project(&root);
-    let span_of = |section: &str, key: &str| {
-        root.table(section).map_or(Span::default(), |t| t.value_span(key, Span::default()))
-    };
+    let span_of =
+        |section: &str, key: &str| root.table(section).map_or(Span::default(), |t| t.value_span(key, Span::default()));
     if ok && !vfs.contains(&project.main_scene) {
         diags.push(
             Diagnostic::new(&codes::UNKNOWN_SCENE, format!("main_scene `{}` does not exist", project.main_scene))
@@ -260,9 +264,12 @@ impl<'a> SceneLoader<'a> {
             if let Some(cells_node) = t.get("cells") {
                 if let Some(name) = t.str("name") {
                     self.diags.push(
-                        Diagnostic::new(&codes::NAME_WITH_CELLS, format!("entity `{name}` has both `name` and `cells`"))
-                            .at(&src, t.key_span("name", node.span))
-                            .hint("remove `name`, or use one [[entity]] with `pos` per named entity"),
+                        Diagnostic::new(
+                            &codes::NAME_WITH_CELLS,
+                            format!("entity `{name}` has both `name` and `cells`"),
+                        )
+                        .at(&src, t.key_span("name", node.span))
+                        .hint("remove `name`, or use one [[entity]] with `pos` per named entity"),
                     );
                     continue;
                 }
@@ -300,9 +307,12 @@ impl<'a> SceneLoader<'a> {
                     let hint = did_you_mean(name, names.keys().map(String::as_str))
                         .unwrap_or_else(|| format!("give an entity `name = \"{name}\"`"));
                     self.diags.push(
-                        Diagnostic::new(&codes::UNKNOWN_ENTITY, format!("[[connect]] `{key}` names unknown entity `{name}`"))
-                            .at(&src, t.value_span(key, node.span))
-                            .hint(hint),
+                        Diagnostic::new(
+                            &codes::UNKNOWN_ENTITY,
+                            format!("[[connect]] `{key}` names unknown entity `{name}`"),
+                        )
+                        .at(&src, t.value_span(key, node.span))
+                        .hint(hint),
                     );
                 }
             }
@@ -332,31 +342,34 @@ impl<'a> SceneLoader<'a> {
                 if let Some(&j) = solid_cells.get(&cell) {
                     let other = &entities[j];
                     self.diags.push(
-                        Diagnostic::new(&codes::SOLID_OVERLAP, format!("two solid entities on cell [{}, {}]", cell[0], cell[1]))
-                            .at(&src, e.origin.span)
-                            .note(format!("the other one is at {}:{}", other.origin.file, other.origin.line)),
+                        Diagnostic::new(
+                            &codes::SOLID_OVERLAP,
+                            format!("two solid entities on cell [{}, {}]", cell[0], cell[1]),
+                        )
+                        .at(&src, e.origin.span)
+                        .note(format!("the other one is at {}:{}", other.origin.file, other.origin.line)),
                     );
                 } else {
                     solid_cells.insert(cell, i);
                 }
             }
-            if let Some(g) = &ground {
-                if cell[0] < 0 || cell[1] < 0 || cell[0] >= g.size[0] || cell[1] >= g.size[1] {
-                    self.diags.push(
-                        Diagnostic::new(
-                            &codes::OUTSIDE_GROUND,
-                            format!(
-                                "{} is on cell [{}, {}], outside the {}x{} ground",
-                                e.name.as_deref().map_or("entity".to_string(), |n| format!("`{n}`")),
-                                cell[0],
-                                cell[1],
-                                g.size[0],
-                                g.size[1]
-                            ),
-                        )
-                        .at(&src, e.origin.span),
-                    );
-                }
+            if let Some(g) = &ground
+                && (cell[0] < 0 || cell[1] < 0 || cell[0] >= g.size[0] || cell[1] >= g.size[1])
+            {
+                self.diags.push(
+                    Diagnostic::new(
+                        &codes::OUTSIDE_GROUND,
+                        format!(
+                            "{} is on cell [{}, {}], outside the {}x{} ground",
+                            e.name.as_deref().map_or("entity".to_string(), |n| format!("`{n}`")),
+                            cell[0],
+                            cell[1],
+                            g.size[0],
+                            g.size[1]
+                        ),
+                    )
+                    .at(&src, e.origin.span),
+                );
             }
         }
 
@@ -408,9 +421,12 @@ fn load_playtest_lenient(vfs: &Vfs, path: &str) -> (Option<PlaytestDef>, Vec<Dia
         if kinds.len() != 1 {
             let found = if kinds.is_empty() { "none".to_string() } else { kinds.join(" and ") };
             diags.push(
-                Diagnostic::new(&codes::INVALID_VALUE, format!("[[input]] needs exactly one of `press`, `hold` or `tap` (found {found})"))
-                    .at(&src, node.span)
-                    .hint("split it into separate [[input]] tables"),
+                Diagnostic::new(
+                    &codes::INVALID_VALUE,
+                    format!("[[input]] needs exactly one of `press`, `hold` or `tap` (found {found})"),
+                )
+                .at(&src, node.span)
+                .hint("split it into separate [[input]] tables"),
             );
             continue;
         }
@@ -441,28 +457,32 @@ fn load_playtest_lenient(vfs: &Vfs, path: &str) -> (Option<PlaytestDef>, Vec<Dia
         let line = src.locate(node.span.start).0;
         let state_keys: Vec<&str> = ["pos", "enabled", "solid", "props"].into_iter().filter(|k| t.has(k)).collect();
         if !t.has("event") && (!t.has("entity") || state_keys.is_empty()) {
-            diags.push(
-                Diagnostic::new(&codes::INVALID_VALUE, "[[expect]] checks nothing")
-                    .at(&src, node.span)
-                    .hint("use `entity` with `pos`/`enabled`/`solid`/`props`, or `event` (optionally with `entity`/`signal`)"),
-            );
+            diags.push(Diagnostic::new(&codes::INVALID_VALUE, "[[expect]] checks nothing").at(&src, node.span).hint(
+                "use `entity` with `pos`/`enabled`/`solid`/`props`, or `event` (optionally with `entity`/`signal`)",
+            ));
             continue;
         }
         if t.has("event") && !state_keys.is_empty() {
             diags.push(
-                Diagnostic::new(&codes::INVALID_VALUE, format!("[[expect]] mixes `event` with `{}`", state_keys.join("`, `")))
-                    .at(&src, node.span)
-                    .hint("split it into two [[expect]] tables"),
+                Diagnostic::new(
+                    &codes::INVALID_VALUE,
+                    format!("[[expect]] mixes `event` with `{}`", state_keys.join("`, `")),
+                )
+                .at(&src, node.span)
+                .hint("split it into two [[expect]] tables"),
             );
             continue;
         }
-        if let Some(f) = t.int("frame") {
-            if f as u64 > frames {
-                diags.push(
-                    Diagnostic::new(&codes::INVALID_VALUE, format!("expect at frame {f} is after the last frame ({frames})"))
-                        .at(&src, t.value_span("frame", node.span)),
-                );
-            }
+        if let Some(f) = t.int("frame")
+            && f as u64 > frames
+        {
+            diags.push(
+                Diagnostic::new(
+                    &codes::INVALID_VALUE,
+                    format!("expect at frame {f} is after the last frame ({frames})"),
+                )
+                .at(&src, t.value_span("frame", node.span)),
+            );
         }
         expects.push(defs::decode_expect(t, node.span, line));
     }
@@ -512,10 +532,10 @@ pub fn check_project(vfs: &Vfs) -> CheckReport {
     let mut loader = SceneLoader::new(vfs);
 
     let mut scene_paths: BTreeSet<String> = vfs.paths_under("scenes", ".toml").map(str::to_string).collect();
-    if let Some(p) = &project {
-        if vfs.contains(&p.main_scene) {
-            scene_paths.insert(p.main_scene.clone());
-        }
+    if let Some(p) = &project
+        && vfs.contains(&p.main_scene)
+    {
+        scene_paths.insert(p.main_scene.clone());
     }
     let mut scenes: BTreeMap<String, Option<SceneDef>> = BTreeMap::new();
     for path in &scene_paths {
@@ -531,7 +551,9 @@ pub fn check_project(vfs: &Vfs) -> CheckReport {
     for path in &playtests {
         let (def, diags) = load_playtest_lenient(vfs, path);
         diagnostics.extend(diags);
-        let (Some(def), Some(project)) = (def, &project) else { continue };
+        let (Some(def), Some(project)) = (def, &project) else {
+            continue;
+        };
         let scene_path = def.scene.clone().unwrap_or_else(|| project.main_scene.clone());
         if !vfs.contains(&scene_path) {
             diagnostics.push(
@@ -552,16 +574,16 @@ pub fn check_project(vfs: &Vfs) -> CheckReport {
         let Some(scene) = scene else { continue };
         let names: Vec<&str> = scene.entities.iter().filter_map(|e| e.name.as_deref()).collect();
         for exp in &def.expects {
-            if let Some(name) = &exp.entity {
-                if !names.contains(&name.as_str()) {
-                    let hint = did_you_mean(name, names.iter().copied())
-                        .unwrap_or_else(|| format!("{scene_path} has no entity named `{name}`"));
-                    diagnostics.push(
-                        Diagnostic::new(&codes::UNKNOWN_ENTITY, format!("[[expect]] names unknown entity `{name}`"))
-                            .at(&def.src, exp.span)
-                            .hint(hint),
-                    );
-                }
+            if let Some(name) = &exp.entity
+                && !names.contains(&name.as_str())
+            {
+                let hint = did_you_mean(name, names.iter().copied())
+                    .unwrap_or_else(|| format!("{scene_path} has no entity named `{name}`"));
+                diagnostics.push(
+                    Diagnostic::new(&codes::UNKNOWN_ENTITY, format!("[[expect]] names unknown entity `{name}`"))
+                        .at(&def.src, exp.span)
+                        .hint(hint),
+                );
             }
         }
     }
@@ -569,11 +591,5 @@ pub fn check_project(vfs: &Vfs) -> CheckReport {
     diagnostics.extend(std::mem::take(&mut loader.diags));
     diag::sort(&mut diagnostics);
     diagnostics.dedup();
-    CheckReport {
-        project,
-        scenes: scene_paths.into_iter().collect(),
-        prefabs,
-        playtests,
-        diagnostics,
-    }
+    CheckReport { project, scenes: scene_paths.into_iter().collect(), prefabs, playtests, diagnostics }
 }

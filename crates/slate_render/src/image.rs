@@ -35,9 +35,11 @@ pub fn decode_png(bytes: &[u8]) -> Result<Image, String> {
     let (w, h) = (info.width, info.height);
     let rgba = match info.color_type {
         png::ColorType::Rgba => buf,
-        png::ColorType::Rgb => buf.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        png::ColorType::Rgb => buf.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
         png::ColorType::Grayscale => buf.iter().flat_map(|&g| [g, g, g, 255]).collect(),
-        png::ColorType::GrayscaleAlpha => buf.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+        png::ColorType::GrayscaleAlpha => {
+            buf.as_chunks::<2>().0.iter().flat_map(|p| [p[0], p[0], p[0], p[1]]).collect()
+        }
         png::ColorType::Indexed => return Err("indexed PNG was not expanded".into()),
     };
     Ok(Image { width: w, height: h, rgba })
@@ -68,7 +70,7 @@ pub fn diff(actual: &Image, reference: &Image) -> Diff {
     let mut diff_pixels = 0;
     let mut max_delta = 0u8;
     let mut vis = Vec::with_capacity(actual.rgba.len());
-    for (a, r) in actual.rgba.chunks_exact(4).zip(reference.rgba.chunks_exact(4)) {
+    for (a, r) in actual.rgba.as_chunks::<4>().0.iter().zip(reference.rgba.as_chunks::<4>().0.iter()) {
         let d = a.iter().zip(r).map(|(x, y)| x.abs_diff(*y)).max().unwrap_or(0);
         if d > 0 {
             diff_pixels += 1;

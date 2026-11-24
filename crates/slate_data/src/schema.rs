@@ -17,8 +17,14 @@ use crate::node::{Node, NodeKind, Table, parse_toml};
 #[derive(Debug)]
 pub enum Ty {
     Bool,
-    Int { min: i64, max: i64 },
-    Num { min: f64, max: f64 },
+    Int {
+        min: i64,
+        max: i64,
+    },
+    Num {
+        min: f64,
+        max: f64,
+    },
     Str,
     /// Letters, digits, `_`, `-` and `/` (prefab subfolders).
     Name,
@@ -141,7 +147,12 @@ pub static ISO: Spec = Spec {
     title: "[iso]",
     doc: "Isometric projection. A cell's diamond is tile_width × tile_height pixels; one unit of height is z_height pixels.",
     fields: &[
-        opt("tile_width", Ty::Int { min: 4, max: 1024 }, Some("64"), "Diamond width in pixels. Usually 2 × tile_height."),
+        opt(
+            "tile_width",
+            Ty::Int { min: 4, max: 1024 },
+            Some("64"),
+            "Diamond width in pixels. Usually 2 × tile_height.",
+        ),
         opt("tile_height", Ty::Int { min: 2, max: 512 }, Some("32"), "Diamond height in pixels."),
         opt("z_height", Ty::Int { min: 1, max: 1024 }, Some("32"), "Pixels per unit of height (z, block height)."),
     ],
@@ -189,7 +200,12 @@ pub static CAMERA: Spec = Spec {
     title: "[camera]",
     doc: "The camera looks straight down the isometric axis; it only pans.",
     fields: &[
-        opt("center", Ty::Vec2, None, "Grid point [x, y] at the middle of the frame. Default: the middle of the ground."),
+        opt(
+            "center",
+            Ty::Vec2,
+            None,
+            "Grid point [x, y] at the middle of the frame. Default: the middle of the ground.",
+        ),
         opt("offset", Ty::Vec2, Some("[0, 0]"), "Extra shift in screen pixels [right, down]."),
     ],
 };
@@ -210,7 +226,12 @@ pub static ENTITY: Spec = Spec {
     title: "entity",
     doc: "A thing in the world. Starts from an optional prefab; keys here override it (component tables merge key by key).",
     fields: &[
-        opt("name", Ty::Name, None, "Unique name, needed to reference it from [[connect]], playtests and `inspect --entity`."),
+        opt(
+            "name",
+            Ty::Name,
+            None,
+            "Unique name, needed to reference it from [[connect]], playtests and `inspect --entity`.",
+        ),
         opt("prefab", Ty::Name, None, "Prefab to start from: `wall` loads prefabs/wall.toml."),
         opt(
             "pos",
@@ -218,7 +239,12 @@ pub static ENTITY: Spec = Spec {
             Some("[0, 0, 0]"),
             "Grid position [x, y] or [x, y, z]. +x is down-right on screen, +y is down-left, z is up.",
         ),
-        opt("cells", Ty::Cells, None, "Place one copy on each listed cell instead of `pos`. Cannot be used with `name`."),
+        opt(
+            "cells",
+            Ty::Cells,
+            None,
+            "Place one copy on each listed cell instead of `pos`. Cannot be used with `name`.",
+        ),
         F_ENABLED,
         F_SOLID,
         F_TILE,
@@ -260,11 +286,13 @@ const F_ENABLED: Field = opt(
 const F_SOLID: Field = opt("solid", Ty::Bool, Some("false"), "Nothing can move into its cell.");
 const F_TILE: Field = opt("tile", Ty::Table(&TILE), None, "Flat diamond on the floor (marks, pressure plates).");
 const F_BLOCK: Field = opt("block", Ty::Table(&BLOCK), None, "Isometric box (walls, crates, buildings).");
-const F_SPRITE: Field = opt("sprite", Ty::Table(&SPRITE), None, "Upright shape standing on the cell (characters, items).");
+const F_SPRITE: Field =
+    opt("sprite", Ty::Table(&SPRITE), None, "Upright shape standing on the cell (characters, items).");
 const F_MOVER: Field = opt("mover", Ty::Table(&MOVER), None, "Moves one cell per direction input.");
 const F_PATROL: Field = opt("patrol", Ty::Table(&PATROL), None, "Walks a fixed path of cells.");
 const F_WANDER: Field = opt("wander", Ty::Table(&WANDER), None, "Walks randomly (seeded).");
-const F_TRIGGER: Field = opt("trigger", Ty::Table(&TRIGGER), None, "Emits signals when actors step on or off its cell.");
+const F_TRIGGER: Field =
+    opt("trigger", Ty::Table(&TRIGGER), None, "Emits signals when actors step on or off its cell.");
 const F_PROPS: Field = opt("props", Ty::Props, None, "Free-form game data, shown by `inspect` and readable from Rust.");
 
 pub static TILE: Spec = Spec {
@@ -316,7 +344,12 @@ pub static PATROL: Spec = Spec {
     fields: &[
         req("path", Ty::Cells, "Cells to visit, in order."),
         opt("step_frames", Ty::Int { min: 1, max: 6000 }, Some("30"), "Frames between steps."),
-        opt("mode", Ty::Enum(PATROL_MODES), Some("\"loop\""), "loop: back to the first cell; pingpong: walk the path backwards."),
+        opt(
+            "mode",
+            Ty::Enum(PATROL_MODES),
+            Some("\"loop\""),
+            "loop: back to the first cell; pingpong: walk the path backwards.",
+        ),
     ],
 };
 
@@ -326,7 +359,12 @@ pub static WANDER: Spec = Spec {
     doc: "Every `step_frames`, tries one random step (or stays). Uses the world's seeded RNG, so runs repeat exactly.",
     fields: &[
         opt("step_frames", Ty::Int { min: 1, max: 6000 }, Some("45"), "Frames between steps."),
-        opt("area", Ty::Cells, None, "Two corner cells [[x0, y0], [x1, y1]] to stay inside. Default: the whole ground."),
+        opt(
+            "area",
+            Ty::Cells,
+            None,
+            "Two corner cells [[x0, y0], [x1, y1]] to stay inside. Default: the whole ground.",
+        ),
     ],
 };
 
@@ -409,7 +447,12 @@ pub static EXPECT: Spec = Spec {
         opt("props", Ty::Props, None, "Expected values of these props (others are ignored)."),
         opt("event", Ty::Enum(EVENT_KINDS), None, "Expect events of this kind up to `frame`."),
         opt("signal", Ty::Name, None, "With `event`: only count events about this signal."),
-        opt("at_least", Ty::Int { min: 0, max: 1_000_000 }, Some("1"), "With `event`: minimum number of matching events."),
+        opt(
+            "at_least",
+            Ty::Int { min: 0, max: 1_000_000 },
+            Some("1"),
+            "With `event`: minimum number of matching events.",
+        ),
     ],
 };
 
@@ -462,7 +505,10 @@ pub static COMPONENT_SPECS: &[&Spec] = &[&TILE, &BLOCK, &SPRITE, &MOVER, &PATROL
 pub fn find_spec(name: &str) -> Option<&'static Spec> {
     let bare = name.trim_matches(['[', ']']);
     ALL_SPECS.iter().copied().find(|s| {
-        s.id == name || s.title == name || s.title.trim_matches(['[', ']']) == bare || s.id.rsplit('.').next() == Some(bare)
+        s.id == name
+            || s.title == name
+            || s.title.trim_matches(['[', ']']) == bare
+            || s.id.rsplit('.').next() == Some(bare)
     })
 }
 
@@ -517,7 +563,9 @@ impl Ty {
 }
 
 fn describe_range(base: &str, min: f64, max: f64, unbounded: f64) -> String {
-    let fmt = |v: f64| if v.fract() == 0.0 { format!("{}", v as i64) } else { format!("{v}") };
+    let fmt = |v: f64| {
+        if v.fract() == 0.0 { format!("{}", v as i64) } else { format!("{v}") }
+    };
     if max >= unbounded {
         format!("{base} ≥ {}", fmt(min))
     } else {
@@ -565,9 +613,12 @@ impl Checker<'_> {
             if !t.has(f.name) {
                 ok = false;
                 self.error(
-                    Diagnostic::new(&codes::MISSING_KEY, format!("{} is missing required key `{}`", spec.title, f.name))
-                        .at(self.src, span)
-                        .hint(format!("add `{} = ...` ({}): {}", f.name, f.ty.describe(), f.doc)),
+                    Diagnostic::new(
+                        &codes::MISSING_KEY,
+                        format!("{} is missing required key `{}`", spec.title, f.name),
+                    )
+                    .at(self.src, span)
+                    .hint(format!("add `{} = ...` ({}): {}", f.name, f.ty.describe(), f.doc)),
                 );
             }
         }
@@ -634,9 +685,11 @@ impl Checker<'_> {
             },
             Ty::Enum(values) => match node.as_str() {
                 None => wrong_type(self),
-                Some(s) if !values.contains(&s) => {
-                    invalid(self, format!("`{label}` must be {}, found {s:?}", ty.describe()), did_you_mean(s, values.iter().copied()))
-                }
+                Some(s) if !values.contains(&s) => invalid(
+                    self,
+                    format!("`{label}` must be {}, found {s:?}", ty.describe()),
+                    did_you_mean(s, values.iter().copied()),
+                ),
                 Some(_) => true,
             },
             Ty::Vec2 | Ty::Pos => match node.as_array() {
@@ -672,7 +725,11 @@ impl Checker<'_> {
                             self.error(
                                 Diagnostic::new(
                                     &codes::WRONG_TYPE,
-                                    format!("`{label}.{}` must be a boolean, number or string, found {}", e.key, e.value.type_name()),
+                                    format!(
+                                        "`{label}.{}` must be a boolean, number or string, found {}",
+                                        e.key,
+                                        e.value.type_name()
+                                    ),
                                 )
                                 .at(self.src, e.value.span),
                             );
@@ -857,9 +914,7 @@ fn ty_schema(ty: &Ty) -> Json {
     };
     match ty {
         Ty::Bool => Json::object().with("type", "boolean"),
-        Ty::Int { min, max } => {
-            Json::object().with("type", "integer").with("minimum", *min).with("maximum", *max)
-        }
+        Ty::Int { min, max } => Json::object().with("type", "integer").with("minimum", *min).with("maximum", *max),
         Ty::Num { min, max } => Json::object().with("type", "number").with("minimum", *min).with("maximum", *max),
         Ty::Str | Ty::Path => Json::object().with("type", "string"),
         Ty::Name => Json::object().with("type", "string").with("pattern", "^[A-Za-z0-9_/-]+$"),
@@ -873,7 +928,8 @@ fn ty_schema(ty: &Ty) -> Json {
         Ty::Cells => Json::object().with("type", "array").with("items", num_array("integer", 2, 2)).with("minItems", 1),
         Ty::Props => Json::object().with("type", "object").with(
             "additionalProperties",
-            Json::object().with("type", vec![Json::from("boolean"), "integer".into(), "number".into(), "string".into()]),
+            Json::object()
+                .with("type", vec![Json::from("boolean"), "integer".into(), "number".into(), "string".into()]),
         ),
         Ty::Table(spec) => table_schema(spec),
         Ty::Tables(spec) => Json::object().with("type", "array").with("items", table_schema(spec)),

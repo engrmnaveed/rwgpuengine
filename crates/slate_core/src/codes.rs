@@ -230,8 +230,7 @@ Fix: add a playtest; see the playtest format in `slate docs`.";
 /// Look up a code such as `E0103` (case-insensitive) or a slug such as
 /// `unknown-key`.
 pub fn lookup(code_or_slug: &str) -> Option<&'static CodeInfo> {
-    ALL.iter()
-        .find(|c| c.code.eq_ignore_ascii_case(code_or_slug) || c.slug.eq_ignore_ascii_case(code_or_slug))
+    ALL.iter().find(|c| c.code.eq_ignore_ascii_case(code_or_slug) || c.slug.eq_ignore_ascii_case(code_or_slug))
 }
 
 #[cfg(test)]
