@@ -1,0 +1,33 @@
+# Determinism guardrails (docs/decisions/0005-determinism-model.md).
+#
+# The simulation and renderer must give bit-identical results on every
+# platform (x86, ARM, wasm). IEEE-754 + - * / and sqrt are exact everywhere;
+# transcendental functions come from the platform libm and are NOT. Hash maps
+# iterate in a random order. Wall-clock time differs every run.
+#
+# Code that genuinely needs one of these (CLI timing, for example) must opt out
+# locally with `#[allow(clippy::disallowed_methods)]` and a comment saying why.
+
+disallowed-methods = [
+  { path = "f32::sin", reason = "platform libm differs; breaks determinism" },
+  { path = "f32::cos", reason = "platform libm differs; breaks determinism" },
+  { path = "f32::tan", reason = "platform libm differs; breaks determinism" },
+  { path = "f32::atan2", reason = "platform libm differs; breaks determinism" },
+  { path = "f32::powf", reason = "platform libm differs; breaks determinism" },
+  { path = "f32::exp", reason = "platform libm differs; breaks determinism" },
+  { path = "f32::ln", reason = "platform libm differs; breaks determinism" },
+  { path = "f64::sin", reason = "platform libm differs; breaks determinism" },
+  { path = "f64::cos", reason = "platform libm differs; breaks determinism" },
+  { path = "f64::tan", reason = "platform libm differs; breaks determinism" },
+  { path = "f64::atan2", reason = "platform libm differs; breaks determinism" },
+  { path = "f64::powf", reason = "platform libm differs; breaks determinism" },
+  { path = "f64::exp", reason = "platform libm differs; breaks determinism" },
+  { path = "f64::ln", reason = "platform libm differs; breaks determinism" },
+  { path = "std::time::Instant::now", reason = "wall-clock time is not deterministic; only the CLI may time things" },
+  { path = "std::time::SystemTime::now", reason = "wall-clock time is not deterministic; only the CLI may time things" },
+]
+
+disallowed-types = [
+  { path = "std::collections::HashMap", reason = "random iteration order; use BTreeMap" },
+  { path = "std::collections::HashSet", reason = "random iteration order; use BTreeSet" },
+]

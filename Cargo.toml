@@ -1,0 +1,61 @@
+# slate — an agent-native 2D/2.5D game engine in Rust.
+# See README.md for the overview and docs/architecture.md for the layer map.
+
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# `cargo build` / `cargo test` at the root cover the engine crates; xtask is
+# dev automation and is run through the `cargo xtask` alias.
+default-members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+publish = false
+# License is an open decision (docs/open-questions.md, Q2). Nothing is published yet.
+
+[workspace.dependencies]
+# Owned crates.
+slate_core = { path = "crates/slate_core" }
+slate_data = { path = "crates/slate_data" }
+slate_sim = { path = "crates/slate_sim" }
+slate_render = { path = "crates/slate_render" }
+slate_runtime = { path = "crates/slate_runtime" }
+slate_cli = { path = "crates/slate_cli" }
+
+# Rented crates. Keep this list short; every addition needs an ADR or a note in
+# docs/decisions/0004-few-dependencies-no-proc-macros.md.
+toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
+png = "0.18"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "allow"
+
+[workspace.lints.clippy]
+# Determinism guardrails live in clippy.toml (disallowed methods/types).
+disallowed_methods = "deny"
+disallowed_types = "deny"
+dbg_macro = "warn"
+todo = "warn"
+
+[profile.dev]
+# Keep debug info light: faster links, faster edit-and-verify loop.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+# Dependencies (png/deflate) are much faster optimized and rarely rebuilt.
+opt-level = 2
+
+[profile.release]
+debug = false
+strip = true
+
+# Size-focused profile for the browser build (cargo xtask web).
+[profile.web]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
