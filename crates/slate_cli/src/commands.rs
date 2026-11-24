@@ -261,7 +261,16 @@ pub fn shot(p: &Parsed, games: &GameFactory) -> Outcome {
     }
     if let Some(reference) = p.value("--compare") {
         let actual = Image { width: fb.width, height: fb.height, rgba: fb.rgba.clone() };
-        let (cmp, diags) = compare_with(&actual, Path::new(reference), &diff_path(&out_path), max_diff);
+        let mut again: Vec<String> = std::env::args().skip(1).filter(|a| a != "--json").collect();
+        if !again.iter().any(|a| a == "--report") {
+            again.push("--report".into());
+        }
+        let hints = CompareHints {
+            create: format!("cp {} {reference}", display_path(&out_path)),
+            update: format!("cp {} {reference}", display_path(&out_path)),
+            investigate: format!("slate {}", again.join(" ")),
+        };
+        let (cmp, diags) = compare_with(&actual, Path::new(reference), &diff_path(&out_path), max_diff, &hints);
         o.data.set("compare", cmp);
         o.diagnostics.extend(diags);
     }
@@ -273,16 +282,32 @@ fn diff_path(out: &Path) -> PathBuf {
     PathBuf::from(format!("{}.diff.png", s.trim_end_matches(".png")))
 }
 
+/// Exact commands to suggest in image diagnostics.
+struct CompareHints {
+    /// Creates the missing reference.
+    create: String,
+    /// Accepts the new image as the reference.
+    update: String,
+    /// Shows what is drawn where in the same frame.
+    investigate: String,
+}
+
 /// Compare with a reference file. Returns JSON describing the result and
 /// E0402/E0403 diagnostics on mismatch or missing reference.
-fn compare_with(actual: &Image, reference: &Path, diff_out: &Path, max_diff: u64) -> (Json, Vec<Diagnostic>) {
+fn compare_with(
+    actual: &Image,
+    reference: &Path,
+    diff_out: &Path,
+    max_diff: u64,
+    hints: &CompareHints,
+) -> (Json, Vec<Diagnostic>) {
     let shown = display_path(reference);
     let base = Json::object().with("reference", shown.as_str()).with("max_diff_pixels", max_diff);
     let bytes = match std::fs::read(reference) {
         Ok(b) => b,
         Err(_) => {
             let d = Diagnostic::new(&codes::REFERENCE_MISSING, format!("reference image `{shown}` not found"))
-                .hint("create it with `slate test --update-refs` (then look at it before committing)");
+                .hint(format!("create it with `{}`, then look at the image before committing it", hints.create));
             return (base.with("status", "missing"), vec![d]);
         }
     };
@@ -323,7 +348,10 @@ fn compare_with(actual: &Image, reference: &Path, diff_out: &Path, max_diff: u64
         j.set("diff_image", display_path(diff_out));
         d = d.note(format!("changed pixels are red in {}", display_path(diff_out)));
     }
-    let d = d.hint("if the change is intended: `slate test --update-refs`; to see what moved: `slate shot --report`");
+    let d = d.hint(format!(
+        "to see what is drawn where in this frame: `{}`; if the change is intended: `{}`",
+        hints.investigate, hints.update
+    ));
     (j.with("status", "mismatch"), vec![d])
 }
 
@@ -451,7 +479,16 @@ pub fn test(p: &Parsed, games: &GameFactory) -> Outcome {
         };
         let mut diags = run.failures.clone();
         let mut shots = Vec::new();
+        let mut updated = Vec::new();
         for shot in &run.shots {
+            // What the frame report noticed (hidden, off-screen...) is worth
+            // a warning even when the pixels match the reference.
+            for issue in &shot.report.issues {
+                let mut d = issue.clone().in_file(&run.path);
+                d.line = Some(shot.def.line);
+                d.message = format!("at frame {}: {}", shot.frame_no, d.message);
+                diags.push(d);
+            }
             let reference = loc.abs(&shot.def.reference);
             let actual = Image { width: shot.frame.width, height: shot.frame.height, rgba: shot.frame.rgba.clone() };
             if update {
@@ -466,6 +503,7 @@ pub fn test(p: &Parsed, games: &GameFactory) -> Outcome {
                     diags.push(d);
                     continue;
                 }
+                updated.push(format!("  updated {} (frame {})", shot.def.reference, shot.frame_no));
                 shots.push(
                     Json::object()
                         .with("reference", shot.def.reference.as_str())
@@ -477,8 +515,13 @@ pub fn test(p: &Parsed, games: &GameFactory) -> Outcome {
             }
             let stem = format!("{}_f{}", run.name, shot.frame_no);
             let out_dir = loc.root.join("out").join("tests");
-            let (cmp, cdiags) =
-                compare_with(&actual, &reference, &out_dir.join(format!("{stem}.diff.png")), shot.def.max_diff_pixels);
+            let hints = CompareHints {
+                create: format!("slate test --filter {} --update-refs", run.name),
+                update: format!("slate test --filter {} --update-refs", run.name),
+                investigate: format!("slate shot --input {} --frame {} --report", run.path, shot.frame_no),
+            };
+            let diff_out = out_dir.join(format!("{stem}.diff.png"));
+            let (cmp, cdiags) = compare_with(&actual, &reference, &diff_out, shot.def.max_diff_pixels, &hints);
             let mut cmp = cmp.with("frame", shot.frame_no).with("image_hash", hash::hex(shot.frame.image_hash()));
             if !cdiags.is_empty() {
                 let actual_path = out_dir.join(format!("{stem}.png"));
@@ -511,6 +554,9 @@ pub fn test(p: &Parsed, games: &GameFactory) -> Outcome {
             run.frames,
             run.state_hash
         ));
+        for line in updated {
+            o.line(line);
+        }
         results.push(
             Json::object()
                 .with("name", run.name.as_str())
@@ -543,10 +589,7 @@ pub fn test(p: &Parsed, games: &GameFactory) -> Outcome {
 
 pub fn explain(p: &Parsed) -> Outcome {
     let Some(topic) = p.positional(0) else {
-        return Outcome::usage(args::bad_arg(
-            "`slate explain` needs a topic".into(),
-            Some("a code (E0201), a component (sprite) or a command (shot)".into()),
-        ));
+        return explain_topics();
     };
     let mut o = Outcome::new(true);
     if let Some(c) = codes::lookup(topic) {
@@ -598,6 +641,40 @@ pub fn explain(p: &Parsed) -> Outcome {
     let hint = did_you_mean(topic, candidates)
         .unwrap_or_else(|| "try a code like E0201, a component like sprite, or a command like shot".into());
     Outcome::usage(args::bad_arg(format!("nothing to explain for `{topic}`"), Some(hint)))
+}
+
+/// `slate explain` with no topic: everything that can be explained.
+fn explain_topics() -> Outcome {
+    let mut o = Outcome::new(true);
+    o.line("slate explain <TOPIC> — topics:\n\nFile formats and components:");
+    for s in schema::ALL_SPECS {
+        o.line(format!("  {:<18} {}", s.id, s.title));
+    }
+    o.line("\nDiagnostic codes:");
+    for c in codes::ALL {
+        o.line(format!("  {}  {:<22} {}", c.code, c.slug, c.title));
+    }
+    o.line("\nCommands:");
+    for c in COMMANDS {
+        o.line(format!("  {:<18} {}", c.name, c.summary));
+    }
+    o.data = Json::object()
+        .with(
+            "formats",
+            schema::ALL_SPECS
+                .iter()
+                .map(|s| Json::object().with("topic", s.id).with("title", s.title))
+                .collect::<Vec<_>>(),
+        )
+        .with(
+            "codes",
+            codes::ALL
+                .iter()
+                .map(|c| Json::object().with("topic", c.code).with("slug", c.slug).with("title", c.title))
+                .collect::<Vec<_>>(),
+        )
+        .with("commands", COMMANDS.iter().map(|c| Json::from(c.name)).collect::<Vec<_>>());
+    o
 }
 
 pub fn schema_cmd(p: &Parsed) -> Outcome {

@@ -118,8 +118,9 @@ fn check_expect(session: &Session, def: &PlaytestDef, exp: &ExpectDef, frame: u6
             .all()
             .iter()
             .filter(|e| e.kind == kind && e.frame < frame)
-            .filter(|e| id.is_none_or(|id| e.entity == Some(id) || e.other == Some(id)))
+            .filter(|e| id.is_none_or(|id| e.entity == Some(id)))
             .filter(|e| exp.signal.as_ref().is_none_or(|s| e.signal.as_ref() == Some(s)))
+            .filter(|e| exp.reason.as_ref().is_none_or(|r| e.data.get("reason").and_then(|v| v.as_str()) == Some(r)))
             .count() as u64;
         if n >= exp.at_least {
             return None;
@@ -128,8 +129,11 @@ fn check_expect(session: &Session, def: &PlaytestDef, exp: &ExpectDef, frame: u6
         if let Some(s) = &exp.signal {
             what.push_str(&format!(" with signal '{s}'"));
         }
+        if let Some(r) = &exp.reason {
+            what.push_str(&format!(" with reason '{r}'"));
+        }
         if let Some(e) = &exp.entity {
-            what.push_str(&format!(" about `{e}`"));
+            what.push_str(&format!(" whose subject is `{e}`"));
         }
         return Some(
             Diagnostic::new(

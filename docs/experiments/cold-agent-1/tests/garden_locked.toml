@@ -1,0 +1,35 @@
+# Negative check: without the plate, the gate stays shut and the player
+# is stopped in front of it.
+
+[test]
+doc = "Skipping the plate leaves the gate closed; the player cannot reach the goal."
+scene = "scenes/walled_garden.toml"
+frames = 80
+
+[[input]]
+frame = 10
+hold = "down"        # (1, 2)
+for = 8
+
+[[input]]
+frame = 30
+hold = "right"       # (2, 2) (3, 2), then blocked by the closed gate at (4, 2)
+for = 40
+
+[[expect]]
+entity = "player"
+pos = [3, 2]
+
+[[expect]]
+entity = "gate"
+enabled = true
+
+[[expect]]
+entity = "gem"
+enabled = true
+
+# The closed gate refuses every step (one every 8 frames from frame 46).
+[[expect]]
+event = "blocked"
+entity = "player"
+at_least = 3

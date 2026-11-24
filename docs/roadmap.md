@@ -6,7 +6,8 @@ decision in [open-questions.md](open-questions.md).
 
 ## M1.5 — Close the loop on the idea (next)
 
-- Run the [cold-agent test](mvp-plan.md#the-cold-agent-test); fix every docs/diagnostic gap it finds.
+- ~~Run the cold-agent test~~ — done, PASS ([run #1](experiments/2026-11-25-cold-agent-1.md)); its findings
+  are fixed. Run #2 with a different task (e.g. two plates that must both be held) on the fixed build.
 - Push to a remote and get CI green on GitHub (Q10).
 - Small fixes found during M1: validate required keys after prefab merge; `tap_ground` event with the
   cell under a tap; block edge shading so adjacent blocks read as separate.

@@ -473,6 +473,13 @@ fn load_playtest_lenient(vfs: &Vfs, path: &str) -> (Option<PlaytestDef>, Vec<Dia
             );
             continue;
         }
+        if t.has("reason") && t.str("event") != Some("blocked") {
+            diags.push(
+                Diagnostic::new(&codes::INVALID_VALUE, "`reason` only applies to `event = \"blocked\"`")
+                    .at(&src, t.key_span("reason", node.span))
+                    .hint("add `event = \"blocked\"`, or remove `reason`"),
+            );
+        }
         if let Some(f) = t.int("frame")
             && f as u64 > frames
         {

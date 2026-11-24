@@ -123,3 +123,30 @@ enabled = false
     let [gx, gy] = view.project(3.0, 3.0, 0.0);
     assert_eq!(pick(&list, gx, gy).hit, None);
 }
+
+#[test]
+fn hidden_trigger_tiles_are_reported() {
+    // A goal tile right behind a tall tree (the cold-agent test found this).
+    let scene = r##"
+[ground]
+size = [4, 4]
+
+[[entity]]
+name = "goal"
+pos = [1, 1]
+tile = {}
+trigger = {}
+
+[[entity]]
+name = "tree"
+pos = [2, 2]
+block = { height = 1.6 }
+"##;
+    let (world, view, def) = setup(scene);
+    let list = build(&world, &view, def.ground.as_ref(), false);
+    let (frame, stats) = rasterize(&list);
+    let report = build_report(&world, &list, &frame, &stats);
+    let d = report.issues.iter().find(|d| d.code == "W0304").expect("W0304");
+    assert!(d.message.contains("trigger tile of goal at cell (1, 1)"), "{}", d.message);
+    assert!(d.message.contains("covered by tree"), "{}", d.message);
+}

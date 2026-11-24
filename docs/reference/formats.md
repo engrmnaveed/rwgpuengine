@@ -193,11 +193,11 @@ An upright shape whose bottom edge stands on the middle of the entity's cell.
 
 ### `mover`
 
-Moves one cell per `up`/`down`/`left`/`right` input: up = -y, down = +y, left = -x, right = +x. Blocked by solids, other actors and the ground's edge; every refusal is logged as a `blocked` event.
+Moves one cell per `up`/`down`/`left`/`right` input: up = -y, down = +y, left = -x, right = +x. A press or hold moves on its first frame if the mover is ready, then every `step_frames` while held. Input during the wait is not queued: a press is dropped (logged as `blocked`, reason `cooldown`); a hold moves as soon as the wait ends. Solids, other actors and the ground's edge also block, each logged as a `blocked` event with its reason.
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `step_frames` | integer | `8` | Frames between moves. A press during the wait is ignored (logged with reason `cooldown`). |
+| `step_frames` | integer | `8` | Frames from one move to the next. `hold` for `step_frames × N` frames gives exactly N steps. |
 
 ### `patrol`
 
@@ -269,7 +269,7 @@ One input event. Use exactly one of `press`, `hold` or `tap`. Input at frame N i
 
 ### `[[expect]]`
 
-A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`) or the event log (`event`, optionally filtered by `entity` and `signal`).
+A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`) or the event log (`event`, optionally filtered by `entity`, `signal` and `reason`). With `event`, `entity` matches the event's subject: the mover for `moved`/`blocked`, the trigger for `trigger`, the emitter for `signal`, the target for `action`, the hit entity for `tap`.
 
 | key | type | default | meaning |
 |---|---|---|---|
@@ -281,6 +281,7 @@ A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`
 | `props` | table | — | Expected values of these props (others are ignored). |
 | `event` | input \| tap \| tap_miss \| moved \| blocked \| trigger \| signal \| action \| error \| custom | — | Expect events of this kind up to `frame`. |
 | `signal` | name | — | With `event`: only count events about this signal. |
+| `reason` | solid \| actor \| edge \| area \| cooldown | — | With `event = "blocked"`: only count refusals for this reason (e.g. `solid`, not `cooldown`). |
 | `at_least` | integer | `1` | With `event`: minimum number of matching events. |
 
 ### `[[shot]]`

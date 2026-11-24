@@ -1,0 +1,65 @@
+# Solve the walled garden: detour to the plate, come back up,
+# go through the opened gate and step onto the goal.
+# player step_frames = 8, so `for = 8 * steps`.
+
+[test]
+doc = "Plate opens the gate; the player walks through it and reaches the goal."
+scene = "scenes/walled_garden.toml"
+frames = 150
+
+[[input]]
+frame = 10
+hold = "down"        # (1, 2) (1, 3) (1, 4)
+for = 24
+
+[[input]]
+frame = 40
+hold = "right"       # (2, 4) = plate: gate opens
+for = 8
+
+[[input]]
+frame = 56
+hold = "up"          # (2, 3) (2, 2)
+for = 16
+
+[[input]]
+frame = 80
+hold = "right"       # (3, 2) (4, 2) open gate, (5, 2) (6, 2)
+for = 32
+
+[[input]]
+frame = 120
+hold = "down"        # (6, 3) = goal: gem collected
+for = 8
+
+# End state: player on the goal, gate open, gem collected.
+[[expect]]
+entity = "player"
+pos = [6, 3]
+
+[[expect]]
+entity = "gate"
+enabled = false
+
+[[expect]]
+entity = "gem"
+enabled = false
+
+[[expect]]
+event = "signal"
+signal = "reached"
+
+# Mid-way: just after stepping on the plate the gate is already open.
+[[expect]]
+frame = 50
+entity = "gate"
+enabled = false
+
+# Start: gate closed, gem on the goal tile.
+[[shot]]
+frame = 0
+reference = "tests/refs/garden_solve_start.png"
+
+# End: gate gone, gem collected, player standing on the goal.
+[[shot]]
+reference = "tests/refs/garden_solve.png"

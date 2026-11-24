@@ -308,6 +308,8 @@ pub struct ExpectDef {
     pub props: Vec<(String, PropValue)>,
     pub event: Option<String>,
     pub signal: Option<String>,
+    /// With `event = "blocked"`: solid, actor, edge, area or cooldown.
+    pub reason: Option<String>,
     pub at_least: u64,
     /// Span of the `entity` value (or the table), for messages.
     pub span: Span,
@@ -461,6 +463,7 @@ pub(crate) fn decode_expect(t: &Table, span: Span, line: usize) -> ExpectDef {
         props: e.table("props").map(decode_props).unwrap_or_default(),
         event: e.opt_str("event"),
         signal: e.opt_str("signal"),
+        reason: e.opt_str("reason"),
         at_least: e.int("at_least") as u64,
         span: t.value_span("entity", span),
         line,

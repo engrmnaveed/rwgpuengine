@@ -99,6 +99,8 @@ pub const EVENT_KINDS: &[&str] =
     &["input", "tap", "tap_miss", "moved", "blocked", "trigger", "signal", "action", "error", "custom"];
 pub const SPRITE_SHAPES: &[&str] = &["circle", "rect", "diamond"];
 pub const PATROL_MODES: &[&str] = &["loop", "pingpong"];
+/// Why a move was refused (the `reason` of `blocked` events).
+pub const BLOCK_REASONS: &[&str] = &["solid", "actor", "edge", "area", "cooldown"];
 
 // ---------------------------------------------------------------------------
 // Project file: slate.toml
@@ -328,12 +330,15 @@ pub static MOVER: Spec = Spec {
     id: "mover",
     title: "mover",
     doc: "Moves one cell per `up`/`down`/`left`/`right` input: up = -y, down = +y, left = -x, right = +x. \
-          Blocked by solids, other actors and the ground's edge; every refusal is logged as a `blocked` event.",
+          A press or hold moves on its first frame if the mover is ready, then every `step_frames` while held. \
+          Input during the wait is not queued: a press is dropped (logged as `blocked`, reason `cooldown`); a hold \
+          moves as soon as the wait ends. Solids, other actors and the ground's edge also block, each logged as \
+          a `blocked` event with its reason.",
     fields: &[opt(
         "step_frames",
         Ty::Int { min: 1, max: 600 },
         Some("8"),
-        "Frames between moves. A press during the wait is ignored (logged with reason `cooldown`).",
+        "Frames from one move to the next. `hold` for `step_frames × N` frames gives exactly N steps.",
     )],
 };
 
@@ -437,7 +442,9 @@ pub static EXPECT: Spec = Spec {
     id: "playtest.expect",
     title: "[[expect]]",
     doc: "A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`) or the event log \
-          (`event`, optionally filtered by `entity` and `signal`).",
+          (`event`, optionally filtered by `entity`, `signal` and `reason`). With `event`, `entity` matches the \
+          event's subject: the mover for `moved`/`blocked`, the trigger for `trigger`, the emitter for `signal`, \
+          the target for `action`, the hit entity for `tap`.",
     fields: &[
         opt("frame", FRAME, None, "When to check. Default: the last frame."),
         opt("entity", Ty::Name, None, "Entity to check, by name."),
@@ -447,6 +454,12 @@ pub static EXPECT: Spec = Spec {
         opt("props", Ty::Props, None, "Expected values of these props (others are ignored)."),
         opt("event", Ty::Enum(EVENT_KINDS), None, "Expect events of this kind up to `frame`."),
         opt("signal", Ty::Name, None, "With `event`: only count events about this signal."),
+        opt(
+            "reason",
+            Ty::Enum(BLOCK_REASONS),
+            None,
+            "With `event = \"blocked\"`: only count refusals for this reason (e.g. `solid`, not `cooldown`).",
+        ),
         opt(
             "at_least",
             Ty::Int { min: 0, max: 1_000_000 },

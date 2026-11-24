@@ -86,3 +86,20 @@ fn live_taps_resolve_against_the_drawn_frame() {
     assert_eq!(j.pointer("entities/0/name").and_then(|v| v.as_str()), Some("player"));
     assert_eq!(j.pointer("events/0/kind").and_then(|v| v.as_str()), Some("tap"));
 }
+
+#[test]
+fn event_expects_match_the_subject_and_filter_by_reason() {
+    let mut vfs = garden();
+    let base = vfs.get("tests/closed_gate.toml").unwrap().split("[[expect]]").next().unwrap().to_string();
+    let with = |expect: &str| format!("{base}[[expect]]\n{expect}\n");
+    // The gate is only ever the *other* party of the player's blocked event.
+    vfs.insert("tests/a.toml", with("event = \"blocked\"\nentity = \"gate\""));
+    // The player was blocked by a solid at least once...
+    vfs.insert("tests/b.toml", with("event = \"blocked\"\nentity = \"player\"\nreason = \"solid\""));
+    // ...but never by the ground's edge.
+    vfs.insert("tests/c.toml", with("event = \"blocked\"\nentity = \"player\"\nreason = \"edge\""));
+    let failures = |p: &str| run_playtest(&vfs, p, Box::new(DataOnly)).unwrap().failures.len();
+    assert_eq!(failures("tests/a.toml"), 1);
+    assert_eq!(failures("tests/b.toml"), 0);
+    assert_eq!(failures("tests/c.toml"), 1);
+}

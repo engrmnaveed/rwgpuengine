@@ -1,0 +1,76 @@
+# Walled garden: a hedge runs along x = 4 with a single gate at (4, 2).
+# The gate only opens when the player steps on the pressure plate at (2, 4),
+# a detour into the bottom-left corner. Behind the hedge, a gem sits on the
+# goal tile at (6, 3); reaching it collects the gem.
+#
+# Grid: +x runs down-right on screen, +y down-left. Ground is 8 x 6:
+# cells (0, 0) .. (7, 5).
+
+[scene]
+name = "Walled Garden"
+doc = "Press the plate to open the gate, then walk through the hedge to the gem."
+
+[ground]
+size = [8, 6]
+color = "#7cb66f"
+
+[[entity]]
+name = "player"
+prefab = "player"
+pos = [1, 1]
+
+# The hedge wall at x = 4, with a gap for the gate at y = 2.
+[[entity]]
+prefab = "hedge"
+cells = [[4, 0], [4, 1], [4, 3], [4, 4], [4, 5]]
+
+[[entity]]
+name = "gate"
+prefab = "door"
+pos = [4, 2]
+block = { color = "#8a5a2b" }       # wooden gate; keeps the prefab's height
+
+[[entity]]
+name = "plate"
+prefab = "plate"
+pos = [2, 4]
+
+[[entity]]
+name = "goal"
+pos = [6, 3]
+tile = { color = "#f2e9c9" }
+trigger = { on_enter = "reached", only = "player" }
+
+[[entity]]
+name = "gem"
+pos = [6, 3]
+sprite = { shape = "diamond", color = "#4fc3f7", size = [16, 22], offset = [0, -6] }
+
+# A pond in the far (right) corner: solid, so nobody walks on water.
+[[entity]]
+prefab = "crate"                    # solid; colour and height overridden below
+cells = [[6, 0], [7, 0], [7, 1]]
+block = { color = "#3d7fbf", height = 0.1 }
+
+# Two trees (kept out of the way: nothing important stands just behind them).
+[[entity]]
+prefab = "hedge"
+cells = [[0, 5], [5, 5]]
+block = { color = "#245a2e", height = 1.6 }
+
+# Flowers (decoration, walkable).
+[[entity]]
+prefab = "flower"
+cells = [[0, 3], [2, 5], [6, 5], [2, 0]]
+
+[[connect]]
+from = "plate"
+signal = "pressed"
+to = "gate"
+action = "disable"
+
+[[connect]]
+from = "goal"
+signal = "reached"
+to = "gem"
+action = "disable"

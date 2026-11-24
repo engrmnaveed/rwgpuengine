@@ -33,3 +33,4 @@ enabled = true
 [[expect]]
 event = "blocked"
 entity = "player"
+reason = "solid"     # blocked by the gate itself, not by input cooldown

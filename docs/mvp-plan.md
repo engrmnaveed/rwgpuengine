@@ -18,7 +18,7 @@ Status legend: ✅ done and verified · 🟡 done, not fully verified · ⬜ not
 | Hard budgets that fail the build | ✅ | `budgets.toml`, `cargo xtask budgets` |
 | Docs: vision, architecture, ADRs, plan, roadmap, conventions, open questions, progress log | ✅ | `docs/` |
 
-## M1 — Thin working version (the first milestone) ✅ except the cold-agent test
+## M1 — Thin working version (the first milestone) ✅
 
 Acceptance criteria, straight from the direction doc:
 
@@ -32,7 +32,7 @@ Acceptance criteria, straight from the direction doc:
 | 6 | `inspect` dumps the world state as JSON | ✅ | `slate inspect --json` (+ `--entity`, `--component`, `--events`) |
 | — | …natively | ✅ | aarch64-apple-darwin; `cargo xtask smoke` asserts each step's JSON |
 | — | …and in the browser | ✅ | `slate serve` + web player: walkthrough frame 300 → state `469ae7c92124d43d`, image `bfca8c0b40af6828`, **identical** to native |
-| — | **The test of the whole idea:** a coding agent starting cold, with only the AGENTS.md, builds and verifies that scene without help | ⬜ | protocol below; not run yet — needs a fresh agent session with no access to this repo's history |
+| — | **The test of the whole idea:** a coding agent starting cold, with only the AGENTS.md, builds and verifies that scene without help | ✅ | [cold-agent test #1](experiments/2026-11-25-cold-agent-1.md): PASS in 3 min 58 s, original level, independently re-verified; its 10 confusion points were fixed |
 
 Beyond the letter of the milestone, M1 also shipped: `test` (playtests with expectations and reference
 images), `explain`, `schema`, `docs`, `help --json`, `serve` with instant data reload, touch input
@@ -40,7 +40,8 @@ images), `explain`, `schema`, `docs`, `help --json`, `serve` with instant data r
 
 ### The cold-agent test
 
-Run it as an experiment whose transcript is kept (it is the most important signal we have).
+Run it as an experiment and keep the record in [experiments/](experiments/) (it is the most important
+signal we have). Run #1: [2026-11-25](experiments/2026-11-25-cold-agent-1.md) — PASS.
 
 1. Build `slate` and put it on `PATH` (`cargo build --release` → `target/release/slate`).
 2. In an empty folder **outside this repo**, start a fresh coding agent with no other context.
@@ -63,11 +64,11 @@ Deliberate gaps in v0.1 — each waits for a reference game that needs it (guard
 - **No native window**: humans use the web player (`slate serve`).
 - **Prefab components can't omit required keys**: a prefab with `patrol = { step_frames = 30 }` fails
   because `patrol.path` is required; put the patrol in the scene. Fix: validate required keys after merge.
-- **Adjacent same-colored blocks merge visually** (no outlines yet).
+- **Adjacent same-colored blocks merge visually** (no outlines yet; the cold agent noticed it too).
 - **Taps on bare ground hit nothing** (no "tap a cell" event yet; needed for tap-to-move / builders).
 - **`slate serve` is single-threaded and dev-only**; there is no `export web` for static hosting yet (Q11).
 - **Game code in the browser**: the web player runs data-only projects; Rust `Game` code runs natively.
 
 ## Next
 
-The cold-agent test, then M2 in [roadmap.md](roadmap.md).
+A second cold-agent run with a different task on the fixed build, then M2 in [roadmap.md](roadmap.md).

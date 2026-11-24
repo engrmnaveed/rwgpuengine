@@ -179,6 +179,7 @@ impl Diagnostic {
         let file = self.file.as_ref()?;
         Some(match (self.line, self.column) {
             (Some(l), Some(c)) => format!("{file}:{l}:{c}"),
+            (Some(l), None) => format!("{file}:{l}"),
             _ => file.clone(),
         })
     }

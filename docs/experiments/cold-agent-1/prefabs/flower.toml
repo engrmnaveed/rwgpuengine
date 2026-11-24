@@ -1,0 +1,2 @@
+doc = "A small decorative flower. Not solid, purely visual."
+sprite = { shape = "diamond", color = "#e86fa8", size = [12, 14] }

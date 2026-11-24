@@ -3,6 +3,20 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Cold-agent test #1: PASS
+
+- A fresh agent with only the binary and an empty folder ran `slate new`, read AGENTS.md and built an
+  original walled-garden level with a plate, gate, goal and gem, plus a solving playtest and a negative
+  one, in **3 min 58 s** (27 tool calls). `check` clean, `test` green, references viewed. Re-verified
+  independently. Record: [experiments/2026-11-25-cold-agent-1.md](experiments/2026-11-25-cold-agent-1.md).
+- Its first scene was valid on the first try; it hit no check errors and no failed expectations.
+- Its 10 confusion points became fixes: exact commands in image diagnostics, a Recipes section (goal,
+  doors, collectibles, negative tests, taps), `[[expect]] reason`, subject-only `entity` for event
+  expects, precise mover timing, W0304 hidden-trigger + frame-report warnings in `slate test`,
+  `--update-refs` lists files, `slate explain` lists topics.
+- Lesson: the frame report already knew about the hidden goal tile, but only `shot --report` showed it.
+  Information the engine has should reach the agent where it already looks (`slate test`).
+
 ## 2026-11-25 — M1 thin working version: native and browser
 
 - The first-milestone chain works end to end: `new → (write scene) → check → run 300 frames with input →

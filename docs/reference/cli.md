@@ -11,7 +11,7 @@ Every command accepts `--json` and then prints exactly one JSON object on stdout
 | [`slate shot [PATH] [FLAGS]`](#slate-shot) | Render a frame to PNG, with a text report of what is drawn where |
 | [`slate inspect [PATH] [FLAGS]`](#slate-inspect) | Dump the world state at a frame as JSON (or a table) |
 | [`slate test [PATH] [FLAGS]`](#slate-test) | Run playtests: scripted input, expectations and reference screenshots |
-| [`slate explain TOPIC [FLAGS]`](#slate-explain) | Explain a diagnostic code, a file format/component, or a command |
+| [`slate explain [TOPIC] [FLAGS]`](#slate-explain) | Explain a diagnostic code, a file format/component, or a command |
 | [`slate schema [KIND] [FLAGS]`](#slate-schema) | Print the JSON Schema of a file format |
 | [`slate docs [FLAGS]`](#slate-docs) | Print the reference docs for this exact slate version |
 | [`slate serve [PATH] [FLAGS]`](#slate-serve) | Serve the web player for a project (reloads when files change) |
@@ -56,7 +56,7 @@ Parses slate.toml, every scene, prefab and playtest; checks types, unknown keys,
 
 Examples:
   slate check
-  slate check examples/iso_garden --json
+  slate check my-game --json
 ```
 
 ## slate run
@@ -168,10 +168,10 @@ Examples:
 ```text
 slate explain — Explain a diagnostic code, a file format/component, or a command
 
-Usage: slate explain TOPIC [FLAGS]
+Usage: slate explain [TOPIC] [FLAGS]
 
 Arguments:
-  TOPIC        A code (E0103), a component or format (sprite, entity, connect, playtest) or a command.
+  [TOPIC]      A code (E0103), a component or format (sprite, entity, connect, playtest) or a command. Omit to list topics.
 
 Flags:
   --json             Print one JSON object on stdout instead of text.
@@ -179,6 +179,7 @@ Flags:
 Like `rustc --explain`, for slate's codes and file formats.
 
 Examples:
+  slate explain
   slate explain E0201
   slate explain sprite
   slate explain trigger --json

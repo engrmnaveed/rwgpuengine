@@ -61,7 +61,7 @@ pub static COMMANDS: &[Command] = &[
         details: "Parses slate.toml, every scene, prefab and playtest; checks types, unknown keys, references \
                   between files and static problems (overlapping solids, signals that can never fire). Exit code 1 \
                   if there are errors; warnings do not fail.",
-        examples: &["slate check", "slate check examples/iso_garden --json"],
+        examples: &["slate check", "slate check my-game --json"],
     },
     Command {
         name: "run",
@@ -147,10 +147,13 @@ pub static COMMANDS: &[Command] = &[
     Command {
         name: "explain",
         summary: "Explain a diagnostic code, a file format/component, or a command",
-        args: &[("TOPIC", "A code (E0103), a component or format (sprite, entity, connect, playtest) or a command.")],
+        args: &[(
+            "[TOPIC]",
+            "A code (E0103), a component or format (sprite, entity, connect, playtest) or a command. Omit to list topics.",
+        )],
         flags: &[JSON],
         details: "Like `rustc --explain`, for slate's codes and file formats.",
-        examples: &["slate explain E0201", "slate explain sprite", "slate explain trigger --json"],
+        examples: &["slate explain", "slate explain E0201", "slate explain sprite", "slate explain trigger --json"],
     },
     Command {
         name: "schema",

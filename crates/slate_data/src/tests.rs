@@ -181,3 +181,12 @@ fn bundle_round_trip() {
     assert_eq!(back, vfs);
     assert_eq!(back.content_hash(), vfs.content_hash());
 }
+
+#[test]
+fn reason_needs_a_blocked_event() {
+    let vfs = project(&[
+        ("scenes/main.toml", "[[entity]]\nname = \"p\"\n"),
+        ("tests/t.toml", "[[expect]]\nevent = \"moved\"\nreason = \"solid\"\n"),
+    ]);
+    assert_eq!(codes(&vfs), vec!["E0105"]);
+}

@@ -19,6 +19,10 @@ use crate::raster::{Frame, ItemStats};
 
 /// Sprites with less than this share of pixels visible are reported (W0302).
 pub const OCCLUDED_BELOW: f64 = 0.5;
+/// Trigger tiles (plates, goals) with less than this share visible are
+/// reported (W0304). Stricter than sprites: players must see where to step.
+/// Entities standing on the trigger's own cell do not count as covering it.
+pub const TRIGGER_HIDDEN_BELOW: f64 = 0.75;
 
 #[derive(Clone, Debug)]
 pub struct EntityReport {
@@ -62,6 +66,7 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
     let mut covered: BTreeMap<EntityId, BTreeMap<EntityId, u32>> = BTreeMap::new();
     let mut ground_cells = 0;
     let mut sprite_px: BTreeMap<EntityId, (u32, u32)> = BTreeMap::new();
+    let mut trigger_tile_px: BTreeMap<EntityId, (u32, u32)> = BTreeMap::new();
 
     for (idx, item) in list.items.iter().enumerate() {
         if !item.enabled {
@@ -93,6 +98,13 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
         let s = &stats[idx];
         entry.drawn_px += s.drawn;
         entry.visible_px += s.visible;
+        if item.part == Part::Tile && world.get(id).is_some_and(|e| e.trigger.is_some()) {
+            let hidden: u32 =
+                s.covered_by.iter().filter(|(o, _)| list.items[**o].cell != item.cell).map(|(_, n)| *n).sum();
+            let p = trigger_tile_px.entry(id).or_insert((0, 0));
+            p.0 += s.drawn;
+            p.1 += s.drawn.saturating_sub(hidden);
+        }
         if item.part == Part::Sprite {
             let p = sprite_px.entry(id).or_insert((0, 0));
             p.0 += s.drawn;
@@ -135,16 +147,42 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
                 ),
             ));
         }
-        if let Some(&(drawn, visible)) = sprite_px.get(&id)
+        let by: Vec<String> = r
+            .covered_by
+            .iter()
+            .take(3)
+            .map(|(o, n)| format!("{} ({n} px)", world.get(*o).map_or_else(|| format!("#{o}"), |e| e.label())))
+            .collect();
+        if let Some(&(drawn, visible)) = trigger_tile_px.get(&id)
             && drawn > 0
-            && (visible as f64) < OCCLUDED_BELOW * drawn as f64
+            && (visible as f64) < TRIGGER_HIDDEN_BELOW * drawn as f64
         {
             let by: Vec<String> = r
                 .covered_by
                 .iter()
+                .filter(|(o, _)| world.get(*o).is_some_and(|e| e.cell() != r.cell))
                 .take(3)
                 .map(|(o, n)| format!("{} ({n} px)", world.get(*o).map_or_else(|| format!("#{o}"), |e| e.label())))
                 .collect();
+            issues.push(
+                Diagnostic::new(
+                    &codes::HIDDEN_TRIGGER,
+                    format!(
+                        "trigger tile of {} at cell ({}, {}) is {}% visible (not counting what stands on it); covered by {}",
+                        r.label,
+                        r.cell[0],
+                        r.cell[1],
+                        visible * 100 / drawn,
+                        if by.is_empty() { "nothing on screen".to_string() } else { by.join(", ") }
+                    ),
+                )
+                .hint("players cannot see where to step: move or lower what covers it, or move the trigger"),
+            );
+        }
+        if let Some(&(drawn, visible)) = sprite_px.get(&id)
+            && drawn > 0
+            && (visible as f64) < OCCLUDED_BELOW * drawn as f64
+        {
             issues.push(Diagnostic::new(
                 &codes::OCCLUDED,
                 format!(

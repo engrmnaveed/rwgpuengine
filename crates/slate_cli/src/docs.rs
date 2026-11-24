@@ -161,7 +161,7 @@ pub fn project_agents_md(project_name: &str) -> String {
     let v = slate_core::ENGINE_VERSION;
     let example = EXAMPLE_DOC.replace("{scene}", EXAMPLE_SCENE).replace("{test}", EXAMPLE_PLAYTEST);
     let mut out = format!(
-        r#"# AGENTS.md — {project_name}
+        r##"# AGENTS.md — {project_name}
 
 This is a game project for **slate {v}**, an agent-native 2D/2.5D isometric engine. The game is text
 files; the engine is a command line that checks, runs, renders and inspects them. This file was generated
@@ -194,18 +194,43 @@ tests/refs/*.png    reference screenshots for [[shot]] (create with `slate test 
 out/                generated output (screenshots, diffs); safe to delete
 ```
 
-{example}## Tips
+{example}## Recipes
 
-- Movers step once every `step_frames` (default 8) while a direction is held, and a press during that wait
-  is ignored (logged as `blocked` with reason `cooldown`). Space presses at least `step_frames` apart, or use
-  `hold = "right"` with `for = step_frames × steps`.
+slate has no built-in "goal", "door" or "item": you build them from tiles, blocks, sprites, triggers and
+`[[connect]]`. These are the usual patterns.
+
+- **Goal / win condition.** A tile with a trigger that only the player sets off, emitting its own signal:
+  `tile = {{ color = "#f2e9a0" }}` + `trigger = {{ on_enter = "reached", only = "player" }}`. React with
+  `[[connect]] from = "goal" signal = "reached" ...` (enable a flag, disable a gem). In the playtest, expect
+  the player's `pos` on the goal and `event = "signal"` with `signal = "reached"`.
+- **Door opened by a plate.** Plate: `tile` + `trigger = {{}}` (emits `pressed`/`released`). Door: a `block`
+  with `solid = true`. Wire `from = "plate" signal = "pressed" to = "door" action = "disable"`. To close
+  it again when the plate is left, add a second `[[connect]]` with `signal = "released"`, `action = "enable"`.
+- **Collectible.** A sprite on a trigger's cell; connect the trigger's signal to the sprite with
+  `action = "disable"`.
+- **Prove something is blocked** (a negative test): `[[expect]] event = "blocked"`, `entity = "player"`,
+  `reason = "solid"` (reasons: `solid`, `actor`, `edge`, `area`, `cooldown`). With `event`, `entity` matches
+  the event's subject: the mover for `blocked`, the trigger for `trigger`, the emitter for `signal`, the target
+  for `action`.
+- **Buttons you tap.** Every entity emits `tapped` when tapped; wire it with `[[connect]]`. Find its pixels
+  with `slate inspect --json` (`screen` is `[x, y, w, h]`) and tap the middle: `[[input]] frame = 5`,
+  `tap = [x + w/2, y + h/2]`.
+
+## Tips
+
+- **Mover timing.** A press or hold moves on its first frame (if the mover is ready), then every
+  `step_frames` (default 8) while held, so `hold = "right"` with `for = 8 × N` gives exactly N steps. Input
+  during the wait is not queued: a press is dropped (logged as `blocked`, reason `cooldown`); a hold moves as
+  soon as the wait ends. Leave at least `step_frames` between separate inputs.
 - To check a level is solvable, write a playtest that plays it and `[[expect]]` the end state, then add a
   `[[shot]]` and run `slate test --update-refs` once; look at the PNG before committing it.
-- A tap is a screen pixel; find an entity's pixels with `slate inspect --json` (`screen` is `[x, y, w, h]`).
+- `slate test` and `slate shot` warn when a sprite (W0302) or a trigger's tile (W0304) is mostly hidden
+  behind blocks in front of it, or when something is off-screen (W0301/W0303). `slate shot --input
+  tests/X.toml --frame N --report` lists what is drawn where.
 - If something did not happen, the event log says why: a `blocked` event, a `signal` with no connections,
-  or a tap that hit a disabled entity.
+  or a tap that hit a disabled entity. `slate explain` with no topic lists everything it can explain.
 
-"#
+"##
     );
     out.push_str("## Commands\n\n| command | what it does |\n|---|---|\n");
     for c in COMMANDS {
