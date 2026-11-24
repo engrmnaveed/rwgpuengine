@@ -3,6 +3,19 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Cold-agent test #3: PASS, honestly, but slow
+
+- Task deliberately beyond the engine: a door that opens only while two plates are both held, plus an
+  on-screen score counter. slate has no AND, no text, no counters.
+- The agent built a real AND (two stacked solid door leaves, each opened by its own plate, held by patrolling
+  sentries) and a seven-segment digit from 17 layered sprites that is correct for every pickup order, and said
+  clearly what was approximated and why. Nothing faked. Re-verified independently.
+- But it took **18 min 42 s**, 3× run #2: it found every limit by noticing absences in the schema. Fix: a
+  "Limits in this version" table (with workarounds and their costs) in AGENTS.md and `slate explain limits`.
+- Also: `allow = [...]` to silence intended warnings (its level: 40 → 0), documented draw-order ties and
+  shared mover input, `--input` reads files outside the project. Its feature wishes went to the roadmap and
+  to a new owner decision, Q14 (game logic in data or Rust?).
+
 ## 2026-11-25 — Cold-agent test #2: PASS (harder task)
 
 - Task: tap a lever to open gate 1, slip past a patrolling guard, press a plate for gate 2, reach the goal;

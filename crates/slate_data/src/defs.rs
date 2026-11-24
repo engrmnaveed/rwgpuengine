@@ -136,6 +136,8 @@ pub struct EntityDef {
     pub wander: Option<WanderDef>,
     pub trigger: Option<TriggerDef>,
     pub props: Vec<(String, PropValue)>,
+    /// Warning codes intended for this entity (not reported).
+    pub allow: Vec<String>,
     pub origin: Origin,
 }
 
@@ -413,6 +415,7 @@ pub(crate) fn decode_entity(t: &Table, pos: [f32; 3], origin: Origin) -> EntityD
             TriggerDef { on_enter: tr.str("on_enter"), on_exit: tr.str("on_exit"), only: tr.opt_str("only") }
         }),
         props: f.table("props").map(decode_props).unwrap_or_default(),
+        allow: f.strs("allow"),
         origin,
     }
 }

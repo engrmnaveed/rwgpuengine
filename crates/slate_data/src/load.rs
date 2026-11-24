@@ -336,11 +336,15 @@ impl<'a> SceneLoader<'a> {
 
         // Static checks on placement.
         let mut solid_cells: BTreeMap<[i32; 2], usize> = BTreeMap::new();
+        let allows = |e: &defs::EntityDef, code: &str| e.allow.iter().any(|a| a.eq_ignore_ascii_case(code));
         for (i, e) in entities.iter().enumerate() {
             let cell = e.cell();
             if e.enabled && e.solid {
                 if let Some(&j) = solid_cells.get(&cell) {
                     let other = &entities[j];
+                    if allows(e, codes::SOLID_OVERLAP.code) || allows(other, codes::SOLID_OVERLAP.code) {
+                        continue;
+                    }
                     self.diags.push(
                         Diagnostic::new(
                             &codes::SOLID_OVERLAP,
@@ -355,6 +359,7 @@ impl<'a> SceneLoader<'a> {
             }
             if let Some(g) = &ground
                 && (cell[0] < 0 || cell[1] < 0 || cell[0] >= g.size[0] || cell[1] >= g.size[1])
+                && !allows(e, codes::OUTSIDE_GROUND.code)
             {
                 self.diags.push(
                     Diagnostic::new(

@@ -1,0 +1,2 @@
+doc = "HUD layer drawn in the lit colour (a lit seven-segment bar, or the coin icon). Size and offset are set per entity."
+sprite = { shape = "rect", color = "#ffd84a" }

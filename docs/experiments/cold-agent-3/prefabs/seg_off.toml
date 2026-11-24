@@ -1,0 +1,2 @@
+doc = "HUD cover in the panel colour. Drawn over lower layers of the same segment, it makes the segment read as dark. Also the HUD panel itself."
+sprite = { shape = "rect", color = "#11151d" }

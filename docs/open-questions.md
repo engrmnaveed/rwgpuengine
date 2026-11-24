@@ -18,6 +18,7 @@ the answer here (and an ADR if it is architectural), then remove it from the "op
 | Q11 | **Web distribution.** Embed the wasm in the `slate` binary (bigger CLI, zero setup) or ship it separately? Add `slate export web`? | Embed at release time via a build feature; add `export web` in M2. | `slate serve` outside the repo |
 | Q12 | **Iso input mapping.** `up` = −y (screen up-right), swipes follow iso axes. Is that intuitive for children on tablets? | Validate with a quick playtest with real users; the mapping is one table to change. | M5 UX |
 | Q13 | **Audio crate** (kira / cpal / web audio) | Decide when a reference game needs sound. | M5 |
+| Q14 | **Where does game logic live: data or Rust?** Cold-agent run #3 needed a score counter and an AND door. Today data has only `enable`/`disable`/`toggle`; counters and conditions need Rust (not loadable from `slate new` projects yet). Options: (a) small data-level logic — `action = "add"` on props, `when_all = [...]` on connections, a `text` sprite bound to a prop; (b) keep data minimal and make Rust game code easy (M4) | (a), deliberately small: counters, all-of conditions and a number/text display are what learning games (scores, quizzes) need constantly, and agents handle them best as data. Keep anything more general in Rust. | M2/M3 scope, quiz kit |
 
 ## Decided
 

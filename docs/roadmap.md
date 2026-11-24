@@ -7,11 +7,16 @@ decision in [open-questions.md](open-questions.md).
 ## M1.5 — Close the loop on the idea (next)
 
 - ~~Run the cold-agent test~~ — done: [run #1](experiments/2026-11-25-cold-agent-1.md) and
-  [run #2](experiments/2026-11-25-cold-agent-2.md) both PASS; their findings are fixed. Run #3: a task the
-  engine cannot do yet (two plates held at once needs AND logic), to test how fast limits are recognised.
+  [run #2](experiments/2026-11-25-cold-agent-2.md) and [run #3](experiments/2026-11-25-cold-agent-3.md)
+  (beyond the engine's limits) all PASS; their findings are fixed. Next: repeat run #3's task on the build
+  with the limits table and compare the time.
 - Push to a remote and get CI green on GitHub (Q10).
 - Small fixes found during M1: validate required keys after prefab merge; `tap_ground` event with the
   cell under a tap; block edge shading so adjacent blocks read as separate.
+- Feature candidates from [cold-agent run #3](experiments/2026-11-25-cold-agent-3.md), pending Q14 and a
+  reference game that needs them, in the order the agent ranked them: a text/number sprite bound to a prop;
+  prop actions (`action = "add"`); conditional connections (`when_all`); a screen-space HUD layer; pushable
+  blocks or weights for plates; a single "cell is passable" expectation.
 
 ## M2 — The live loop
 

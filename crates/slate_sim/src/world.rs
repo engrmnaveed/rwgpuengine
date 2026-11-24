@@ -71,6 +71,8 @@ pub struct Entity {
     pub wander: Option<Wander>,
     pub trigger: Option<Trigger>,
     pub props: BTreeMap<String, PropValue>,
+    /// Warning codes intended for this entity (not reported).
+    pub allow: Vec<String>,
 }
 
 impl Entity {
@@ -88,6 +90,11 @@ impl Entity {
             Some(n) => n.clone(),
             None => format!("#{}", self.id),
         }
+    }
+
+    /// Is this warning code allowed (silenced) for this entity?
+    pub fn allows(&self, code: &str) -> bool {
+        self.allow.iter().any(|a| a.eq_ignore_ascii_case(code))
     }
 
     /// `'player' (#3)` for messages.
@@ -161,6 +168,7 @@ impl World {
                 wander: def.wander.map(|w| Wander { def: w, timer: 0 }),
                 trigger: def.trigger.clone().map(|t| Trigger { def: t, occupants: Vec::new() }),
                 props: def.props.iter().cloned().collect(),
+                allow: def.allow.clone(),
             });
         }
         let connections = scene

@@ -129,9 +129,10 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
         let mut cov: Vec<(EntityId, u32)> = covered.remove(&id).unwrap_or_default().into_iter().collect();
         cov.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
         r.covered_by = cov;
+        let mut own: Vec<Diagnostic> = Vec::new();
         let [x, y, w, h] = r.bounds.xywh();
         if r.offscreen {
-            issues.push(
+            own.push(
                 Diagnostic::new(
                     &codes::OFFSCREEN,
                     format!("{} is drawn entirely off-screen at [{x}, {y}, {w}, {h}]", r.label),
@@ -139,7 +140,7 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
                 .hint("move it or the camera ([camera] center in the scene)"),
             );
         } else if r.clipped {
-            issues.push(Diagnostic::new(
+            own.push(Diagnostic::new(
                 &codes::CLIPPED,
                 format!(
                     "{} is partly off-screen at [{x}, {y}, {w}, {h}] (frame {}x{})",
@@ -164,7 +165,7 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
                 .take(3)
                 .map(|(o, n)| format!("{} ({n} px)", world.get(*o).map_or_else(|| format!("#{o}"), |e| e.label())))
                 .collect();
-            issues.push(
+            own.push(
                 Diagnostic::new(
                     &codes::HIDDEN_TRIGGER,
                     format!(
@@ -183,7 +184,7 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
             && drawn > 0
             && (visible as f64) < OCCLUDED_BELOW * drawn as f64
         {
-            issues.push(Diagnostic::new(
+            own.push(Diagnostic::new(
                 &codes::OCCLUDED,
                 format!(
                     "sprite of {} is {}% visible; covered by {}",
@@ -193,6 +194,9 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
                 ),
             ));
         }
+        // Warnings the entity declares as intended (`allow = [...]`) are not reported.
+        let entity = world.get(id);
+        issues.extend(own.into_iter().filter(|d| !entity.is_some_and(|e| e.allows(d.code))));
         entities.push(r);
     }
 

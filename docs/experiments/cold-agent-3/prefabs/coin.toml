@@ -1,0 +1,3 @@
+doc = "A coin. Only the player picks it up: its trigger emits `collected`, which the scene wires to disable the coin and update the HUD."
+sprite = { shape = "circle", color = "#ffd84a", size = [16, 16], offset = [0, -6] }
+trigger = { on_enter = "collected", only = "player" }

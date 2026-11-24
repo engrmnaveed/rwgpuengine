@@ -1,0 +1,190 @@
+# Full run of the vault level.
+#
+# Plate timing (read with `slate run --frames 360 --track sentry_a` / `--track sentry_b`):
+#   plate_a held by sentry_a: frames 60-119, 180-239, 300-359
+#   plate_b held by sentry_b: frames 80-159, 240-319
+#   both held (door open):    frames 80-119, 300-319
+# The player collects coin1 and coin2 in the hall, is refused by the door while only
+# plate_a is held, walks in while both are held, takes coin3, is refused on the way out
+# while only plate_b is held, leaves in the next both-held window, and is refused again
+# once plate_b alone is released (plate_a still held).
+
+[test]
+doc = "Door opens only while both plates are held; closing on either release; HUD digit counts 0-3."
+scene = "scenes/main.toml"
+frames = 350
+
+[[input]]
+frame = 2
+press = "down"       # (2, 3)
+[[input]]
+frame = 10
+press = "down"       # (2, 4) = coin1 -> HUD 1
+[[input]]
+frame = 18
+press = "up"         # (2, 3)
+[[input]]
+frame = 26
+press = "up"         # (2, 2)
+[[input]]
+frame = 34
+press = "up"         # (2, 1) = coin2 -> HUD 2
+[[input]]
+frame = 42
+press = "down"       # (2, 2)
+[[input]]
+frame = 50
+press = "right"      # (3, 2), next to the door
+[[input]]
+frame = 66
+press = "right"      # only plate_a held: refused by door_b
+[[input]]
+frame = 84
+press = "right"      # both held: into the doorway (4, 2)
+[[input]]
+frame = 92
+press = "right"      # (5, 2), inside the vault
+[[input]]
+frame = 100
+press = "right"      # (6, 2) = coin3 -> HUD 3
+[[input]]
+frame = 108
+press = "left"       # (5, 2)
+[[input]]
+frame = 130
+press = "left"       # plate_a released at 119, only plate_b held: refused by door_a
+[[input]]
+frame = 302
+press = "left"       # both held again: doorway (4, 2)
+[[input]]
+frame = 310
+press = "left"       # (3, 2), back in the hall
+[[input]]
+frame = 330
+press = "right"      # plate_b released at 319 while plate_a is still held: refused by door_b
+[[input]]
+frame = 338
+press = "left"       # (2, 2)
+
+# --- only plate_a held: the door stays shut
+[[expect]]
+frame = 70
+entity = "door_a"
+enabled = false
+[[expect]]
+frame = 70
+entity = "door_b"
+enabled = true
+[[expect]]
+frame = 70
+event = "blocked"
+entity = "player"
+other = "door_b"
+reason = "solid"
+at_least = 1
+at_most = 1
+[[expect]]
+frame = 70
+entity = "player"
+pos = [3, 2]
+
+# --- both held: the door is open and the player walks through
+[[expect]]
+frame = 85
+entity = "door_a"
+enabled = false
+[[expect]]
+frame = 85
+entity = "door_b"
+enabled = false
+[[expect]]
+frame = 85
+entity = "player"
+pos = [4, 2]
+[[expect]]
+frame = 101
+entity = "player"
+pos = [6, 2]
+
+# --- sentry_a steps off plate_a (frame 120): the door shuts although plate_b is still held
+[[expect]]
+frame = 125
+entity = "door_a"
+enabled = true
+[[expect]]
+frame = 125
+entity = "door_b"
+enabled = false
+[[expect]]
+frame = 135
+event = "blocked"
+entity = "player"
+other = "door_a"
+reason = "solid"
+[[expect]]
+frame = 135
+entity = "player"
+pos = [5, 2]
+
+# --- both held again (300-319): out through the door
+[[expect]]
+frame = 311
+entity = "player"
+pos = [3, 2]
+
+# --- sentry_b steps off plate_b (frame 320): the door shuts although plate_a is still held
+[[expect]]
+frame = 325
+entity = "door_a"
+enabled = false
+[[expect]]
+frame = 325
+entity = "door_b"
+enabled = true
+[[expect]]
+frame = 335
+event = "blocked"
+entity = "player"
+other = "door_b"
+reason = "solid"
+at_least = 2
+at_most = 2
+[[expect]]
+frame = 335
+entity = "player"
+pos = [3, 2]
+
+# --- coins: each collected exactly once, by the player
+[[expect]]
+event = "signal"
+signal = "collected"
+at_least = 3
+at_most = 3
+[[expect]]
+entity = "coin1"
+enabled = false
+[[expect]]
+entity = "coin2"
+enabled = false
+[[expect]]
+entity = "coin3"
+enabled = false
+[[expect]]
+entity = "player"
+pos = [2, 2]
+
+# --- screenshots: HUD shows 0, 1, 2, 3; door open at 104, shut at the end
+[[shot]]
+frame = 0
+reference = "tests/refs/vault_f000_hud0.png"
+[[shot]]
+frame = 20
+reference = "tests/refs/vault_f020_hud1.png"
+[[shot]]
+frame = 48
+reference = "tests/refs/vault_f048_hud2.png"
+[[shot]]
+frame = 104
+reference = "tests/refs/vault_f104_hud3_open.png"
+[[shot]]
+reference = "tests/refs/vault_f350_hud3_shut.png"

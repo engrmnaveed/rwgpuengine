@@ -202,3 +202,25 @@ fn event_only_keys_and_bounds_are_checked() {
     ]);
     assert_eq!(codes(&vfs), vec!["E0105", "E0105", "E0202"]);
 }
+
+#[test]
+fn allow_silences_intended_warnings_and_only_warnings() {
+    let stacked = |allow: &str| {
+        project(&[
+            ("prefabs/wall.toml", WALL),
+            (
+                "scenes/main.toml",
+                &format!(
+                    "[[entity]]\nname = \"a\"\nprefab = \"wall\"\n\n[[entity]]\nname = \"b\"\nprefab = \"wall\"\n{allow}\n"
+                ),
+            ),
+        ])
+    };
+    assert_eq!(codes(&stacked("")), vec!["W0201"]);
+    assert!(codes(&stacked("allow = [\"W0201\"]")).is_empty());
+    // An invalid entry is an error, and silences nothing.
+    assert_eq!(codes(&stacked("allow = [\"E0101\"]")), vec!["W0201", "E0105"]);
+    let r = check_project(&stacked("allow = [\"W0210\"]"));
+    let bad = r.diagnostics.iter().find(|d| d.code == "E0105").expect("E0105");
+    assert_eq!(bad.hint.as_deref(), Some("did you mean `W0201`?"));
+}

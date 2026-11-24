@@ -181,3 +181,20 @@ block = { height = 2 }
     // A floor tile completely behind a tall block cannot be tapped.
     assert_eq!(crate::pick::tap_point(&list, world.find("buried").unwrap()), None);
 }
+
+#[test]
+fn allowed_warnings_are_not_reported() {
+    let scene = |allow: &str| {
+        format!(
+            "[ground]\nsize = [4, 4]\n\n[[entity]]\nname = \"hero\"\npos = [1, 1]\nsprite = {{ size = [16, 24] }}\n{allow}\n\n[[entity]]\nname = \"tower\"\npos = [2, 2]\nblock = {{ height = 3 }}\n"
+        )
+    };
+    let issues = |text: &str| {
+        let (world, view, def) = setup(text);
+        let list = build(&world, &view, def.ground.as_ref(), false);
+        let (frame, stats) = rasterize(&list);
+        build_report(&world, &list, &frame, &stats).issues.iter().map(|d| d.code).collect::<Vec<_>>()
+    };
+    assert!(issues(&scene("")).contains(&"W0302"));
+    assert!(!issues(&scene("allow = [\"W0302\"]")).contains(&"W0302"));
+}

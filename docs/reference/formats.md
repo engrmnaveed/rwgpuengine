@@ -122,7 +122,8 @@ A thing in the world. Starts from an optional prefab; keys here override it (com
 | `patrol` | table: patrol | — | Walks a fixed path of cells. |
 | `wander` | table: wander | — | Walks randomly (seeded). |
 | `trigger` | table: trigger | — | Emits signals when actors step on or off its cell. |
-| `props` | table | — | Free-form game data, shown by `inspect` and readable from Rust. |
+| `props` | table | — | Free-form game data shown by `inspect` and checked by `[[expect]] props`. Nothing in data files changes props at runtime (Rust game code can). |
+| `allow` | ["W....", ...] | — | Warning codes that are intended for this entity and should not be reported, e.g. `["W0201"]` for deliberately stacked solids. Errors cannot be allowed. |
 
 ### `[[connect]]`
 
@@ -156,7 +157,8 @@ A reusable entity template: prefabs/<name>.toml. Same keys as an entity, minus n
 | `patrol` | table: patrol | — | Walks a fixed path of cells. |
 | `wander` | table: wander | — | Walks randomly (seeded). |
 | `trigger` | table: trigger | — | Emits signals when actors step on or off its cell. |
-| `props` | table | — | Free-form game data, shown by `inspect` and readable from Rust. |
+| `props` | table | — | Free-form game data shown by `inspect` and checked by `[[expect]] props`. Nothing in data files changes props at runtime (Rust game code can). |
+| `allow` | ["W....", ...] | — | Warning codes that are intended for this entity and should not be reported, e.g. `["W0201"]` for deliberately stacked solids. Errors cannot be allowed. |
 
 
 ## Components
@@ -193,7 +195,7 @@ An upright shape whose bottom edge stands on the middle of the entity's cell.
 
 ### `mover`
 
-Moves one cell per `up`/`down`/`left`/`right` input: up = -y, down = +y, left = -x, right = +x. A press or hold moves on its first frame if the mover is ready, then every `step_frames` while held. Input during the wait is not queued: a press is dropped (logged as `blocked`, reason `cooldown`); a hold moves as soon as the wait ends. A refused move also starts the wait, so a held direction retries every `step_frames`. Solids, other actors and the ground's edge also block, each logged as a `blocked` event with its reason.
+Moves one cell per `up`/`down`/`left`/`right` input: up = -y, down = +y, left = -x, right = +x. Every enabled mover responds to the same input. A press or hold moves on its first frame if the mover is ready, then every `step_frames` while held. Input during the wait is not queued: a press is dropped (logged as `blocked`, reason `cooldown`); a hold moves as soon as the wait ends. A refused move also starts the wait, so a held direction retries every `step_frames`. Solids, other actors and the ground's edge also block, each logged as a `blocked` event with its reason.
 
 | key | type | default | meaning |
 |---|---|---|---|
@@ -316,7 +318,10 @@ emit `tapped`), movers, patrols, wanderers, Rust game systems, triggers, then si
 the target cell is outside the ground, holds an enabled `solid` entity, or holds another enabled actor.
 
 **Enabled.** Disabled entities are not drawn, not solid, cannot be tapped, run no behaviors and do not
-count for triggers. `[[connect]]` actions `enable`, `disable` and `toggle` change this.
+count for triggers. `[[connect]]` actions `enable`, `disable` and `toggle` change this. Enabling a solid
+entity where an actor stands does not push the actor out.
+
+**Input.** Every enabled `mover` responds to the same input. Only actors set off triggers.
 
 **Signals.** Every entity emits `tapped` when tapped. A `trigger` emits `on_enter` (default `pressed`)
 when its cell goes from empty to occupied by an actor and `on_exit` (default `released`) when it empties.
@@ -340,5 +345,6 @@ Every event has `frame` (the step that produced it: `[N]` happened in step N, so
 | `custom` | set by game code | set by game code | set by game code | Logged by Rust game code. |
 
 
-**Drawing.** Ground first, then tiles, then blocks and sprites back to front by `x + y`, then height.
+**Drawing.** Ground first, then tiles, then blocks and sprites back to front by `x + y`, then height, then
+part (block before sprite), then file order (later entities on top).
 Blocks shade their left and right faces automatically. A sprite's bottom edge stands on its cell's center.

@@ -122,9 +122,12 @@ struct Loaded {
 }
 
 fn load_session(p: &Parsed, games: &GameFactory) -> Result<Loaded, Outcome> {
-    let loc = locate(p.positional(0)).map_err(|d| Outcome::failed(vec![d]))?;
+    let mut loc = locate(p.positional(0)).map_err(|d| Outcome::failed(vec![d]))?;
     let seed = p.number("--seed").map_err(Outcome::usage)?;
-    let script = p.value("--input").map(|i| to_project_rel(&loc, i)).or_else(|| loc.playtest_arg());
+    let script = match p.value("--input") {
+        Some(i) => Some(input_script(&mut loc, i).map_err(|d| Outcome::failed(vec![d]))?),
+        None => loc.playtest_arg(),
+    };
     let cfg = SessionConfig { scene: loc.scene_arg(), script, seed };
     match Session::load(&loc.vfs, &cfg, games()) {
         Ok(session) => Ok(Loaded { loc, session }),
@@ -133,6 +136,24 @@ fn load_session(p: &Parsed, games: &GameFactory) -> Result<Loaded, Outcome> {
             Err(Outcome::failed(diags).with_root(&root).settle())
         }
     }
+}
+
+/// Resolve `--input`: a path relative to the project root or the current
+/// folder. A file outside the project's scanned files (another folder,
+/// `out/`) is read from disk and added under the path as given; scene paths
+/// inside it are still relative to the project root.
+fn input_script(loc: &mut Located, path: &str) -> Result<String, Diagnostic> {
+    let rel = to_project_rel(loc, path);
+    if loc.vfs.contains(&rel) {
+        return Ok(rel);
+    }
+    let on_disk = std::env::current_dir().unwrap_or_default().join(path);
+    if on_disk.is_file() {
+        let text = std::fs::read_to_string(&on_disk).map_err(|e| io_err(path, &e))?;
+        loc.vfs.insert(path, text);
+        return Ok(path.to_string());
+    }
+    Ok(rel) // the session reports E0001 with suggestions
 }
 
 /// `--input` may be given relative to the cwd or to the project root.
@@ -644,6 +665,11 @@ pub fn explain(p: &Parsed) -> Outcome {
         return explain_topics();
     };
     let mut o = Outcome::new(true);
+    if topic == "limits" || topic == "limit" {
+        o.data = Json::object().with("topic", "limits").with("kind", "limits").with("text", docs::LIMITS_MD);
+        o.text = format!("# Limits in slate {}\n\n{}", slate_core::ENGINE_VERSION, docs::LIMITS_MD);
+        return o;
+    }
     if topic == "events" || topic == "event" {
         let text = slate_sim::events_markdown();
         let kinds: Vec<Json> = slate_sim::EVENT_DOCS
@@ -715,7 +741,7 @@ pub fn explain(p: &Parsed) -> Outcome {
 /// `slate explain` with no topic: everything that can be explained.
 fn explain_topics() -> Outcome {
     let mut o = Outcome::new(true);
-    o.line("slate explain <TOPIC> — topics:\n\n  events             event kinds: subject, other party, fields\n\nFile formats and components:");
+    o.line("slate explain <TOPIC> — topics:\n\n  limits             what this version cannot do, and workarounds\n  events             event kinds: subject, other party, fields\n\nFile formats and components:");
     for s in schema::ALL_SPECS {
         o.line(format!("  {:<18} {}", s.id, s.title));
     }

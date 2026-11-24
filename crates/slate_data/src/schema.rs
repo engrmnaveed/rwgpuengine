@@ -43,6 +43,8 @@ pub enum Ty {
     Cells,
     /// Table of scalar values (free-form game data).
     Props,
+    /// List of warning codes, e.g. `["W0201"]`.
+    Codes,
     Table(&'static Spec),
     /// Array of tables (`[[name]]` sections).
     Tables(&'static Spec),
@@ -257,6 +259,7 @@ pub static ENTITY: Spec = Spec {
         F_WANDER,
         F_TRIGGER,
         F_PROPS,
+        F_ALLOW,
     ],
 };
 
@@ -276,6 +279,7 @@ pub static PREFAB_FILE: Spec = Spec {
         F_WANDER,
         F_TRIGGER,
         F_PROPS,
+        F_ALLOW,
     ],
 };
 
@@ -295,7 +299,20 @@ const F_PATROL: Field = opt("patrol", Ty::Table(&PATROL), None, "Walks a fixed p
 const F_WANDER: Field = opt("wander", Ty::Table(&WANDER), None, "Walks randomly (seeded).");
 const F_TRIGGER: Field =
     opt("trigger", Ty::Table(&TRIGGER), None, "Emits signals when actors step on or off its cell.");
-const F_PROPS: Field = opt("props", Ty::Props, None, "Free-form game data, shown by `inspect` and readable from Rust.");
+const F_PROPS: Field = opt(
+    "props",
+    Ty::Props,
+    None,
+    "Free-form game data shown by `inspect` and checked by `[[expect]] props`. Nothing in data files changes \
+     props at runtime (Rust game code can).",
+);
+const F_ALLOW: Field = opt(
+    "allow",
+    Ty::Codes,
+    None,
+    "Warning codes that are intended for this entity and should not be reported, e.g. `[\"W0201\"]` for \
+     deliberately stacked solids. Errors cannot be allowed.",
+);
 
 pub static TILE: Spec = Spec {
     id: "tile",
@@ -330,6 +347,7 @@ pub static MOVER: Spec = Spec {
     id: "mover",
     title: "mover",
     doc: "Moves one cell per `up`/`down`/`left`/`right` input: up = -y, down = +y, left = -x, right = +x. \
+          Every enabled mover responds to the same input. \
           A press or hold moves on its first frame if the mover is ready, then every `step_frames` while held. \
           Input during the wait is not queued: a press is dropped (logged as `blocked`, reason `cooldown`); a hold \
           moves as soon as the wait ends. A refused move also starts the wait, so a held direction retries every \
@@ -566,6 +584,7 @@ impl Ty {
             Ty::Cell => "two integers [x, y]".into(),
             Ty::Cells => "a list of cells like [[0, 0], [1, 0]]".into(),
             Ty::Props => "a table of simple values like { hp = 3 }".into(),
+            Ty::Codes => "a list of warning codes like [\"W0201\"]".into(),
             Ty::Table(spec) => format!("a table ({})", spec.title),
             Ty::Tables(spec) => format!("an array of tables ({})", spec.title),
         }
@@ -587,6 +606,7 @@ impl Ty {
             Ty::Cell => "[x, y] int".into(),
             Ty::Cells => "[[x, y], ...]".into(),
             Ty::Props => "table".into(),
+            Ty::Codes => "[\"W....\", ...]".into(),
             Ty::Table(spec) => format!("table: {}", spec.id),
             Ty::Tables(spec) => format!("[[{}]]", spec.title.trim_matches(['[', ']'])),
         }
@@ -746,6 +766,38 @@ impl Checker<'_> {
                 }
                 _ => wrong_type(self),
             },
+            Ty::Codes => match node.as_array() {
+                None => wrong_type(self),
+                Some(items) => {
+                    let mut ok = true;
+                    for item in items {
+                        let Some(s) = item.as_str() else {
+                            ok &= self.value(item, &Ty::Str, label);
+                            continue;
+                        };
+                        let known = codes::lookup(s).filter(|c| c.severity == slate_core::diag::Severity::Warning);
+                        if known.is_none() {
+                            ok = false;
+                            let warnings = codes::ALL
+                                .iter()
+                                .filter(|c| c.severity == slate_core::diag::Severity::Warning)
+                                .map(|c| c.code);
+                            let hint = did_you_mean(s, warnings).unwrap_or_else(|| {
+                                "only warning codes (W....) can be allowed; `slate explain` lists them".into()
+                            });
+                            self.error(
+                                Diagnostic::new(
+                                    &codes::INVALID_VALUE,
+                                    format!("`{label}` can only list warning codes; {s:?} is not one"),
+                                )
+                                .at(self.src, item.span)
+                                .hint(hint),
+                            );
+                        }
+                    }
+                    ok
+                }
+            },
             Ty::Props => match node.as_table() {
                 None => wrong_type(self),
                 Some(t) => {
@@ -868,6 +920,15 @@ impl<'a> Fields<'a> {
         self.node(key).and_then(|n| node_cell(&n)).unwrap_or([0, 0])
     }
 
+    /// A list of strings (missing or malformed items are skipped).
+    pub fn strs(&self, key: &str) -> Vec<String> {
+        self.node(key)
+            .and_then(|n| {
+                n.as_array().map(|items| items.iter().filter_map(|i| i.as_str().map(str::to_string)).collect())
+            })
+            .unwrap_or_default()
+    }
+
     pub fn cells(&self, key: &str) -> Vec<[i32; 2]> {
         self.node(key)
             .and_then(|n| n.as_array().map(|items| items.iter().filter_map(node_cell).collect()))
@@ -957,6 +1018,9 @@ fn ty_schema(ty: &Ty) -> Json {
         Ty::Pos => num_array("number", 2, 3),
         Ty::Cell => num_array("integer", 2, 2),
         Ty::Cells => Json::object().with("type", "array").with("items", num_array("integer", 2, 2)).with("minItems", 1),
+        Ty::Codes => Json::object()
+            .with("type", "array")
+            .with("items", Json::object().with("type", "string").with("pattern", "^W[0-9]{4}$")),
         Ty::Props => Json::object().with("type", "object").with(
             "additionalProperties",
             Json::object()

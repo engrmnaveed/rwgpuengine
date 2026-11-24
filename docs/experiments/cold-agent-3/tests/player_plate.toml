@@ -1,0 +1,78 @@
+# The player can hold a plate too. Here the player stands on plate_a (which also keeps
+# sentry_a off it), sentry_b holds plate_b from frame 80, and the door opens. When the
+# player steps off plate_a at frame 100 the door shuts at once, although plate_b is
+# still held.
+
+[test]
+doc = "Player on plate_a + sentry_b on plate_b opens the door; player stepping off shuts it."
+scene = "scenes/main.toml"
+frames = 110
+
+[[input]]
+frame = 0
+press = "left"       # (1, 2)
+[[input]]
+frame = 8
+press = "up"         # (1, 1)
+[[input]]
+frame = 16
+press = "up"         # (1, 0) = plate_a
+[[input]]
+frame = 100
+press = "down"       # (1, 1): off the plate
+
+# only plate_a held (by the player): shut
+[[expect]]
+frame = 70
+entity = "door_a"
+enabled = false
+[[expect]]
+frame = 70
+entity = "door_b"
+enabled = true
+# sentry_a could not step onto the plate the player is holding
+[[expect]]
+frame = 70
+event = "blocked"
+entity = "sentry_a"
+other = "player"
+reason = "actor"
+# both held: open
+[[expect]]
+frame = 90
+entity = "door_a"
+enabled = false
+[[expect]]
+frame = 90
+entity = "door_b"
+enabled = false
+[[expect]]
+frame = 90
+entity = "player"
+pos = [1, 0]
+# player stepped off: shut again, while sentry_b still holds plate_b
+[[expect]]
+frame = 105
+entity = "door_a"
+enabled = true
+[[expect]]
+frame = 105
+entity = "door_b"
+enabled = false
+[[expect]]
+frame = 105
+entity = "sentry_b"
+pos = [1, 5]
+[[expect]]
+frame = 105
+event = "trigger"
+entity = "plate_a"
+other = "player"
+signal = "released"
+
+[[shot]]
+frame = 90
+reference = "tests/refs/player_plate_f090_open.png"
+[[shot]]
+frame = 105
+reference = "tests/refs/player_plate_f105_shut.png"

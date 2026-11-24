@@ -145,7 +145,9 @@ Fix: remove `name`, or split the entry into separate `[[entity]]` tables with
 "Two enabled solid entities start on the same grid cell. This is usually a
 copy-paste mistake and makes the cell impossible to enter.
 
-Fix: move one of them, or make one non-solid.";
+Fix: move one of them, or make one non-solid. If it is deliberate (for example
+two stacked door leaves, each opened by its own plate, to build an AND), add
+`allow = [\"W0201\"]` to either entity.";
 
     OUTSIDE_GROUND = "W0202", "outside-ground", Warning, "Entity is outside the ground",
 "The entity's cell is outside `[ground] size`. Movers can never reach it, and
@@ -189,10 +191,12 @@ larger in slate.toml.";
 
     OCCLUDED = "W0302", "occluded", Warning, "Sprite is mostly hidden",
 "Less than half of a sprite's pixels are visible in the final frame because
-other things are drawn over it (usually blocks in front of it).
+other things are drawn over it: usually blocks in front of it, sometimes other
+sprites on the same cell (later entities in the file are drawn on top).
 
-Fix: move the sprite, lower the blocks in front of it, or accept it if it is
-intentional (for example a character walking behind a wall).";
+Fix: move the sprite, lower what covers it, or, if it is intentional (a
+character behind a wall, a deliberately layered sprite), add
+`allow = [\"W0302\"]` to that entity.";
 
     CLIPPED = "W0303", "clipped", Warning, "Entity is partly off-screen",
 "Part of the entity is outside the frame.

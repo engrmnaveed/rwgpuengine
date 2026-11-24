@@ -1,0 +1,2 @@
+doc = "A sentry bot. Give it a `patrol` in the scene; as an actor it holds down any plate it stands on."
+sprite = { shape = "rect", color = "#7aa2d6", size = [20, 28] }

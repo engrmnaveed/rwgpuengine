@@ -285,7 +285,15 @@
             "additionalProperties": {
               "type": ["boolean", "integer", "number", "string"]
             },
-            "description": "Free-form game data, shown by `inspect` and readable from Rust."
+            "description": "Free-form game data shown by `inspect` and checked by `[[expect]] props`. Nothing in data files changes props at runtime (Rust game code can)."
+          },
+          "allow": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^W[0-9]{4}$"
+            },
+            "description": "Warning codes that are intended for this entity and should not be reported, e.g. `[\"W0201\"]` for deliberately stacked solids. Errors cannot be allowed."
           }
         },
         "additionalProperties": false

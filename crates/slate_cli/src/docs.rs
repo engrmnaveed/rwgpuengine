@@ -117,7 +117,10 @@ emit `tapped`), movers, patrols, wanderers, Rust game systems, triggers, then si
 the target cell is outside the ground, holds an enabled `solid` entity, or holds another enabled actor.
 
 **Enabled.** Disabled entities are not drawn, not solid, cannot be tapped, run no behaviors and do not
-count for triggers. `[[connect]]` actions `enable`, `disable` and `toggle` change this.
+count for triggers. `[[connect]]` actions `enable`, `disable` and `toggle` change this. Enabling a solid
+entity where an actor stands does not push the actor out.
+
+**Input.** Every enabled `mover` responds to the same input. Only actors set off triggers.
 
 **Signals.** Every entity emits `tapped` when tapped. A `trigger` emits `on_enter` (default `pressed`)
 when its cell goes from empty to occupied by an actor and `on_exit` (default `released`) when it empties.
@@ -127,7 +130,8 @@ Read them with `slate inspect --events` or `slate run --events`; `slate explain 
 
 {event_table}
 
-**Drawing.** Ground first, then tiles, then blocks and sprites back to front by `x + y`, then height.
+**Drawing.** Ground first, then tiles, then blocks and sprites back to front by `x + y`, then height, then
+part (block before sprite), then file order (later entities on top).
 Blocks shade their left and right faces automatically. A sprite's bottom edge stands on its cell's center.
 "#
     )
@@ -162,6 +166,7 @@ pub fn errors_markdown() -> String {
 pub fn project_agents_md(project_name: &str) -> String {
     let v = slate_core::ENGINE_VERSION;
     let example = EXAMPLE_DOC.replace("{scene}", EXAMPLE_SCENE).replace("{test}", EXAMPLE_PLAYTEST);
+    let limits = LIMITS_MD;
     let mut out = format!(
         r##"# AGENTS.md — {project_name}
 
@@ -171,6 +176,8 @@ for slate {v} (`slate docs --agents` prints the version you have installed).
 
 ## Work loop
 
+0. Before designing, read **Limits in this version** below (also `slate explain limits`): some requirements
+   need an approximation, and it is faster to know that up front.
 1. Edit text files: `scenes/*.toml` (levels), `prefabs/*.toml` (reusable entities), `tests/*.toml` (playtests).
 2. `slate check` — validates every file without running anything. Fix errors at the file:line it reports.
 3. `slate test` — runs every playtest: scripted input, `[[expect]]` checks and reference screenshots.
@@ -196,7 +203,10 @@ tests/refs/*.png    reference screenshots for [[shot]] (create with `slate test 
 out/                generated output (screenshots, diffs); safe to delete
 ```
 
-{example}## Recipes
+{example}## Limits in this version
+
+{limits}
+## Recipes
 
 slate has no built-in "goal", "door" or "item": you build them from tiles, blocks, sprites, triggers and
 `[[connect]]`. These are the usual patterns.
@@ -342,6 +352,31 @@ enabled = false
 reference = "tests/refs/level2.png"
 "##;
 
+/// What this version cannot do, with the known workarounds. Shown in the
+/// project AGENTS.md and by `slate explain limits`. Keep it honest and
+/// current: every limit an agent has to discover by experiment costs minutes.
+pub const LIMITS_MD: &str = r##"Check this list before designing around a feature: if a requirement needs one of these, say so,
+then build the closest honest approximation.
+
+| not in this version | what you can do instead (and what it costs) |
+|---|---|
+| **Text and numbers on screen** (labels, scores, timers) | Nothing renders text. A small fixed range of values can be shown with layered sprites switched by `[[connect]]` (e.g. a 7-segment digit made of `rect` sprites): many entities and connections, and `allow = ["W0302"]` on hidden layers. Say it is an approximation. |
+| **Counters, variables, arithmetic** | `props` are read-only at runtime from data files; no action adds or compares. Count with entity states (one sprite per collected item, a chain of toggles). Playtests check entity states, not a number. |
+| **Conditions on connections** (AND, "only if") | A `[[connect]]` always fires. AND for passage: put two solid door leaves on the same cell, each disabled by its own plate (`allow = ["W0201"]`); the cell opens only while both are held. OR: several `[[connect]]` to the same target. |
+| **Holding a plate with an object** (pushable blocks, weights) | Only actors (`mover`, `patrol`, `wander`) set off triggers. Use a patrol or wanderer as the "weight". |
+| **Several independently controlled characters** | Every enabled `mover` responds to the same input, so they move together. Use one mover; other characters are patrols or wanderers. |
+| **A screen-space HUD layer** | Everything is in the world. A `sprite` `offset` can place a sprite anywhere on screen relative to its cell, which works because the camera never moves. |
+| **Image sprites, audio, animation** | Shapes only (`circle`, `rect`, `diamond`), colors, blocks and tiles. |
+| **Multi-cell objects, rotation, scrolling camera** | One cell per entity (use `cells` for rows of copies); the camera is fixed per scene. |
+| **Rust game code in a `slate new` project** | The engine supports Rust systems (`Game` trait), but `slate new` makes data-only projects and the CLI cannot load Rust code yet. Treat props as read-only. |
+| **Tapping bare ground** | A tap on the floor hits nothing; taps only reach entities. |
+
+Behaviours worth knowing:
+- Draw-order ties (same cell and height) go to file order: later entities are drawn on top.
+- Enabling a solid entity on a cell where an actor stands does not push the actor out; it overlaps until the
+  actor leaves.
+"##;
+
 #[cfg(test)]
 mod tests {
     use slate_data::{Vfs, check_project};
@@ -365,6 +400,7 @@ mod tests {
         assert!(run.failures.is_empty(), "{:#?}", run.failures);
         assert_eq!(run.shots.len(), 1);
         let md = project_agents_md("t");
+        assert!(md.contains("## Limits in this version") && md.contains("Text and numbers on screen"));
         assert!(md.contains("name = \"Level 2\"") && md.contains("hold = \"right\""));
     }
 }

@@ -43,7 +43,8 @@ images), `explain`, `schema`, `docs`, `help --json`, `serve` with instant data r
 Run it as an experiment and keep the record in [experiments/](experiments/) (it is the most important
 signal we have). Run #1: [plate → door → goal](experiments/2026-11-25-cold-agent-1.md) — PASS in 3 min 58 s.
 Run #2: [tap lever + patrol timing + negative tests](experiments/2026-11-25-cold-agent-2.md) — PASS in
-6 min 7 s.
+6 min 7 s. Run #3: [beyond the engine's limits](experiments/2026-11-25-cold-agent-3.md) — PASS with honest
+approximations, but 18 min 42 s because limits were undocumented (now fixed).
 
 1. Build `slate` and put it on `PATH` (`cargo build --release` → `target/release/slate`).
 2. In an empty folder **outside this repo**, start a fresh coding agent with no other context.
@@ -60,7 +61,9 @@ Run #2: [tap lever + patrol timing + negative tests](experiments/2026-11-25-cold
 
 Deliberate gaps in v0.1 — each waits for a reference game that needs it (guardrail 2):
 
+- The full list an agent sees is in the project AGENTS.md ("Limits in this version") and `slate explain limits`.
 - **No text rendering**, **no image sprites**, **no audio** ([open-questions](open-questions.md) Q5, Q6).
+- **No counters or conditions in data** ([open-questions](open-questions.md) Q14).
 - **Single-cell objects only**: draw order is per cell (`x + y`); multi-cell buildings need M3 sorting.
 - **CPU rendering only** (deterministic, fine at 640×480; GPU via wgpu later — Q4).
 - **No native window**: humans use the web player (`slate serve`).
@@ -73,5 +76,5 @@ Deliberate gaps in v0.1 — each waits for a reference game that needs it (guard
 
 ## Next
 
-Cold-agent run #3 on a task the engine cannot do yet (to test how fast limits are recognised), then M2 in
-[roadmap.md](roadmap.md).
+Re-run run #3's task on the build with the limits table (it should be much faster), decide Q14 (data-level
+logic), then M2 in [roadmap.md](roadmap.md).
