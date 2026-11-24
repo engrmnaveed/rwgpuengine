@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://slate.dev/schema/prefab.json",
+  "title": "slate prefab file",
+  "type": "object",
+  "description": "A reusable entity template: prefabs/<name>.toml. Same keys as an entity, minus name/prefab/pos/cells.",
+  "properties": {
+    "doc": {
+      "type": "string",
+      "description": "What the prefab is."
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Disabled entities are not drawn, not solid, cannot be tapped and run no behaviors. Default: true."
+    },
+    "solid": {
+      "type": "boolean",
+      "description": "Nothing can move into its cell. Default: false."
+    },
+    "tile": {
+      "type": "object",
+      "description": "Flat diamond on the floor (marks, pressure plates).",
+      "properties": {
+        "color": {
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+          "description": "Fill color. Default: \"#c9b26b\"."
+        }
+      },
+      "additionalProperties": false
+    },
+    "block": {
+      "type": "object",
+      "description": "Isometric box (walls, crates, buildings).",
+      "properties": {
+        "color": {
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+          "description": "Top face color. Default: \"#9aa0a6\"."
+        },
+        "height": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 64.0,
+          "description": "Height in z units. Default: 1.0."
+        }
+      },
+      "additionalProperties": false
+    },
+    "sprite": {
+      "type": "object",
+      "description": "Upright shape standing on the cell (characters, items).",
+      "properties": {
+        "shape": {
+          "enum": ["circle", "rect", "diamond"],
+          "description": "circle (ellipse filling size), rect or diamond. Default: \"circle\"."
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+          "description": "Fill color. Default: \"#ffffff\"."
+        },
+        "size": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "Width and height in pixels. Default: [24, 32]."
+        },
+        "offset": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "Shift in pixels [right, down] from the standing point. Default: [0, 0]."
+        }
+      },
+      "additionalProperties": false
+    },
+    "mover": {
+      "type": "object",
+      "description": "Moves one cell per direction input.",
+      "properties": {
+        "step_frames": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600,
+          "description": "Frames between moves. A press during the wait is ignored (logged with reason `cooldown`). Default: 8."
+        }
+      },
+      "additionalProperties": false
+    },
+    "patrol": {
+      "type": "object",
+      "description": "Walks a fixed path of cells.",
+      "properties": {
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "minItems": 1,
+          "description": "Cells to visit, in order."
+        },
+        "step_frames": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6000,
+          "description": "Frames between steps. Default: 30."
+        },
+        "mode": {
+          "enum": ["loop", "pingpong"],
+          "description": "loop: back to the first cell; pingpong: walk the path backwards. Default: \"loop\"."
+        }
+      },
+      "required": ["path"],
+      "additionalProperties": false
+    },
+    "wander": {
+      "type": "object",
+      "description": "Walks randomly (seeded).",
+      "properties": {
+        "step_frames": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6000,
+          "description": "Frames between steps. Default: 45."
+        },
+        "area": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "minItems": 1,
+          "description": "Two corner cells [[x0, y0], [x1, y1]] to stay inside. Default: the whole ground."
+        }
+      },
+      "additionalProperties": false
+    },
+    "trigger": {
+      "type": "object",
+      "description": "Emits signals when actors step on or off its cell.",
+      "properties": {
+        "on_enter": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_/-]+$",
+          "description": "Signal emitted when the cell becomes occupied. Default: \"pressed\"."
+        },
+        "on_exit": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_/-]+$",
+          "description": "Signal emitted when the cell becomes empty. Default: \"released\"."
+        },
+        "only": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_/-]+$",
+          "description": "Only this entity (by name) counts. Default: any actor."
+        }
+      },
+      "additionalProperties": false
+    },
+    "props": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["boolean", "integer", "number", "string"]
+      },
+      "description": "Free-form game data, shown by `inspect` and readable from Rust."
+    }
+  },
+  "additionalProperties": false
+}

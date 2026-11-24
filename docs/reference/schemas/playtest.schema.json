@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://slate.dev/schema/playtest.json",
+  "title": "slate playtest file",
+  "type": "object",
+  "description": "Scripted input plus expectations, run by `slate test`. `run`, `shot` and `inspect` accept it as `--input`.",
+  "properties": {
+    "test": {
+      "type": "object",
+      "description": "Which scene, how long, which seed.",
+      "properties": {
+        "doc": {
+          "type": "string",
+          "description": "What the playtest checks."
+        },
+        "scene": {
+          "type": "string",
+          "description": "Scene to run. Default: the project's main_scene."
+        },
+        "frames": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000,
+          "description": "Number of frames (steps) to run. Default: 300."
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807,
+          "description": "Overrides the project and scene seed."
+        }
+      },
+      "additionalProperties": false
+    },
+    "input": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "One input event. Use exactly one of `press`, `hold` or `tap`. Input at frame N is applied by step N (the step from frame N to N+1).",
+        "properties": {
+          "frame": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000,
+            "description": "Frame at which the input happens."
+          },
+          "press": {
+            "enum": ["up", "down", "left", "right", "confirm", "cancel"],
+            "description": "Press and release an action within the frame."
+          },
+          "hold": {
+            "enum": ["up", "down", "left", "right", "confirm", "cancel"],
+            "description": "Hold an action down for `for` frames."
+          },
+          "for": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000,
+            "description": "With `hold`: number of frames to hold. Default: 1."
+          },
+          "tap": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "Tap the screen at pixel [x, y]; hits the topmost enabled entity drawn there."
+          }
+        },
+        "required": ["frame"],
+        "additionalProperties": false
+      },
+      "description": "Scripted input, one `[[input]]` per event."
+    },
+    "expect": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`) or the event log (`event`, optionally filtered by `entity` and `signal`).",
+        "properties": {
+          "frame": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000,
+            "description": "When to check. Default: the last frame."
+          },
+          "entity": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_/-]+$",
+            "description": "Entity to check, by name."
+          },
+          "pos": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 3,
+            "description": "Expected position."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Expected enabled state."
+          },
+          "solid": {
+            "type": "boolean",
+            "description": "Expected solid state."
+          },
+          "props": {
+            "type": "object",
+            "additionalProperties": {
+              "type": ["boolean", "integer", "number", "string"]
+            },
+            "description": "Expected values of these props (others are ignored)."
+          },
+          "event": {
+            "enum": ["input", "tap", "tap_miss", "moved", "blocked", "trigger", "signal", "action", "error", "custom"],
+            "description": "Expect events of this kind up to `frame`."
+          },
+          "signal": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_/-]+$",
+            "description": "With `event`: only count events about this signal."
+          },
+          "at_least": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000,
+            "description": "With `event`: minimum number of matching events. Default: 1."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Checks on world state or the event log."
+    },
+    "shot": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "Render a frame and compare it with a reference PNG. Create or refresh references with `slate test --update-refs`.",
+        "properties": {
+          "frame": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000,
+            "description": "Frame to render. Default: the last frame."
+          },
+          "reference": {
+            "type": "string",
+            "description": "Reference PNG, relative to the project root (e.g. tests/refs/smoke.png)."
+          },
+          "max_diff_pixels": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807,
+            "description": "Pixels allowed to differ. Default: 0."
+          }
+        },
+        "required": ["reference"],
+        "additionalProperties": false
+      },
+      "description": "Screenshots compared with reference images."
+    }
+  },
+  "additionalProperties": false
+}

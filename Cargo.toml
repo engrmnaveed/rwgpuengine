@@ -3,7 +3,7 @@
 
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "xtask"]
 # `cargo build` / `cargo test` at the root cover the engine crates; xtask is
 # dev automation and is run through the `cargo xtask` alias.
 default-members = ["crates/*"]

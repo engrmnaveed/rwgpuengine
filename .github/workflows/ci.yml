@@ -1,0 +1,26 @@
+# CI runs exactly what developers run locally: `cargo xtask ci`.
+# That covers fmt, clippy (native + wasm), tests, generated-docs drift,
+# example playtests, and the hard budgets in budgets.toml.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins the version, components and the wasm target;
+      # rustup installs them on first use.
+      - name: Install toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo xtask ci
+        run: cargo xtask ci

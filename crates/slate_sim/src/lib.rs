@@ -18,5 +18,11 @@ pub use events::{Event, EventKind, EventLog};
 pub use input::{ActionSet, InputFrame, Tap};
 pub use world::{Connection, Entity, EntityId, NoSystems, Systems, World};
 
+/// Rebuild probe for `cargo xtask budgets`: changing this env var makes
+/// cargo recompile this crate (and its dependents) exactly as an edit would,
+/// without touching any source file.
+#[doc(hidden)]
+pub const REBUILD_PROBE: Option<&str> = option_env!("SLATE_REBUILD_PROBE");
+
 #[cfg(test)]
 mod tests;
