@@ -103,7 +103,9 @@ pub fn semantics_markdown(h: &str) -> String {
 **Frames.** The simulation advances in fixed steps (`[sim] tick_rate` per second). Frame N is the state
 after N steps. An `[[input]]` at frame N is applied by step N. `run --frames 300` takes 300 steps;
 `shot --frame 300` and `inspect --frame 300` show the state after them. Everything is deterministic: same
-files + input + seed = same state hash and same pixels, on every machine.
+files + input + seed = same state hash and same pixels, on every machine. A state hash fingerprints the
+state at one frame (what `slate test` prints is the final frame's), not the path that led there: two runs
+can differ along the way and still end in the same state.
 
 **Coordinates.** Cells are `[x, y]` integers; `[0, 0]` is the top corner of the ground. +x runs down-right
 on screen, +y down-left, z is height. Direction inputs move movers: `up` = -y, `down` = +y,
@@ -259,7 +261,8 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
 
   OR is several `[[connect]]` tables to the same target; NOT is `occupied = false` or `enabled = false`.
   **Who holds the plates?** One player can stand on only one plate, and every mover follows the same input,
-  so push a crate (see "Pushable crate" below) onto the other plate, or let a patrol hold it. A player who
+  so push a crate (see "Pushable crate" below) onto the other plate, or let a patrol hold it. A crate-held
+  plate is released only when its holder leaves: pushing the crate off puts the pusher on the plate. A player who
   holds one of the plates can never walk through the door, because stepping off closes it: if the player
   must get through, put crates on both plates.
 - **Collectible (counts once).** Put the sprite and the trigger on the **same** entity and connect its signal
@@ -287,9 +290,11 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
 - **Do something when a count is reached.** The prop's owner emits `changed` whenever a prop changes; act on it
   with a condition: `[[connect]] from = "hud" signal = "changed" to = "vault" action = "disable"` +
   `when = [{{ entity = "hud", prop = "coins", at_least = 3 }}]`.
-- **Pushable crate (a weight for plates).** `block = {{ color = "#a0703c", height = 0.8 }}` +
-  `pushable = true`. The player pushes it by walking into it; it holds a plate like an actor would
-  (`trigger.only` can name it). It stops at walls, actors, other crates and the ground's edge (logged as
+- **Pushable crate (a weight for plates).** `prefab = "crate"` (the starter `prefabs/crate.toml`:
+  `block` + `pushable = true`; use `prefab = "wall"` for things that must not move). The player pushes it
+  by walking into it; it holds a plate like an actor would (`trigger.only` can name it). Pushing a crate off
+  a plate moves the player onto that plate in the same step, so the plate stays held (no `released`) until
+  the player steps off. It stops at walls, actors, other crates and the ground's edge (logged as
   `blocked` with reason `push`, `other` = the crate), so a crate pushed into a corner stays there: leave room
   around plates. Prove it with `[[expect]] entity = "crate"` + `pos`, and the plate's `trigger` event.
   A crate that starts on a plate does not emit `pressed` at frame 0 (as with any occupant); `when` conditions
@@ -316,9 +321,10 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
 ## Tips
 
 - **Mover timing.** A press or hold moves on its first frame (if the mover is ready), then every
-  `step_frames` (default 8) while held, so `hold = "right"` with `for = 8 × N` gives exactly N steps. Input
+  `step_frames` (default 8) while held, so `hold = "right"` with `for = 8 × N` at frame f gives exactly N
+  steps, at f, f + 8, …, and the next input can start at f + 8 × N (back-to-back holds are safe). Input
   during the wait is not queued: a press is dropped (logged as `blocked`, reason `cooldown`); a hold moves as
-  soon as the wait ends. Leave at least `step_frames` between separate inputs.
+  soon as the wait ends. Rule of thumb: start an input at least `step_frames` after the last move.
 - **Timing puzzles.** Event-log entries are labeled with the step that produced them: `[N]` happened in step
   N, so it is visible from frame N + 1 (an `[[expect]]` at `frame = N + 1` counts it). `slate run --frames 200
   --track guard` prints the cells an entity occupies with frame ranges: read patrol windows there instead of
@@ -385,8 +391,8 @@ prefab = "player"                 # prefabs/player.toml
 pos = [0, 0]
 
 [[entity]]
-prefab = "crate"
-cells = [[2, 0], [2, 1], [2, 2]]  # one crate per cell (no `name` allowed)
+prefab = "wall"
+cells = [[2, 0], [2, 1], [2, 2]]  # one wall block per cell (no `name` allowed)
 
 [[entity]]
 name = "plate"
@@ -450,7 +456,7 @@ plates (`pushable` crates the player pushes). See the Recipes.
 |---|---|
 | **Expressions and arithmetic beyond add/set** (multiply, one prop from another, random numbers in data) | `add` a constant and `set` a constant; compare props with constants in `when`. For a few fixed outcomes, write one `[[connect]]` per case with `when` conditions. |
 | **Timers and delays** | No timer component. A patrol stepping on and off a trigger fires on a fixed period (`step_frames`); use its `pressed` signal as the tick. |
-| **Several independently controlled characters** (two players, co-op, switching characters, "the player holds both plates") | Every enabled `mover` responds to the same input, so they move together. Use one mover; other characters are patrols or wanderers; plates the player cannot stand on are held by pushed crates (`pushable`). |
+| **Several independently controlled characters** (two players, co-op, switching characters, two people standing on plates at once) | Every enabled `mover` responds to the same input, so they move together. Use one mover; other characters are patrols or wanderers. Holding several plates at once is supported without characters: push crates onto them (`pushable`). |
 | **Pulling, lifting, or pushing several crates in a row** | A mover pushes one `pushable` one cell; a crate with another crate behind it does not move (reason `push`). |
 | **Text beyond printable ASCII** (accents, other scripts, emoji), fonts and text styles | One built-in pixel font: printable ASCII, a color and an integer `scale`. Other characters draw as a box (W0207). |
 | **Image sprites, audio, animation** | Shapes only (`circle`, `rect`, `diamond`), colors, blocks, tiles and text. |

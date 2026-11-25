@@ -1,0 +1,66 @@
+# Only plate_a is held (by crate_a). The player walks to the vault door and is
+# refused: the door is solid.
+
+[test]
+doc = "With only one plate held the door stays shut and blocks the player."
+scene = "scenes/main.toml"
+frames = 130
+
+[[input]]
+frame = 0
+hold = "down"        # (1, 2) = coin1
+for = 8
+
+[[input]]
+frame = 16
+hold = "right"       # (2, 2)
+for = 8
+
+[[input]]
+frame = 32
+hold = "down"        # pushes crate_a onto plate_a; player (2, 3)
+for = 8
+
+[[input]]
+frame = 48
+hold = "right"       # (3, 3) (4, 3) (5, 3) = coin2
+for = 24
+
+[[input]]
+frame = 80
+hold = "down"        # (5, 4)
+for = 8
+
+[[input]]
+frame = 96
+hold = "right"       # (6, 4)
+for = 8
+
+[[input]]
+frame = 112
+hold = "down"        # into the door: refused
+for = 8
+
+[[expect]]
+entity = "player"
+pos = [6, 4]
+
+[[expect]]
+entity = "door"
+enabled = true
+
+[[expect]]
+event = "blocked"
+entity = "player"
+other = "door"
+reason = "solid"
+
+[[expect]]
+event = "action"
+entity = "door"
+signal = "pressed"
+at_most = 0
+
+[[expect]]
+entity = "hud"
+text = "Coins: 2/3"

@@ -33,8 +33,11 @@ Need: scores, counts and conditions (cold-agent runs #3/#4 spent 14–19 min bui
   10 min 2 s (target ≤ 5 min missed; run #4 took 14 min 6 s). The remaining approximation is the plate
   holder, a separate limit.
 - Follow-up built: `pushable` entities that movers push and triggers count ([ADR 0012](decisions/0012-pushable-entities-hold-plates.md)),
-  evidence from runs #3–#5. Acceptance: cold-agent run #6 on the vault task.
-- Still candidates: switching control between several movers; pulling or chain-pushing.
+  evidence from runs #3–#5. Accepted by [run #6](experiments/2026-11-25-cold-agent-6.md): the full puzzle, no
+  stand-ins, 0 warnings, 7 min 41 s.
+- Still candidates: switching control between several movers; pulling or chain-pushing; an expectation that
+  holds on every frame of a range ("only while" claims); `enabled_when` derived state (fewer mirrored
+  connections for AND doors).
 
 ## M2 — The live loop
 

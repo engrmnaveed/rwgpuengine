@@ -1,0 +1,147 @@
+# Full solution: collect coin1, push both crates onto the plates (the door opens
+# only when the second plate goes down), collect coin2, walk through the open
+# vault door and collect coin3. The HUD counts 0 -> 1 -> 2 -> 3.
+# A mover steps once every 8 frames while a direction is held.
+
+[test]
+doc = "Both plates held by crates opens the vault; the HUD counts all three coins."
+scene = "scenes/main.toml"
+frames = 200
+
+[[input]]
+frame = 0
+hold = "down"        # (1, 2) = coin1
+for = 8
+
+[[input]]
+frame = 16
+hold = "right"       # (2, 2)
+for = 8
+
+[[input]]
+frame = 32
+hold = "down"        # pushes crate_a (2, 3) -> (2, 4) = plate_a; player (2, 3). Door stays shut (plate_b empty).
+for = 8
+
+[[input]]
+frame = 48
+hold = "up"          # (2, 2)
+for = 8
+
+[[input]]
+frame = 64
+hold = "right"       # pushes crate_b (3, 2) -> (4, 2) = plate_b; player (3, 2). Both plates held: door opens.
+for = 8
+
+[[input]]
+frame = 80
+hold = "down"        # (3, 3)
+for = 8
+
+[[input]]
+frame = 96
+hold = "right"       # (4, 3) (5, 3) = coin2
+for = 16
+
+[[input]]
+frame = 120
+hold = "down"        # (5, 4)
+for = 8
+
+[[input]]
+frame = 136
+hold = "right"       # (6, 4), in front of the door
+for = 8
+
+[[input]]
+frame = 152
+hold = "down"        # (6, 5) open doorway, (6, 6), (6, 7) = coin3
+for = 24
+
+# --- after coin1, before any plate ---
+
+[[expect]]
+frame = 10
+entity = "hud"
+props = { coins = 1 }
+text = "Coins: 1/3"
+
+[[expect]]
+frame = 10
+entity = "coin1"
+enabled = false
+
+# --- crate_a on plate_a alone does not open the door ---
+
+[[expect]]
+frame = 45
+entity = "crate_a"
+pos = [2, 4]
+
+[[expect]]
+frame = 45
+entity = "door"
+enabled = true
+
+[[expect]]
+frame = 45
+event = "skipped"
+entity = "door"
+other = "plate_a"
+signal = "pressed"
+
+# --- crate_b on plate_b as well: the door opens ---
+
+[[expect]]
+frame = 75
+entity = "crate_b"
+pos = [4, 2]
+
+[[expect]]
+frame = 75
+entity = "door"
+enabled = false
+
+[[expect]]
+frame = 75
+event = "action"
+entity = "door"
+other = "plate_b"
+signal = "pressed"
+
+# --- coin2 ---
+
+[[expect]]
+frame = 115
+entity = "hud"
+props = { coins = 2 }
+text = "Coins: 2/3"
+
+# --- end: inside the vault with all three coins ---
+
+[[expect]]
+entity = "player"
+pos = [6, 7]
+
+[[expect]]
+entity = "door"
+enabled = false
+
+[[expect]]
+entity = "hud"
+props = { coins = 3 }
+text = "Coins: 3/3"
+
+[[expect]]
+entity = "coin3"
+enabled = false
+
+# Each coin counted exactly once.
+[[expect]]
+event = "action"
+entity = "hud"
+at_least = 3
+at_most = 3
+
+[[shot]]
+reference = "tests/refs/walkthrough_end.png"

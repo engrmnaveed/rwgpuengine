@@ -1,0 +1,3 @@
+doc = "The player: moves one cell per direction input. Blue so it is not confused with the gold coins."
+sprite = { shape = "circle", color = "#5ec8f2", size = [22, 30] }
+mover = { step_frames = 8 }

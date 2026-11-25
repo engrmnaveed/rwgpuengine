@@ -1,3 +1,3 @@
-doc = "A wooden crate. Blocks movement."
+doc = "A wooden crate. The player pushes it one cell by walking into it; it holds pressure plates."
 block = { color = "#a0703c", height = 0.8 }
-solid = true
+pushable = true

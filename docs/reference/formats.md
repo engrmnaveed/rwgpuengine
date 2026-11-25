@@ -325,7 +325,9 @@ Render a frame and compare it with a reference PNG. Create or refresh references
 **Frames.** The simulation advances in fixed steps (`[sim] tick_rate` per second). Frame N is the state
 after N steps. An `[[input]]` at frame N is applied by step N. `run --frames 300` takes 300 steps;
 `shot --frame 300` and `inspect --frame 300` show the state after them. Everything is deterministic: same
-files + input + seed = same state hash and same pixels, on every machine.
+files + input + seed = same state hash and same pixels, on every machine. A state hash fingerprints the
+state at one frame (what `slate test` prints is the final frame's), not the path that led there: two runs
+can differ along the way and still end in the same state.
 
 **Coordinates.** Cells are `[x, y]` integers; `[0, 0]` is the top corner of the ground. +x runs down-right
 on screen, +y down-left, z is height. Direction inputs move movers: `up` = -y, `down` = +y,

@@ -141,7 +141,7 @@ prefab = "player"
 pos = [0, 0]
 
 [[entity]]
-prefab = "crate"
+prefab = "wall"
 cells = [[2, 0], [2, 1], [2, 3]]
 
 [[entity]]

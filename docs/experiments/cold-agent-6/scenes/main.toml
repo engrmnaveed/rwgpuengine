@@ -1,0 +1,168 @@
+# The vault.
+#
+# Grid: +x runs down-right on screen, +y down-left, z is height.
+# The ground is 8x8: cells (0, 0) to (7, 7).
+#
+# The vault is the bottom corner: interior (6, 6) (7, 6) (6, 7) (7, 7), walls on
+# its two back sides, the vault door at (6, 5), entered from (6, 4) going down.
+# The ground's edge closes the two front sides.
+#
+# The door is open (disabled) only while plate_a AND plate_b are both occupied
+# (by the player or by a pushed crate); leaving either plate closes it again.
+# One player can only stand on one plate, so the other one has to be held by a
+# crate. To walk into the vault, both plates must be held by crates.
+#
+# The HUD in the top-left corner counts the coins the player has collected.
+
+[scene]
+name = "Vault"
+doc = "Hold both pressure plates to open the vault door; collect the three coins."
+
+[ground]
+size = [8, 8]
+
+[[entity]]
+name = "player"
+prefab = "player"
+pos = [1, 1]
+
+# ---- pressure plates and the crates that can hold them ----
+
+[[entity]]
+name = "plate_a"
+prefab = "plate"
+pos = [2, 4]
+
+[[entity]]
+name = "plate_b"
+prefab = "plate"
+pos = [4, 2]
+
+[[entity]]
+name = "crate_a"            # push it down from (2, 2) onto plate_a
+prefab = "crate"
+pos = [2, 3]
+
+[[entity]]
+name = "crate_b"            # push it right from (2, 2) onto plate_b
+prefab = "crate"
+pos = [3, 2]
+
+# ---- the vault ----
+
+# Grey floor inside the vault (decoration only).
+[[entity]]
+cells = [[6, 6], [7, 6], [6, 7], [7, 7]]
+tile = { color = "#8a929c" }
+
+# A dark threshold under the door, so the open doorway is visible as a doorway.
+[[entity]]
+name = "threshold"
+pos = [6, 5]
+tile = { color = "#2b2f36" }
+
+[[entity]]
+prefab = "wall"
+cells = [[5, 5], [7, 5], [5, 6], [5, 7]]
+
+[[entity]]
+name = "door"
+prefab = "door"
+pos = [6, 5]
+
+# ---- coins ----
+
+[[entity]]
+name = "coin1"
+prefab = "coin"
+pos = [1, 2]
+
+[[entity]]
+name = "coin2"
+prefab = "coin"
+pos = [5, 3]
+
+[[entity]]
+name = "coin3"              # inside the vault
+prefab = "coin"
+pos = [6, 7]
+
+# ---- HUD: the score, drawn at a fixed pixel ----
+
+[[entity]]
+name = "hud"
+screen_pos = [8, 8]
+sprite = { shape = "rect", color = "#000000aa", size = [126, 24] }
+label = { text = "Coins: {coins}/3", offset = [4, 4], scale = 2 }
+props = { coins = 0 }
+
+# ---- door logic: open only while BOTH plates are held ----
+
+# A plate going down opens the door only if the other plate is held right now.
+[[connect]]
+from = "plate_a"
+signal = "pressed"
+to = "door"
+action = "disable"
+when = [{ entity = "plate_b", occupied = true }]
+
+[[connect]]
+from = "plate_b"
+signal = "pressed"
+to = "door"
+action = "disable"
+when = [{ entity = "plate_a", occupied = true }]
+
+# Either plate coming up closes the door again.
+[[connect]]
+from = "plate_a"
+signal = "released"
+to = "door"
+action = "enable"
+
+[[connect]]
+from = "plate_b"
+signal = "released"
+to = "door"
+action = "enable"
+
+# ---- coins: each counts once ----
+
+[[connect]]
+from = "coin1"
+signal = "collected"
+to = "coin1"
+action = "disable"
+
+[[connect]]
+from = "coin1"
+signal = "collected"
+to = "hud"
+action = "add"
+prop = "coins"
+
+[[connect]]
+from = "coin2"
+signal = "collected"
+to = "coin2"
+action = "disable"
+
+[[connect]]
+from = "coin2"
+signal = "collected"
+to = "hud"
+action = "add"
+prop = "coins"
+
+[[connect]]
+from = "coin3"
+signal = "collected"
+to = "coin3"
+action = "disable"
+
+[[connect]]
+from = "coin3"
+signal = "collected"
+to = "hud"
+action = "add"
+prop = "coins"

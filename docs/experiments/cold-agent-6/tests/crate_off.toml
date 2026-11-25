@@ -1,0 +1,95 @@
+# Both plates held by crates (door open), then the player pushes crate_a off
+# plate_a. A push moves the player into the crate's old cell, so the player is
+# now on plate_a and the plate never goes up: the door stays open. When the
+# player steps off plate_a, it goes up and the door closes.
+
+[test]
+doc = "Pushing a crate off a plate puts the player on it; the door closes when the player steps off."
+scene = "scenes/main.toml"
+frames = 150
+
+[[input]]
+frame = 0
+hold = "down"        # (1, 2) = coin1
+for = 8
+
+[[input]]
+frame = 16
+hold = "right"       # (2, 2)
+for = 8
+
+[[input]]
+frame = 32
+hold = "down"        # crate_a onto plate_a; player (2, 3)
+for = 8
+
+[[input]]
+frame = 48
+hold = "up"          # (2, 2)
+for = 8
+
+[[input]]
+frame = 64
+hold = "right"       # crate_b onto plate_b; player (3, 2). Door OPENS
+for = 8
+
+[[input]]
+frame = 80
+hold = "left"        # (2, 2)
+for = 8
+
+[[input]]
+frame = 96
+hold = "down"        # (2, 3)
+for = 8
+
+[[input]]
+frame = 112
+hold = "down"        # pushes crate_a (2, 4) -> (2, 5); player onto plate_a (2, 4): door stays open
+for = 8
+
+[[input]]
+frame = 128
+hold = "right"       # (3, 4), off plate_a: plate_a goes up, door CLOSES
+for = 8
+
+[[expect]]
+frame = 75
+entity = "door"
+enabled = false
+
+[[expect]]
+frame = 125
+entity = "crate_a"
+pos = [2, 5]
+
+[[expect]]
+frame = 125
+entity = "player"
+pos = [2, 4]
+
+[[expect]]
+frame = 125
+entity = "door"
+enabled = false
+
+[[expect]]
+frame = 125
+event = "trigger"
+entity = "plate_a"
+signal = "released"
+at_most = 0
+
+[[expect]]
+entity = "player"
+pos = [3, 4]
+
+[[expect]]
+entity = "door"
+enabled = true
+
+[[expect]]
+event = "trigger"
+entity = "plate_a"
+other = "player"
+signal = "released"

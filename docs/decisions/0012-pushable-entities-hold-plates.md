@@ -49,3 +49,9 @@ parts, and this is that pattern.
 
 A cold-agent re-run of the vault task (run #6) should mark every requirement supported with no approximation
 and 0 warnings, faster than run #5 (10 min 2 s).
+
+**Result ([run #6](../experiments/2026-11-25-cold-agent-6.md)):**
+- The agent built the complete puzzle: both plates held by pushed crates, and the player walks into the vault.
+- 0 warnings, 7 min 41 s.
+- Its table still lists the plate holder as "approximated" (no second character), a conservative reading
+  prompted by our limits wording, which is now fixed. The level itself has no stand-ins.

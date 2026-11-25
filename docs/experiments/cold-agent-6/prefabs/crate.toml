@@ -1,0 +1,3 @@
+doc = "A pushable wooden crate: the player pushes it one cell by walking into it. It holds pressure plates like an actor does."
+block = { color = "#a0703c", height = 0.8 }
+pushable = true

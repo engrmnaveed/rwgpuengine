@@ -82,5 +82,6 @@ Deliberate gaps in v0.1 — each waits for a reference game that needs it (guard
 
 Data logic v1 is built and accepted with caveats (M1.6, [ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md),
 [run #5](experiments/2026-11-25-cold-agent-5.md)): the logic is fully supported, and 10 min 2 s missed the
-5-minute target. Objects that hold plates are built ([ADR 0012](decisions/0012-pushable-entities-hold-plates.md));
-cold-agent run #6 checks the vault task end to end. Then M2/M3 once Q3 picks the first reference game.
+5-minute target. Objects that hold plates are built ([ADR 0012](decisions/0012-pushable-entities-hold-plates.md)), and
+[run #6](experiments/2026-11-25-cold-agent-6.md) built the vault task as the full puzzle in 7 min 41 s. Next:
+M2/M3 once Q3 picks the first reference game.

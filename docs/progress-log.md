@@ -3,6 +3,23 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Cold-agent test #6: the vault task with no stand-ins
+
+- On the pushable build, the agent built the full puzzle: three coins counted on a HUD, two crates pushed onto
+  the plates, and the player walks into the vault. 0 warnings, 5 playtests with 49 expects plus its own
+  mutation check. Re-verified independently.
+- 7 min 41 s, 29 tool calls, ~136K tokens. That is the fastest of the four vault runs (18:42 → 14:06 →
+  10:02 → 7:41), and the first file was written at 2:39.
+- Its table kept one conservative "approximated" (no second character to hold a plate), prompted by our
+  limits wording. That row is reworded.
+- Fixes from its findings:
+  - the starter `crate` prefab is now pushable, and a new `wall` prefab does the blocking;
+  - crate-off-plate behaviour is documented;
+  - the report says when a plate's coverer stands on it;
+  - `slate test` prints "final state";
+  - back-to-back holds are clarified.
+- [Experiment report](experiments/2026-11-25-cold-agent-6.md).
+
 ## 2026-11-25 — Pushable crates hold plates (ADR 0012)
 
 - `pushable = true`: a mover walking into it pushes it one cell if the cell beyond is free. Otherwise the

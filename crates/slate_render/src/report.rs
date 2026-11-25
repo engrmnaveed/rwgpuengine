@@ -337,7 +337,10 @@ impl FrameReport {
                 line.push_str(&format!("  text {t:?}"));
             }
             if let Some((o, n)) = r.covered_by.first() {
-                line.push_str(&format!("  (covered most by #{o}: {n} px)"));
+                let same_cell =
+                    !r.on_screen && self.entities.iter().any(|x| x.id == *o && !x.on_screen && x.cell == r.cell);
+                let note = if same_cell { " standing on it" } else { "" };
+                line.push_str(&format!("  (covered most by #{o}{note}: {n} px)"));
             }
             if r.offscreen {
                 line.push_str("  OFFSCREEN");

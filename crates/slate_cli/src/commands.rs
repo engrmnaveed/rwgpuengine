@@ -34,6 +34,7 @@ const TEMPLATE: &[(&str, &str)] = &[
     ("slate.toml", include_str!("../template/slate.toml")),
     ("scenes/main.toml", include_str!("../template/scenes/main.toml")),
     ("prefabs/player.toml", include_str!("../template/prefabs/player.toml")),
+    ("prefabs/wall.toml", include_str!("../template/prefabs/wall.toml")),
     ("prefabs/crate.toml", include_str!("../template/prefabs/crate.toml")),
     ("prefabs/door.toml", include_str!("../template/prefabs/door.toml")),
     ("prefabs/plate.toml", include_str!("../template/prefabs/plate.toml")),
@@ -632,7 +633,7 @@ pub fn test(p: &Parsed, games: &GameFactory) -> Outcome {
             failed += 1;
         }
         o.line(format!(
-            "test {} ... {} ({} expect(s), {} shot(s), {} frames, state {})",
+            "test {} ... {} ({} expect(s), {} shot(s), {} frames, final state {})",
             run.name,
             if ok { "ok" } else { "FAILED" },
             run.expects_checked,

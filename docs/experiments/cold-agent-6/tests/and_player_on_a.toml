@@ -1,0 +1,72 @@
+# The mirror case: a crate holds plate_b, the player holds plate_a.
+
+[test]
+doc = "Crate on plate_b + player on plate_a opens the door; the player stepping off plate_a closes it."
+scene = "scenes/main.toml"
+frames = 130
+
+[[input]]
+frame = 0
+hold = "down"        # (1, 2) = coin1
+for = 8
+
+[[input]]
+frame = 16
+hold = "right"       # (2, 2), then pushes crate_b onto plate_b (4, 2); player (3, 2). plate_a empty: door stays shut
+for = 16
+
+[[input]]
+frame = 40
+hold = "down"        # (3, 3) (3, 4)
+for = 16
+
+[[input]]
+frame = 64
+hold = "left"        # (2, 4) = plate_a, crate on plate_b: door OPENS
+for = 8
+
+[[input]]
+frame = 80
+hold = "left"        # (1, 4), off plate_a: door CLOSES
+for = 8
+
+[[expect]]
+frame = 35
+entity = "crate_b"
+pos = [4, 2]
+
+[[expect]]
+frame = 35
+entity = "door"
+enabled = true
+
+[[expect]]
+frame = 75
+entity = "player"
+pos = [2, 4]
+
+[[expect]]
+frame = 75
+entity = "door"
+enabled = false
+
+[[expect]]
+frame = 75
+event = "action"
+entity = "door"
+other = "plate_a"
+signal = "pressed"
+
+[[expect]]
+entity = "player"
+pos = [1, 4]
+
+[[expect]]
+entity = "door"
+enabled = true
+
+[[expect]]
+event = "action"
+entity = "door"
+other = "plate_a"
+signal = "released"
