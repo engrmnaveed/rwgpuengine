@@ -10,6 +10,7 @@
 //! - [`rng`]: seeded PCG32, identical on every platform.
 //! - [`hash`]: FNV-1a 64 for state and image hashes.
 //! - [`color`]: RGBA8 colors and hex parsing.
+//! - [`math`]: sine and cosine built from exact operations, identical on every platform.
 //! - [`text`]: edit distance and "did you mean" suggestions.
 
 pub mod codes;
@@ -17,6 +18,7 @@ pub mod color;
 pub mod diag;
 pub mod hash;
 pub mod json;
+pub mod math;
 pub mod rng;
 pub mod text;
 
