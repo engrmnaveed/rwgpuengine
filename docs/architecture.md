@@ -92,11 +92,13 @@ index in scene order — stable for a given file, usable in scripts and tests.
 `World::tick(input, systems)` runs, in this fixed order:
 
 1. **input** — log pressed actions; each resolved tap logs `tap`/`tap_miss` and emits `tapped`.
-2. **movers** — one cell per direction input, gated by `step_frames` cooldown.
+2. **movers** — one cell per direction input, gated by `step_frames` cooldown; a mover walking into a
+   `pushable` pushes it one cell if the cell beyond is free (ADR 0012).
 3. **patrols** — step toward the next path cell every `step_frames`.
 4. **wanderers** — one RNG draw each, in entity order.
 5. **custom systems** — Rust game code (`Game: Systems`).
-6. **triggers** — compare cell occupancy with last step; emit `on_enter` / `on_exit`.
+6. **triggers** — compare cell occupancy (enabled actors and pushables) with last step; emit `on_enter` /
+   `on_exit`.
 7. **signal dispatch** — FIFO through `[[connect]]` wiring, capped at 1000 per step (E0301). Each
    connection first checks its `when` conditions against the current state (logging `skipped` if one
    fails), then applies `enable`/`disable`/`toggle` or `add`/`set` on a prop. A prop that really changes

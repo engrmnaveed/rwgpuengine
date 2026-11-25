@@ -31,8 +31,10 @@ Need: scores, counts and conditions (cold-agent runs #3/#4 spent 14–19 min bui
   Budgets and determinism hold (native = web for state and image hashes).
 - Acceptance ([run #5](experiments/2026-11-25-cold-agent-5.md)): every logic requirement supported, 0 warnings,
   10 min 2 s (target ≤ 5 min missed; run #4 took 14 min 6 s). The remaining approximation is the plate
-  holder, a separate limit. Candidate next: objects that hold plates (pushable block / weight), with
-  evidence from runs #3, #4 and #5.
+  holder, a separate limit.
+- Follow-up built: `pushable` entities that movers push and triggers count ([ADR 0012](decisions/0012-pushable-entities-hold-plates.md)),
+  evidence from runs #3–#5. Acceptance: cold-agent run #6 on the vault task.
+- Still candidates: switching control between several movers; pulling or chain-pushing.
 
 ## M2 — The live loop
 

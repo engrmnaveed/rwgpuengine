@@ -106,17 +106,19 @@ pub const EVENT_DOCS: &[EventDoc] = &[
     },
     EventDoc {
         kind: EventKind::Moved,
-        subject: "the mover",
-        other: "—",
-        fields: "cause, from, to",
-        meaning: "One cell of movement. `cause` is the direction, `patrol` or `wander`.",
+        subject: "the entity that moved",
+        other: "the pusher (when `cause` is `pushed`)",
+        fields: "cause, from, to, by",
+        meaning: "One cell of movement. `cause` is the direction, `patrol`, `wander` or `pushed` (a pushable \
+                  moved by a mover; logged just before the mover's own move).",
     },
     EventDoc {
         kind: EventKind::Blocked,
         subject: "the mover",
-        other: "the blocker (for `solid` and `actor`)",
-        fields: "cause, from, to, reason, frames_left",
-        meaning: "A move was refused. `reason`: solid, actor, edge, area or cooldown.",
+        other: "the blocker (for `solid` and `actor`), the pushable that would not move (for `push`)",
+        fields: "cause, from, to, reason, frames_left; beyond, push_blocked, push_blocked_by (for `push`)",
+        meaning: "A move was refused. `reason`: solid, actor, edge, area, cooldown, or push (the pushable in the \
+                  way could not move: `push_blocked` says why).",
     },
     EventDoc {
         kind: EventKind::Trigger,

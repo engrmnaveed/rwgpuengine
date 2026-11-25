@@ -15,6 +15,7 @@ adding a new ADR that supersedes the old one (and marking the old one), never by
 | [0008](0008-web-via-c-abi.md) | Web: wasm32 cdylib with a hand-written C ABI, no wasm-bindgen | accepted |
 | [0009](0009-stable-diagnostics.md) | Stable diagnostic codes, rustc-style text, `explain` | accepted |
 | [0010](0010-input-actions-taps-scripts.md) | Input = abstract actions + taps (touch first); scripted input = playtest files | accepted |
-| [0011](0011-game-logic-data-first-rust-escape-hatch.md) | Game logic: small data-level set (prop actions, `when` conditions, `label`, screen anchoring); Rust is the escape hatch | accepted, not yet built |
+| [0011](0011-game-logic-data-first-rust-escape-hatch.md) | Game logic: small data-level set (prop actions, `when` conditions, `label`, screen anchoring); Rust is the escape hatch | accepted, built (M1.6) |
+| [0012](0012-pushable-entities-hold-plates.md) | `pushable` entities: movers push them one cell; triggers count them | accepted, built |
 
 Template: copy any ADR; keep it under a page.

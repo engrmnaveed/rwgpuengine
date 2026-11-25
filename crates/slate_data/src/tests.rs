@@ -427,3 +427,15 @@ fn label_templates_parse() {
     assert_eq!(crate::font::text_size("ab\nc"), [11, 18]);
     assert_eq!(crate::font::text_size(""), [0, 8]);
 }
+
+#[test]
+fn pushables_are_checked() {
+    let scene = |extra: &str| -> &'static str {
+        Box::leak(format!("[ground]\nsize = [4, 4]\n\n[[entity]]\nname = \"c\"\npos = [1, 1]\nblock = {{}}\npushable = true\n{extra}\n").into_boxed_str())
+    };
+    assert!(codes(&project(&[("scenes/main.toml", scene(""))])).is_empty());
+    assert_eq!(codes(&project(&[("scenes/main.toml", scene("mover = {}"))])), vec!["E0105"]);
+    let on_wall = scene("\n[[entity]]\nname = \"w\"\npos = [1, 1]\nblock = {}\nsolid = true\n");
+    assert_eq!(codes(&project(&[("scenes/main.toml", on_wall)])), vec!["W0201"]);
+    assert_eq!(codes(&project(&[("scenes/main.toml", scene("screen_pos = [1, 1]"))])), vec!["E0105"]);
+}

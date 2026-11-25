@@ -124,6 +124,10 @@
             "type": "boolean",
             "description": "Nothing can move into its cell. Default: false."
           },
+          "pushable": {
+            "type": "boolean",
+            "description": "A crate or weight. A mover that walks into it pushes it one cell, if the cell beyond is inside the ground and free (nothing solid, no actor, no other pushable); otherwise the mover is refused (`blocked`, reason `push`). Patrols and wanderers cannot push it: it blocks them like a solid. It holds pressure plates: triggers count it like an actor (`only` can name it). It cannot have mover, patrol or wander. Default: false."
+          },
           "tile": {
             "type": "object",
             "description": "Flat diamond on the floor (marks, pressure plates).",
@@ -388,7 +392,7 @@
                 },
                 "occupied": {
                   "type": "boolean",
-                  "description": "true: an enabled actor stands on the entity's cell right now (for a trigger: one its `only` accepts). false: nobody does."
+                  "description": "true: an enabled actor or pushable is on the entity's cell right now (for a trigger: one its `only` accepts). false: nothing is."
                 },
                 "enabled": {
                   "type": "boolean",

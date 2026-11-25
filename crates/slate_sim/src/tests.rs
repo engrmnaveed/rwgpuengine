@@ -543,3 +543,160 @@ value = true
     assert_eq!(e.props.get("speed"), Some(&PropValue::Float(-0.5)));
     assert_eq!(e.props.get("flag"), Some(&PropValue::Bool(true)));
 }
+
+// ---------------------------------------------------------------------------
+// Pushables: crates that hold plates
+
+const CRATES: &str = r##"
+[ground]
+size = [6, 4]
+
+[[entity]]
+name = "player"
+pos = [0, 1]
+sprite = {}
+mover = { step_frames = 2 }
+
+[[entity]]
+name = "crate"
+pos = [1, 1]
+block = {}
+pushable = true
+
+[[entity]]
+name = "plate"
+pos = [2, 1]
+tile = {}
+trigger = {}
+
+[[entity]]
+name = "wall"
+pos = [4, 1]
+block = {}
+solid = true
+
+[[entity]]
+name = "door"
+pos = [5, 3]
+block = {}
+solid = true
+
+[[entity]]
+name = "crate2"
+pos = [1, 3]
+block = {}
+pushable = true
+
+[[entity]]
+name = "crate3"
+pos = [2, 3]
+block = {}
+pushable = true
+
+[[entity]]
+name = "guard"
+pos = [5, 2]
+sprite = {}
+patrol = { path = [[5, 2], [5, 0]], step_frames = 1 }
+
+[[connect]]
+from = "plate"
+signal = "pressed"
+to = "door"
+action = "disable"
+
+[[connect]]
+from = "plate"
+signal = "released"
+to = "door"
+action = "enable"
+"##;
+
+fn walk(w: &mut World, a: Action, steps: usize) {
+    for _ in 0..steps {
+        step(w, press(a));
+        idle(w, 2);
+    }
+}
+
+#[test]
+fn movers_push_crates_onto_plates_and_crates_hold_them() {
+    let mut w = world(CRATES, 1);
+    walk(&mut w, Action::Right, 1);
+    assert_eq!(w.by_name("crate").unwrap().cell(), [2, 1], "pushed onto the plate");
+    assert_eq!(w.by_name("player").unwrap().cell(), [1, 1]);
+    let pushed =
+        w.events.all().iter().find(|e| e.data.get("cause").and_then(|c| c.as_str()) == Some("pushed")).unwrap();
+    assert!(
+        pushed.message.contains("'crate' (#1) was pushed right from (1, 1) to (2, 1) by 'player'"),
+        "{}",
+        pushed.message
+    );
+    assert_eq!(pushed.other, w.find("player"));
+    assert!(!w.by_name("door").unwrap().enabled, "the crate holds the plate");
+    let trigger = w.events.all().iter().find(|e| e.kind == EventKind::Trigger).unwrap();
+    assert!(trigger.message.contains("was entered by 'crate'"), "{}", trigger.message);
+
+    // Push it off the plate: the player steps onto the plate in the same step,
+    // so the plate never empties and nothing is released.
+    walk(&mut w, Action::Right, 1);
+    assert_eq!(w.by_name("crate").unwrap().cell(), [3, 1]);
+    assert_eq!(w.by_name("player").unwrap().cell(), [2, 1]);
+    assert!(!w.by_name("door").unwrap().enabled, "still held, by the player now");
+    assert!(!w.events.all().iter().any(|e| e.signal.as_deref() == Some("released")));
+
+    // Into the wall: refused with reason `push`, and nothing moves.
+    walk(&mut w, Action::Right, 2);
+    assert_eq!(w.by_name("crate").unwrap().cell(), [3, 1]);
+    assert_eq!(w.by_name("player").unwrap().cell(), [2, 1]);
+    let b = w.events.all().iter().rev().find(|e| e.kind == EventKind::Blocked).unwrap();
+    assert_eq!(b.data.get("reason").and_then(|r| r.as_str()), Some("push"));
+    assert_eq!(b.other, w.find("crate"));
+    assert!(b.message.contains("cannot be pushed to (4, 1), blocked by solid 'wall'"), "{}", b.message);
+}
+
+#[test]
+fn pushes_stop_at_edges_and_other_crates_and_patrols_cannot_push() {
+    let mut w = world(CRATES, 1);
+    // Down twice to (0, 3), then right into crate2, which has crate3 behind it.
+    walk(&mut w, Action::Down, 1);
+    walk(&mut w, Action::Down, 1);
+    assert_eq!(w.by_name("player").unwrap().cell(), [0, 3]);
+    walk(&mut w, Action::Right, 1);
+    let b = w.events.all().iter().rev().find(|e| e.kind == EventKind::Blocked && e.entity == w.find("player")).unwrap();
+    assert!(b.message.contains("blocked by another pushable 'crate3'"), "{}", b.message);
+    assert_eq!(w.by_name("crate2").unwrap().cell(), [1, 3]);
+
+    // A crate at the edge cannot leave the ground.
+    let mut w = world(CRATES, 1);
+    let c = w.find("crate").unwrap();
+    w.get_mut(c).unwrap().pos = [1.0, 0.0, 0.0];
+    walk(&mut w, Action::Right, 1); // (1, 1)
+    walk(&mut w, Action::Up, 1);
+    let b = w.events.all().iter().rev().find(|e| e.kind == EventKind::Blocked).unwrap();
+    assert_eq!(b.data.get("push_blocked").and_then(|r| r.as_str()), Some("edge"), "{}", b.message);
+
+    // The guard patrols (5, 2) -> (5, 0) through (5, 1): a crate there blocks it.
+    let mut w = world(CRATES, 1);
+    let c = w.find("crate").unwrap();
+    w.get_mut(c).unwrap().pos = [5.0, 1.0, 0.0];
+    idle(&mut w, 3);
+    assert_eq!(w.by_name("crate").unwrap().cell(), [5, 1]);
+    let b = w.events.all().iter().find(|e| e.kind == EventKind::Blocked && e.entity == w.find("guard")).unwrap();
+    assert_eq!(b.data.get("reason").and_then(|r| r.as_str()), Some("solid"));
+    assert!(b.message.contains("blocked by pushable 'crate' (#1) (only entities with a mover push)"), "{}", b.message);
+}
+
+#[test]
+fn a_crate_on_a_plate_satisfies_occupied_conditions_from_frame_0() {
+    let scene = format!(
+        "{CRATES}\n[[entity]]\nname = \"bell\"\nprops = {{ rung = 0 }}\n\n[[connect]]\nfrom = \"bell\"\nsignal = \"tapped\"\nto = \"bell\"\naction = \"add\"\nprop = \"rung\"\nwhen = [{{ entity = \"plate\", occupied = true }}]\n"
+    )
+    .replace("name = \"crate\"\npos = [1, 1]", "name = \"crate\"\npos = [2, 1]");
+    let mut w = world(&scene, 1);
+    let bell = w.find("bell").unwrap();
+    let tap = Tap { x: 0.0, y: 0.0, hit: Some(bell), under_disabled: vec![] };
+    step(&mut w, InputFrame { taps: vec![tap], ..InputFrame::default() });
+    assert_eq!(w.get(bell).unwrap().props.get("rung"), Some(&PropValue::Int(1)));
+    assert!(w.by_name("door").unwrap().enabled, "occupied at frame 0: no `pressed` (documented)");
+}

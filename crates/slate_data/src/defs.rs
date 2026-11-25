@@ -128,6 +128,8 @@ pub struct EntityDef {
     pub pos: [f32; 3],
     pub enabled: bool,
     pub solid: bool,
+    /// Movers push it; triggers count it.
+    pub pushable: bool,
     pub tile: Option<TileDef>,
     pub block: Option<BlockDef>,
     pub sprite: Option<SpriteDef>,
@@ -157,6 +159,11 @@ impl EntityDef {
     /// Actors are what triggers notice and what blocks other movers.
     pub fn is_actor(&self) -> bool {
         self.mover.is_some() || self.patrol.is_some() || self.wander.is_some()
+    }
+
+    /// Blocks movement like a solid (pushables do too, unless pushed).
+    pub fn blocks(&self) -> bool {
+        self.solid || self.pushable
     }
 }
 
@@ -596,6 +603,7 @@ pub(crate) fn decode_entity(t: &Table, pos: [f32; 3], origin: Origin) -> EntityD
         pos,
         enabled: f.bool("enabled"),
         solid: f.bool("solid"),
+        pushable: f.bool("pushable"),
         tile: comp("tile").map(|t| TileDef { color: Fields::new(t, &schema::TILE).color("color") }),
         block: comp("block").map(|t| {
             let b = Fields::new(t, &schema::BLOCK);

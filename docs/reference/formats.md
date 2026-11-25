@@ -115,6 +115,7 @@ A thing in the world. Starts from an optional prefab; keys here override it (com
 | `cells` | [[x, y], ...] | — | Place one copy on each listed cell instead of `pos`. Cannot be used with `name`. |
 | `enabled` | bool | `true` | Disabled entities are not drawn, not solid, cannot be tapped and run no behaviors. |
 | `solid` | bool | `false` | Nothing can move into its cell. |
+| `pushable` | bool | `false` | A crate or weight. A mover that walks into it pushes it one cell, if the cell beyond is inside the ground and free (nothing solid, no actor, no other pushable); otherwise the mover is refused (`blocked`, reason `push`). Patrols and wanderers cannot push it: it blocks them like a solid. It holds pressure plates: triggers count it like an actor (`only` can name it). It cannot have mover, patrol or wander. |
 | `tile` | table: tile | — | Flat diamond on the floor (marks, pressure plates). |
 | `block` | table: block | — | Isometric box (walls, crates, buildings). |
 | `sprite` | table: sprite | — | Upright shape standing on the cell (characters, items). |
@@ -155,6 +156,7 @@ A reusable entity template: prefabs/<name>.toml. Same keys as an entity, minus n
 | `doc` | string | — | What the prefab is. |
 | `enabled` | bool | `true` | Disabled entities are not drawn, not solid, cannot be tapped and run no behaviors. |
 | `solid` | bool | `false` | Nothing can move into its cell. |
+| `pushable` | bool | `false` | A crate or weight. A mover that walks into it pushes it one cell, if the cell beyond is inside the ground and free (nothing solid, no actor, no other pushable); otherwise the mover is refused (`blocked`, reason `push`). Patrols and wanderers cannot push it: it blocks them like a solid. It holds pressure plates: triggers count it like an actor (`only` can name it). It cannot have mover, patrol or wander. |
 | `tile` | table: tile | — | Flat diamond on the floor (marks, pressure plates). |
 | `block` | table: block | — | Isometric box (walls, crates, buildings). |
 | `sprite` | table: sprite | — | Upright shape standing on the cell (characters, items). |
@@ -229,7 +231,7 @@ Every `step_frames` (attempt k in step k × step_frames − 1, like patrol), dra
 
 ### `trigger`
 
-Watches its own cell. Emits `on_enter` when the first actor (an entity with mover, patrol or wander) arrives and `on_exit` when the last one leaves.
+Watches its own cell. Emits `on_enter` when the first actor (an entity with mover, patrol or wander) or pushable arrives and `on_exit` when the last one leaves.
 
 | key | type | default | meaning |
 |---|---|---|---|
@@ -303,7 +305,7 @@ A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`
 | `event` | input \| tap \| tap_miss \| moved \| blocked \| trigger \| signal \| action \| skipped \| error \| custom | — | Count events of this kind that happened before `frame`. |
 | `other` | name | — | With `event`: only events whose other party is this entity (the blocker of `blocked`, the actor of `trigger`, the emitter of `action`). |
 | `signal` | name | — | With `event`: only count events about this signal. |
-| `reason` | solid \| actor \| edge \| area \| cooldown | — | With `event = "blocked"`: only count refusals for this reason (e.g. `solid`, not `cooldown`). |
+| `reason` | solid \| actor \| edge \| area \| cooldown \| push | — | With `event = "blocked"`: only count refusals for this reason (e.g. `solid`, not `cooldown`; `push` = a pushable could not be pushed). |
 | `at_least` | integer ≥ 0 | `1` | With `event`: minimum number of matching events (0 when only `at_most` is given). |
 | `at_most` | integer ≥ 0 | — | With `event`: maximum number of matching events. `at_most = 0` asserts it never happened. |
 
@@ -339,12 +341,16 @@ emit `tapped`), movers, patrols, wanderers, Rust game systems, triggers, then si
 
 **Actors and blocking.** Entities with `mover`, `patrol` or `wander` are actors. A move is refused when
 the target cell is outside the ground, holds an enabled `solid` entity, or holds another enabled actor.
+A `pushable` entity blocks like a solid, except that a mover walking into it pushes it one cell (its
+`moved` event, cause `pushed`, comes just before the mover's): the cell beyond must be inside the ground
+and free of solids, actors and other pushables, or the mover is refused with reason `push`. Patrols and
+wanderers never push.
 
 **Enabled.** Disabled entities are not drawn, not solid, cannot be tapped, run no behaviors and do not
 count for triggers. `[[connect]]` actions `enable`, `disable` and `toggle` change this. Enabling a solid
 entity where an actor stands does not push the actor out.
 
-**Input.** Every enabled `mover` responds to the same input. Only actors set off triggers.
+**Input.** Every enabled `mover` responds to the same input. Actors and pushables set off triggers.
 
 **Signals.** Every entity emits `tapped` when tapped. A `trigger` emits `on_enter` (default `pressed`)
 when its cell goes from empty to occupied by an enabled actor and `on_exit` (default `released`) when it
@@ -370,8 +376,8 @@ Every event has `frame` (the step that produced it: `[N]` happened in step N, so
 | `input` | — | — | pressed | Actions that went down this step. |
 | `tap` | the entity hit | — | x, y, signal | A tap hit the topmost enabled entity under the point; it emits `tapped`. |
 | `tap_miss` | topmost disabled entity under the point, if any | — | x, y, under_disabled | A tap hit nothing enabled. |
-| `moved` | the mover | — | cause, from, to | One cell of movement. `cause` is the direction, `patrol` or `wander`. |
-| `blocked` | the mover | the blocker (for `solid` and `actor`) | cause, from, to, reason, frames_left | A move was refused. `reason`: solid, actor, edge, area or cooldown. |
+| `moved` | the entity that moved | the pusher (when `cause` is `pushed`) | cause, from, to, by | One cell of movement. `cause` is the direction, `patrol`, `wander` or `pushed` (a pushable moved by a mover; logged just before the mover's own move). |
+| `blocked` | the mover | the blocker (for `solid` and `actor`), the pushable that would not move (for `push`) | cause, from, to, reason, frames_left; beyond, push_blocked, push_blocked_by (for `push`) | A move was refused. `reason`: solid, actor, edge, area, cooldown, or push (the pushable in the way could not move: `push_blocked` says why). |
 | `trigger` | the trigger | the actor that entered or left | signal, by | The trigger's cell became occupied or empty; it emits `signal`. |
 | `signal` | the emitter | — | signal, connections | A signal was dispatched to this many `[[connect]]` tables (0 = nothing listens). |
 | `action` | the target | the emitter | signal, action, before, after, changed; prop, value (add/set); when (each condition, held, seen) | A connection's action ran on its target: enable, disable, toggle, or add/set a prop (`before`/`after` are the enabled state or the prop's values). It is logged even when nothing changes (`enable` on an enabled entity: "stays enabled", `changed = false`), so `[[expect]] event = "action"` counts every time the connection fired. |

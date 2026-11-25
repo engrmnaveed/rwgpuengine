@@ -362,7 +362,7 @@ impl<'a> SceneLoader<'a> {
         let allows = |e: &defs::EntityDef, code: &str| e.allow.iter().any(|a| a.eq_ignore_ascii_case(code));
         for (i, e) in entities.iter().enumerate() {
             let cell = e.cell();
-            if e.enabled && e.solid {
+            if e.enabled && e.blocks() {
                 if let Some(&j) = solid_cells.get(&cell) {
                     let other = &entities[j];
                     if allows(e, codes::SOLID_OVERLAP.code) || allows(other, codes::SOLID_OVERLAP.code) {
@@ -383,7 +383,8 @@ impl<'a> SceneLoader<'a> {
             if e.enabled
                 && e.is_actor()
                 && !allows(e, codes::ACTOR_IN_SOLID.code)
-                && let Some(wall) = entities.iter().find(|o| o.enabled && o.solid && !o.is_actor() && o.cell() == cell)
+                && let Some(wall) =
+                    entities.iter().find(|o| o.enabled && o.blocks() && !o.is_actor() && o.cell() == cell)
             {
                 let what =
                     |x: &defs::EntityDef| x.name.as_deref().map_or("an entity".to_string(), |n| format!("`{n}`"));
@@ -479,6 +480,27 @@ fn check_entity(def: &EntityDef, t: &Table, span: Span, src: &SourceFile, diags:
             );
         }
     }
+    if def.pushable {
+        let moving: Vec<&str> =
+            [("mover", def.mover.is_some()), ("patrol", def.patrol.is_some()), ("wander", def.wander.is_some())]
+                .into_iter()
+                .filter(|(_, has)| *has)
+                .map(|(k, _)| k)
+                .collect();
+        if !moving.is_empty() {
+            diags.push(
+                Diagnostic::new(
+                    &codes::INVALID_VALUE,
+                    format!(
+                        "{who} is `pushable`, so it only moves when pushed; it cannot have `{}`",
+                        moving.join("`, `")
+                    ),
+                )
+                .at(src, t.key_span("pushable", span))
+                .hint("remove the behavior, or remove `pushable`"),
+            );
+        }
+    }
     if def.screen_pos.is_some() {
         let world_only: Vec<&str> = [
             ("tile", def.tile.is_some()),
@@ -488,6 +510,7 @@ fn check_entity(def: &EntityDef, t: &Table, span: Span, src: &SourceFile, diags:
             ("wander", def.wander.is_some()),
             ("trigger", def.trigger.is_some()),
             ("solid", def.solid),
+            ("pushable", def.pushable),
         ]
         .into_iter()
         .filter(|(_, has)| *has)

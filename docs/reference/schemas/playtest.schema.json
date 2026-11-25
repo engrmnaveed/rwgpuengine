@@ -133,8 +133,8 @@
             "description": "With `event`: only count events about this signal."
           },
           "reason": {
-            "enum": ["solid", "actor", "edge", "area", "cooldown"],
-            "description": "With `event = \"blocked\"`: only count refusals for this reason (e.g. `solid`, not `cooldown`)."
+            "enum": ["solid", "actor", "edge", "area", "cooldown", "push"],
+            "description": "With `event = \"blocked\"`: only count refusals for this reason (e.g. `solid`, not `cooldown`; `push` = a pushable could not be pushed)."
           },
           "at_least": {
             "type": "integer",

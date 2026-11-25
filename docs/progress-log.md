@@ -3,6 +3,18 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Pushable crates hold plates (ADR 0012)
+
+- `pushable = true`: a mover walking into it pushes it one cell if the cell beyond is free. Otherwise the
+  mover is refused with the new reason `push`, which says what is in the way. Patrols and wanderers can't
+  push. Triggers and `occupied` count pushables, so a crate holds a plate.
+- coin_vault's statue workaround is now a crate the player pushes onto plate_a. The solve test asserts the
+  crate's position and a refused second push at the ground's edge. Making the crate an immovable solid on a
+  copy fails exactly the two playtests that should fail.
+- Found while testing: a mover that pushes a crate off a plate steps onto that plate in the same step, so the
+  plate never empties and never emits `released`. That is correct, and a test covers it.
+- Hashes of scenes without pushables are unchanged (iso_garden `469ae7c92124d43d`).
+
 ## 2026-11-25 — Cold-agent test #5: logic supported, two targets missed
 
 - Run #3's task on the data-logic build. AND door, re-closing and the on-screen counter were all supported

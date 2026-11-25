@@ -1,12 +1,8 @@
-# Both plates must be held: with the statue tapped off plate_a, standing on
+# Both plates must be held: without the crate on plate_a, standing on
 # plate_b does not open the chest, and the banner says why.
 [test]
 scene = "scenes/vault.toml"
 frames = 200
-
-[[input]]
-frame = 4
-tap = [480, 223]     # the statue (`slate inspect --entity statue` gives this tap point)
 
 [[input]]
 frame = 0
@@ -40,7 +36,7 @@ for = 24
 
 [[input]]
 frame = 130
-hold = "right"
+hold = "right"       # (4, 2) .. (7, 2), past the crate at (6, 1)
 for = 32
 
 [[input]]
@@ -49,14 +45,8 @@ hold = "down"        # onto plate_b
 for = 16
 
 [[expect]]
-frame = 10
-entity = "statue"
-enabled = false
-
-[[expect]]
-event = "trigger"
-entity = "plate_a"
-signal = "released"
+entity = "crate"
+pos = [6, 1]
 
 [[expect]]
 entity = "player"
@@ -74,4 +64,4 @@ at_least = 1
 
 [[expect]]
 entity = "banner"
-text = "The statue must hold its plate"
+text = "Push the crate onto the other plate"

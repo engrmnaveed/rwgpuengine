@@ -1,7 +1,6 @@
 # Collect the three coins: the vault door opens at 3. Inside, the treasure
-# chest opens only while BOTH plates are held: the statue stands on plate_a,
-# the player steps on plate_b. Stepping off (or tapping the statue away)
-# closes it again.
+# chest opens only while BOTH plates are held: push the crate onto plate_a,
+# then stand on plate_b. Stepping off either closes it again.
 #
 # Grid: +x runs down-right on screen, +y down-left. Ground 8x6. The vault
 # wall is x = 5 with its door at (5, 2); the vault is x = 6..7.
@@ -55,10 +54,10 @@ prefab = "plate"
 pos = [6, 0]
 
 [[entity]]
-name = "statue"
-pos = [6, 0]
-sprite = { shape = "diamond", color = "#aab2bd", size = [24, 34] }
-patrol = { path = [[6, 0]] }              # a stationary actor: it holds plate_a
+name = "crate"
+pos = [6, 1]
+block = { color = "#a0703c", height = 0.8 }
+pushable = true                           # the player pushes it; it holds plates
 
 [[entity]]
 name = "plate_b"
@@ -186,12 +185,5 @@ signal = "pressed"
 to = "banner"
 action = "set"
 prop = "msg"
-value = "The statue must hold its plate"
+value = "Push the crate onto the other plate"
 when = [{ entity = "plate_a", occupied = false }]
-
-# Tapping the statue takes it off plate_a.
-[[connect]]
-from = "statue"
-signal = "tapped"
-to = "statue"
-action = "disable"

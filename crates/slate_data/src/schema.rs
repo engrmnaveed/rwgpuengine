@@ -107,7 +107,7 @@ pub const EVENT_KINDS: &[&str] =
 pub const SPRITE_SHAPES: &[&str] = &["circle", "rect", "diamond"];
 pub const PATROL_MODES: &[&str] = &["loop", "pingpong"];
 /// Why a move was refused (the `reason` of `blocked` events).
-pub const BLOCK_REASONS: &[&str] = &["solid", "actor", "edge", "area", "cooldown"];
+pub const BLOCK_REASONS: &[&str] = &["solid", "actor", "edge", "area", "cooldown", "push"];
 
 // ---------------------------------------------------------------------------
 // Project file: slate.toml
@@ -256,6 +256,7 @@ pub static ENTITY: Spec = Spec {
         ),
         F_ENABLED,
         F_SOLID,
+        F_PUSHABLE,
         F_TILE,
         F_BLOCK,
         F_SPRITE,
@@ -278,6 +279,7 @@ pub static PREFAB_FILE: Spec = Spec {
         opt("doc", Ty::Str, None, "What the prefab is."),
         F_ENABLED,
         F_SOLID,
+        F_PUSHABLE,
         F_TILE,
         F_BLOCK,
         F_SPRITE,
@@ -299,6 +301,15 @@ const F_ENABLED: Field = opt(
     "Disabled entities are not drawn, not solid, cannot be tapped and run no behaviors.",
 );
 const F_SOLID: Field = opt("solid", Ty::Bool, Some("false"), "Nothing can move into its cell.");
+const F_PUSHABLE: Field = opt(
+    "pushable",
+    Ty::Bool,
+    Some("false"),
+    "A crate or weight. A mover that walks into it pushes it one cell, if the cell beyond is inside the ground and \
+     free (nothing solid, no actor, no other pushable); otherwise the mover is refused (`blocked`, reason `push`). \
+     Patrols and wanderers cannot push it: it blocks them like a solid. It holds pressure plates: triggers count \
+     it like an actor (`only` can name it). It cannot have mover, patrol or wander.",
+);
 const F_TILE: Field = opt("tile", Ty::Table(&TILE), None, "Flat diamond on the floor (marks, pressure plates).");
 const F_BLOCK: Field = opt("block", Ty::Table(&BLOCK), None, "Isometric box (walls, crates, buildings).");
 const F_SPRITE: Field =
@@ -418,8 +429,8 @@ pub static WANDER: Spec = Spec {
 pub static TRIGGER: Spec = Spec {
     id: "trigger",
     title: "trigger",
-    doc: "Watches its own cell. Emits `on_enter` when the first actor (an entity with mover, patrol or wander) arrives \
-          and `on_exit` when the last one leaves.",
+    doc: "Watches its own cell. Emits `on_enter` when the first actor (an entity with mover, patrol or wander) or \
+          pushable arrives and `on_exit` when the last one leaves.",
     fields: &[
         opt("on_enter", Ty::Name, Some("\"pressed\""), "Signal emitted when the cell becomes occupied."),
         opt("on_exit", Ty::Name, Some("\"released\""), "Signal emitted when the cell becomes empty."),
@@ -490,8 +501,8 @@ pub static CONDITION: Spec = Spec {
             "occupied",
             Ty::Bool,
             None,
-            "true: an enabled actor stands on the entity's cell right now (for a trigger: one its `only` accepts). \
-             false: nobody does.",
+            "true: an enabled actor or pushable is on the entity's cell right now (for a trigger: one its `only` \
+             accepts). false: nothing is.",
         ),
         opt("enabled", Ty::Bool, None, "The entity's enabled state."),
         opt("prop", Ty::Name, None, "One of the entity's props, compared with `equals`, `at_least` and/or `at_most`."),
@@ -571,7 +582,8 @@ pub static EXPECT: Spec = Spec {
             "reason",
             Ty::Enum(BLOCK_REASONS),
             None,
-            "With `event = \"blocked\"`: only count refusals for this reason (e.g. `solid`, not `cooldown`).",
+            "With `event = \"blocked\"`: only count refusals for this reason (e.g. `solid`, not `cooldown`; `push` = a \
+             pushable could not be pushed).",
         ),
         opt(
             "at_least",

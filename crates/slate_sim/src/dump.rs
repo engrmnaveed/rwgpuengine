@@ -35,6 +35,9 @@ pub fn entity_json(world: &World, e: &Entity) -> Json {
         .with("pos", vec_json(&e.pos))
         .with("cell", e.cell())
         .with("solid", e.solid);
+    if e.pushable {
+        j.set("pushable", true);
+    }
     if let Some(t) = &e.tile {
         j.set("tile", Json::object().with("color", t.color.to_hex()));
     }

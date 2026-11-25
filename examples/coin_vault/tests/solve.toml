@@ -1,8 +1,8 @@
-# Collect the coins in one order, open the vault, hold plate_b while the
-# statue holds plate_a: the chest opens and the HUD and banner say so.
+# Collect the coins in one order, open the vault, push the crate onto
+# plate_a and stand on plate_b: the chest opens and the HUD and banner say so.
 [test]
 scene = "scenes/vault.toml"
-frames = 200
+frames = 230
 
 [[input]]
 frame = 0
@@ -36,13 +36,26 @@ for = 24
 
 [[input]]
 frame = 130
-hold = "right"       # (4, 2), (5, 2) through the door, (6, 2), (7, 2)
-for = 32
+hold = "right"       # (4, 2), (5, 2) through the door, (6, 2)
+for = 24
+
+[[input]]
+frame = 160
+press = "up"         # push the crate from (6, 1) onto plate_a at (6, 0)
 
 [[input]]
 frame = 170
-hold = "down"        # (7, 3), (7, 4) = plate_b
-for = 16
+press = "up"         # again: the crate is at the edge and cannot move
+
+[[input]]
+frame = 180
+hold = "right"       # (7, 1)
+for = 8
+
+[[input]]
+frame = 190
+hold = "down"        # (7, 2), (7, 3), (7, 4) = plate_b
+for = 24
 
 # The count and what the HUD shows, right after the third coin.
 [[expect]]
@@ -61,7 +74,19 @@ frame = 100
 entity = "banner"
 text = "The vault is open!"
 
-# The end: on plate_b with the statue on plate_a, the chest is open.
+# The crate on plate_a; the second push was refused at the ground's edge.
+[[expect]]
+frame = 165
+entity = "crate"
+pos = [6, 0]
+
+[[expect]]
+event = "blocked"
+entity = "player"
+other = "crate"
+reason = "push"
+
+# The end: on plate_b with the crate on plate_a, the chest is open.
 [[expect]]
 entity = "player"
 pos = [7, 4]

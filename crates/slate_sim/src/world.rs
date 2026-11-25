@@ -64,6 +64,8 @@ pub struct Entity {
     pub enabled: bool,
     pub pos: [f32; 3],
     pub solid: bool,
+    /// Movers push it one cell; triggers count it; it blocks everything else.
+    pub pushable: bool,
     pub tile: Option<TileDef>,
     pub block: Option<BlockDef>,
     pub sprite: Option<SpriteDef>,
@@ -105,6 +107,11 @@ impl Entity {
 
     pub fn is_actor(&self) -> bool {
         self.mover.is_some() || self.patrol.is_some() || self.wander.is_some()
+    }
+
+    /// What triggers count: actors and pushables.
+    pub fn holds_plates(&self) -> bool {
+        self.is_actor() || self.pushable
     }
 
     /// `player` or `#12` for unnamed entities.
@@ -195,6 +202,7 @@ impl World {
                 enabled: def.enabled,
                 pos: def.pos,
                 solid: def.solid,
+                pushable: def.pushable,
                 tile: def.tile,
                 block: def.block,
                 sprite: def.sprite,
@@ -344,29 +352,45 @@ impl World {
         }
     }
 
-    /// The entity that stops something entering `cell`, if any.
+    /// The entity that stops something entering `cell`, if any. Pushables
+    /// count as solid here (only movers can push them, see `try_move`).
     pub fn blocker_at(&self, cell: [i32; 2], except: EntityId) -> Option<(EntityId, &'static str)> {
-        self.entities.iter().filter(|e| e.id != except && e.enabled && e.cell() == cell).find_map(|e| {
-            if e.solid {
-                Some((e.id, "solid"))
-            } else if e.is_actor() {
-                Some((e.id, "actor"))
-            } else {
-                None
-            }
-        })
+        self.blockers_at(cell, except).into_iter().next()
     }
 
-    /// Move one cell. Every refusal is logged with its reason.
+    /// Every entity that stops something entering `cell`, in id order.
+    fn blockers_at(&self, cell: [i32; 2], except: EntityId) -> Vec<(EntityId, &'static str)> {
+        self.entities
+            .iter()
+            .filter(|e| e.id != except && e.enabled && e.cell() == cell)
+            .filter_map(|e| {
+                if e.solid || e.pushable {
+                    Some((e.id, "solid"))
+                } else if e.is_actor() {
+                    Some((e.id, "actor"))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn outside(&self, cell: [i32; 2]) -> Option<[i32; 2]> {
+        let [w, h] = self.bounds?;
+        (cell[0] < 0 || cell[1] < 0 || cell[0] >= w || cell[1] >= h).then_some([w, h])
+    }
+
+    /// Move one cell. An entity with a mover pushes a pushable standing in
+    /// the way, if the cell beyond it is free. Every refusal is logged with
+    /// its reason.
     pub fn try_move(&mut self, id: EntityId, dx: i32, dy: i32, cause: &str) -> bool {
         let Some(e) = self.get(id) else { return false };
         let from = e.cell();
         let to = [from[0] + dx, from[1] + dy];
         let who = e.describe();
+        let can_push = e.mover.is_some();
         let base = Json::object().with("cause", cause).with("from", from).with("to", to);
-        if let Some([w, h]) = self.bounds
-            && (to[0] < 0 || to[1] < 0 || to[0] >= w || to[1] >= h)
-        {
+        if let Some([w, h]) = self.outside(to) {
             let msg = format!(
                 "{who} could not move {cause} from {} to {}: outside the {w}x{h} ground",
                 fmt_cell(from),
@@ -375,10 +399,48 @@ impl World {
             self.log(EventKind::Blocked, Some(id), None, msg, base.with("reason", "edge"));
             return false;
         }
-        if let Some((blocker, reason)) = self.blocker_at(to, id) {
-            let what = if reason == "solid" { "solid" } else { "actor" };
+        let blockers = self.blockers_at(to, id);
+        if let [(crate_id, _)] = blockers.as_slice()
+            && can_push
+            && self.entities[*crate_id as usize].pushable
+        {
+            let crate_id = *crate_id;
+            let beyond = [to[0] + dx, to[1] + dy];
+            let what = self.describe(crate_id);
+            let stuck = match self.outside(beyond) {
+                Some([w, h]) => Some((None, format!("outside the {w}x{h} ground"), "edge")),
+                None => self.blocker_at(beyond, crate_id).map(|(b, reason)| {
+                    let kind = if self.entities[b as usize].pushable { "another pushable" } else { reason };
+                    (Some(b), format!("blocked by {kind} {}", self.describe(b)), reason)
+                }),
+            };
+            if let Some((by, why, reason)) = stuck {
+                let msg = format!(
+                    "{who} could not move {cause} from {} to {}: {what} cannot be pushed to {}, {why}",
+                    fmt_cell(from),
+                    fmt_cell(to),
+                    fmt_cell(beyond)
+                );
+                let data = base.with("reason", "push").with("beyond", beyond).with("push_blocked", reason);
+                let data = match by {
+                    Some(b) => data.with("push_blocked_by", self.get(b).map(Entity::label)),
+                    None => data,
+                };
+                self.log(EventKind::Blocked, Some(id), Some(crate_id), msg, data);
+                return false;
+            }
+            let c = &mut self.entities[crate_id as usize];
+            c.pos[0] = beyond[0] as f32;
+            c.pos[1] = beyond[1] as f32;
+            let msg = format!("{what} was pushed {cause} from {} to {} by {who}", fmt_cell(to), fmt_cell(beyond));
+            let data = Json::object().with("cause", "pushed").with("from", to).with("to", beyond).with("by", id);
+            self.log(EventKind::Moved, Some(crate_id), Some(id), msg, data);
+        } else if let Some(&(blocker, reason)) = blockers.first() {
+            let pushable = self.entities[blocker as usize].pushable;
+            let what = if pushable { "pushable" } else { reason };
+            let note = if pushable && !can_push { " (only entities with a mover push)" } else { "" };
             let msg = format!(
-                "{who} could not move {cause} from {} to {}: blocked by {what} {}",
+                "{who} could not move {cause} from {} to {}: blocked by {what} {}{note}",
                 fmt_cell(from),
                 fmt_cell(to),
                 self.describe(blocker)
@@ -494,7 +556,7 @@ impl World {
         let cell = t.cell();
         self.entities
             .iter()
-            .filter(|e| e.id != id && e.enabled && e.is_actor() && e.cell() == cell)
+            .filter(|e| e.id != id && e.enabled && e.holds_plates() && e.cell() == cell)
             .filter(|e| only.is_none_or(|only| e.name.as_ref() == Some(only)))
             .map(|e| e.id)
             .collect()
@@ -712,6 +774,9 @@ impl World {
         h.u64(s).u64(inc);
         for e in &self.entities {
             h.u32(e.id).bool(e.enabled).bool(e.solid);
+            if e.pushable {
+                h.u8(10);
+            }
             h.f32(e.pos[0]).f32(e.pos[1]).f32(e.pos[2]);
             if let Some(t) = &e.tile {
                 h.u8(1).bytes(&[t.color.r, t.color.g, t.color.b, t.color.a]);
