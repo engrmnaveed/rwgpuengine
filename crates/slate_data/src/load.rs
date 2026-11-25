@@ -1147,9 +1147,29 @@ fn load_playtest_lenient(vfs: &Vfs, path: &str) -> (Option<PlaytestDef>, Vec<Dia
             );
             continue;
         }
-        if t.has("prefab") {
+        if t.has("prefab") && t.has("event") {
+            // Events about a prefab: `count`/`pos` belong to copy counts.
+            let wrong: Vec<&str> =
+                ["count", "pos", "enabled", "solid", "props", "text"].into_iter().filter(|k| t.has(k)).collect();
+            if !wrong.is_empty() {
+                diags.push(
+                    Diagnostic::new(
+                        &codes::INVALID_VALUE,
+                        format!(
+                            "[[expect]] with `event` and `prefab` counts events about the prefab; it cannot use `{}`",
+                            wrong.join("`, `")
+                        ),
+                    )
+                    .at(&src, node.span)
+                    .hint(
+                        "count events with `at_least`/`at_most`; count copies in a separate [[expect]] without `event`",
+                    ),
+                );
+                continue;
+            }
+        } else if t.has("prefab") {
             let extra: Vec<&str> =
-                ["entity", "enabled", "solid", "props", "text", "event"].into_iter().filter(|k| t.has(k)).collect();
+                ["entity", "enabled", "solid", "props", "text"].into_iter().filter(|k| t.has(k)).collect();
             if !extra.is_empty() {
                 diags.push(
                     Diagnostic::new(
@@ -1157,7 +1177,7 @@ fn load_playtest_lenient(vfs: &Vfs, path: &str) -> (Option<PlaytestDef>, Vec<Dia
                         format!("[[expect]] with `prefab` counts copies; it cannot use `{}`", extra.join("`, `")),
                     )
                     .at(&src, node.span)
-                    .hint("a prefab expectation takes `count` and optionally `pos`; split the rest into another [[expect]]"),
+                    .hint("a copy count takes `count` and optionally `pos` (add `event` to count events about the prefab instead)"),
                 );
                 continue;
             }

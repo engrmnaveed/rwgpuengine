@@ -602,3 +602,19 @@ fn prefab_expectations_are_checked() {
     assert_eq!(codes(&vfs("count = 1")), vec!["E0105"]);
     assert_eq!(codes(&vfs("prefab = \"house\"\nenabled = true")), vec!["E0105"]);
 }
+
+#[test]
+fn event_expectations_can_filter_by_prefab() {
+    let vfs = |expect: &str| {
+        project(&[
+            ("prefabs/house.toml", HOUSE),
+            ("scenes/main.toml", "[ground]\nsize = [4, 4]\n"),
+            ("tests/t.toml", &format!("[test]\nscene = \"scenes/main.toml\"\nframes = 10\n\n[[expect]]\n{expect}\n")),
+        ])
+    };
+    assert_eq!(codes(&vfs("event = \"skipped\"\nprefab = \"house\"\nat_least = 1")), Vec::<&str>::new());
+    assert_eq!(codes(&vfs("event = \"blocked\"\nreason = \"occupied\"\nprefab = \"house\"")), Vec::<&str>::new());
+    // count and pos belong to copy counts.
+    assert_eq!(codes(&vfs("event = \"spawned\"\nprefab = \"house\"\ncount = 1")), vec!["E0105"]);
+    assert_eq!(codes(&vfs("event = \"spawned\"\nprefab = \"house\"\npos = [1, 1]")), vec!["E0105"]);
+}

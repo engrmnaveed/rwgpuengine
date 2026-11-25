@@ -45,7 +45,9 @@ signal we have). Run #1: [plate → door → goal](experiments/2026-11-25-cold-a
 Run #2: [tap lever + patrol timing + negative tests](experiments/2026-11-25-cold-agent-2.md) — PASS in
 6 min 7 s. Run #3: [beyond the engine's limits](experiments/2026-11-25-cold-agent-3.md) — PASS with honest
 approximations, but 18 min 42 s because limits were undocumented. Run #4: [the same task with the limits
-table](experiments/2026-11-25-cold-agent-4.md) — every verdict at command 2, 14 min 6 s, 0 warnings.
+table](experiments/2026-11-25-cold-agent-4.md) — every verdict at command 2, 14 min 6 s, 0 warnings. Runs #5–#6
+re-ran the vault task on new features ([#6](experiments/2026-11-25-cold-agent-6.md): 7 min 41 s, no stand-ins). Run #7:
+[a farm builder on builder kit v1](experiments/2026-11-25-cold-agent-7.md) — PASS in 8 min 44 s, 0 warnings.
 
 1. Build `slate` and put it on `PATH` (`cargo build --release` → `target/release/slate`).
 2. In an empty folder **outside this repo**, start a fresh coding agent with no other context.
@@ -81,5 +83,5 @@ Deliberate gaps in v0.1 — each waits for a reference game that needs it (guard
 Data logic v1 (M1.6, [ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)) and pushable
 crates ([ADR 0012](decisions/0012-pushable-entities-hold-plates.md)) are built and accepted by cold-agent runs
 #5 and #6. Q3 is decided: the first reference game is the isometric builder Tiny Town, and builder kit v1 is
-built ([ADR 0013](decisions/0013-first-reference-game-isometric-builder.md), M3.1). Next: cold-agent run #7 on a
-builder task.
+built ([ADR 0013](decisions/0013-first-reference-game-isometric-builder.md), M3.1), and accepted by cold-agent run #7
+(a farm builder: everything supported, 0 warnings, 8 min 44 s).

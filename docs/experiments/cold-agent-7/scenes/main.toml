@@ -1,0 +1,355 @@
+# Farm builder: pick a tool from the buttons at the bottom, then tap the field.
+#
+# Grid: +x runs down-right on screen, +y down-left. The field is 10 x 8 cells.
+# The pond (~) and the stone path (=) are terrain with build = false.
+# Costs: barn (3 x 2 cells) 5 seeds, crop patch (1 flat cell) 1 seed, fence post (1 cell) 2 seeds.
+# The remove tool disables whatever is tapped and gives its seeds back.
+# Ready: at least 1 barn and at least 3 crop patches.
+
+[scene]
+name = "Farm"
+doc = "Build a farm: a barn and at least 3 crop patches make it ready."
+
+[ground]
+map = [
+  "ggggg=gggg",   # y = 0
+  "ggggg=gg~~",   # y = 1
+  "ggggg=g~~~",   # y = 2
+  "ggggg=gg~g",   # y = 3
+  "======gggg",   # y = 4
+  "gggggggggg",   # y = 5
+  "gggggggggg",   # y = 6
+  "gggggggggg",   # y = 7
+]
+
+[[terrain]]
+char = "g"
+name = "field"
+color = "#7fae55"
+alt_color = "#76a44d"
+
+[[terrain]]
+char = "~"
+name = "pond"
+color = "#3f7fc0"
+alt_color = "#3a78b6"
+build = false
+
+[[terrain]]
+char = "="
+name = "path"
+color = "#a9a49b"
+alt_color = "#9e998f"
+build = false
+
+# ---------------------------------------------------------------- HUD
+
+# Seeds and the counts that decide "ready". The label always shows the seeds left.
+[[entity]]
+name = "farm"
+screen_pos = [8, 8]
+sprite = { shape = "rect", color = "#000000aa", size = [226, 48] }
+label = { text = "Seeds: {seeds}\nBarns: {barns}  Crops: {crops}", scale = 2, offset = [6, 6] }
+props = { seeds = 10, barns = 0, crops = 0 }
+
+# The selected tool.
+[[entity]]
+name = "tool"
+screen_pos = [462, 8]
+sprite = { shape = "rect", color = "#000000aa", size = [170, 30] }
+label = { text = "Tool: {tool}", scale = 2, offset = [6, 7] }
+props = { tool = "none" }
+
+# A one-line hint: what the tool does, or "not enough seeds".
+[[entity]]
+name = "notice"
+screen_pos = [8, 62]
+label = { text = "{msg}", color = "#fff3b0", offset = [2, 0] }
+props = { msg = "Pick a tool, then tap the field" }
+
+# Shown only while the farm has a barn and at least 3 crop patches.
+[[entity]]
+name = "ready_msg"
+screen_pos = [190, 398]
+enabled = false
+sprite = { shape = "rect", color = "#2d5a1bdd", size = [260, 32] }
+label = { text = "The farm is ready!", scale = 2, color = "#ffe066", offset = [22, 8] }
+
+# ---------------------------------------------------------------- tool buttons
+
+[[entity]]
+name = "btn_barn"
+screen_pos = [22, 442]
+sprite = { shape = "rect", color = "#6b2e2a", size = [140, 28] }
+label = { text = "Barn (5 seeds)", offset = [28, 10] }
+
+[[entity]]
+name = "btn_crop"
+screen_pos = [174, 442]
+sprite = { shape = "rect", color = "#3e6b1f", size = [140, 28] }
+label = { text = "Crop (1 seed)", offset = [31, 10] }
+
+[[entity]]
+name = "btn_fence"
+screen_pos = [326, 442]
+sprite = { shape = "rect", color = "#6e4a24", size = [140, 28] }
+label = { text = "Fence (2 seeds)", offset = [25, 10] }
+
+[[entity]]
+name = "btn_remove"
+screen_pos = [478, 442]
+sprite = { shape = "rect", color = "#4a4f5c", size = [140, 28] }
+label = { text = "Remove (refund)", offset = [25, 10] }
+
+# ---------------------------------------------------------------- picking a tool
+
+[[connect]]
+from = "btn_barn"
+signal = "tapped"
+to = "tool"
+action = "set"
+prop = "tool"
+value = "barn"
+
+[[connect]]
+from = "btn_barn"
+signal = "tapped"
+to = "notice"
+action = "set"
+prop = "msg"
+value = "Tap the field to build a barn (3x2)"
+
+[[connect]]
+from = "btn_crop"
+signal = "tapped"
+to = "tool"
+action = "set"
+prop = "tool"
+value = "crop"
+
+[[connect]]
+from = "btn_crop"
+signal = "tapped"
+to = "notice"
+action = "set"
+prop = "msg"
+value = "Tap the field to plant a crop patch"
+
+[[connect]]
+from = "btn_fence"
+signal = "tapped"
+to = "tool"
+action = "set"
+prop = "tool"
+value = "fence"
+
+[[connect]]
+from = "btn_fence"
+signal = "tapped"
+to = "notice"
+action = "set"
+prop = "msg"
+value = "Tap the field to set a fence post"
+
+[[connect]]
+from = "btn_remove"
+signal = "tapped"
+to = "tool"
+action = "set"
+prop = "tool"
+value = "remove"
+
+[[connect]]
+from = "btn_remove"
+signal = "tapped"
+to = "notice"
+action = "set"
+prop = "msg"
+value = "Tap a barn, crop or fence to remove it"
+
+# ---------------------------------------------------------------- building
+# A tap on an empty field cell spawns the selected prefab there, if there are enough seeds.
+# The pond, the path, taken cells and the field's edge refuse the spawn (nothing placed, nothing paid).
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "barn"
+when = [{ entity = "tool", prop = "tool", equals = "barn" }, { entity = "farm", prop = "seeds", at_least = 5 }]
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "crop"
+when = [{ entity = "tool", prop = "tool", equals = "crop" }, { entity = "farm", prop = "seeds", at_least = 1 }]
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "fence"
+when = [{ entity = "tool", prop = "tool", equals = "fence" }, { entity = "farm", prop = "seeds", at_least = 2 }]
+
+# Not enough seeds: say so (the spawn above is skipped by its own `when`).
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+to = "notice"
+action = "set"
+prop = "msg"
+value = "Not enough seeds for a barn (5)"
+when = [{ entity = "tool", prop = "tool", equals = "barn" }, { entity = "farm", prop = "seeds", at_most = 4 }]
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+to = "notice"
+action = "set"
+prop = "msg"
+value = "Not enough seeds for a crop patch (1)"
+when = [{ entity = "tool", prop = "tool", equals = "crop" }, { entity = "farm", prop = "seeds", at_most = 0 }]
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+to = "notice"
+action = "set"
+prop = "msg"
+value = "Not enough seeds for a fence post (2)"
+when = [{ entity = "tool", prop = "tool", equals = "fence" }, { entity = "farm", prop = "seeds", at_most = 1 }]
+
+# Pay only for what was really placed.
+
+[[connect]]
+from_prefab = "barn"
+signal = "spawned"
+to = "farm"
+action = "add"
+prop = "seeds"
+value = -5
+
+[[connect]]
+from_prefab = "barn"
+signal = "spawned"
+to = "farm"
+action = "add"
+prop = "barns"
+value = 1
+
+[[connect]]
+from_prefab = "crop"
+signal = "spawned"
+to = "farm"
+action = "add"
+prop = "seeds"
+value = -1
+
+[[connect]]
+from_prefab = "crop"
+signal = "spawned"
+to = "farm"
+action = "add"
+prop = "crops"
+value = 1
+
+[[connect]]
+from_prefab = "fence"
+signal = "spawned"
+to = "farm"
+action = "add"
+prop = "seeds"
+value = -2
+
+# ---------------------------------------------------------------- removing (with a refund)
+
+[[connect]]
+from_prefab = "barn"
+signal = "tapped"
+to = "self"
+action = "disable"
+when = [{ entity = "tool", prop = "tool", equals = "remove" }]
+
+[[connect]]
+from_prefab = "barn"
+signal = "tapped"
+to = "farm"
+action = "add"
+prop = "seeds"
+value = 5
+when = [{ entity = "tool", prop = "tool", equals = "remove" }]
+
+[[connect]]
+from_prefab = "barn"
+signal = "tapped"
+to = "farm"
+action = "add"
+prop = "barns"
+value = -1
+when = [{ entity = "tool", prop = "tool", equals = "remove" }]
+
+[[connect]]
+from_prefab = "crop"
+signal = "tapped"
+to = "self"
+action = "disable"
+when = [{ entity = "tool", prop = "tool", equals = "remove" }]
+
+[[connect]]
+from_prefab = "crop"
+signal = "tapped"
+to = "farm"
+action = "add"
+prop = "seeds"
+value = 1
+when = [{ entity = "tool", prop = "tool", equals = "remove" }]
+
+[[connect]]
+from_prefab = "crop"
+signal = "tapped"
+to = "farm"
+action = "add"
+prop = "crops"
+value = -1
+when = [{ entity = "tool", prop = "tool", equals = "remove" }]
+
+[[connect]]
+from_prefab = "fence"
+signal = "tapped"
+to = "self"
+action = "disable"
+when = [{ entity = "tool", prop = "tool", equals = "remove" }]
+
+[[connect]]
+from_prefab = "fence"
+signal = "tapped"
+to = "farm"
+action = "add"
+prop = "seeds"
+value = 2
+when = [{ entity = "tool", prop = "tool", equals = "remove" }]
+
+# ---------------------------------------------------------------- ready message
+
+[[connect]]
+from = "farm"
+signal = "changed"
+to = "ready_msg"
+action = "enable"
+when = [{ entity = "farm", prop = "barns", at_least = 1 }, { entity = "farm", prop = "crops", at_least = 3 }]
+
+[[connect]]
+from = "farm"
+signal = "changed"
+to = "ready_msg"
+action = "disable"
+when = [{ entity = "farm", prop = "barns", at_most = 0 }]
+
+[[connect]]
+from = "farm"
+signal = "changed"
+to = "ready_msg"
+action = "disable"
+when = [{ entity = "farm", prop = "crops", at_most = 2 }]

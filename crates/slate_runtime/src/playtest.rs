@@ -107,6 +107,12 @@ fn check_expect(session: &Session, def: &PlaytestDef, exp: &ExpectDef, frame: u6
             .filter(|e| other.is_none_or(|o| e.other == Some(o)))
             .filter(|e| exp.signal.as_ref().is_none_or(|s| e.signal.as_ref() == Some(s)))
             .filter(|e| exp.reason.as_ref().is_none_or(|r| e.data.get("reason").and_then(|v| v.as_str()) == Some(r)))
+            .filter(|e| {
+                exp.prefab.as_ref().is_none_or(|p| {
+                    e.data.get("prefab").and_then(|v| v.as_str()) == Some(p.as_str())
+                        || e.entity.and_then(|id| world.get(id)).and_then(|x| x.prefab.as_deref()) == Some(p.as_str())
+                })
+            })
             .collect();
         let n = matching.len() as u64;
         if n >= exp.at_least && exp.at_most.is_none_or(|hi| n <= hi) {
@@ -124,6 +130,9 @@ fn check_expect(session: &Session, def: &PlaytestDef, exp: &ExpectDef, frame: u6
         }
         if let Some(r) = &exp.reason {
             what.push_str(&format!(" with reason '{r}'"));
+        }
+        if let Some(p) = &exp.prefab {
+            what.push_str(&format!(" about prefab `{p}`"));
         }
         let bound = match exp.at_most {
             Some(0) => "no".to_string(),

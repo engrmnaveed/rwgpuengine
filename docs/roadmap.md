@@ -63,9 +63,13 @@ Need: the first real game. Q3 is decided: the **isometric builder**, Tiny Town
   - `from_prefab` / `to = "self"`, `block.top`, `[[expect]] prefab` + `count`.
   - `slate inspect --place` ("can I build here?", with tap pixels).
   - `examples/tiny_town` with 3 playtests; native = web.
-- Next: cold-agent run #7 on a different builder task (ADR 0013's acceptance).
-- Candidates, waiting for evidence from the game or a cold run:
+- Accepted by [cold-agent run #7](experiments/2026-11-25-cold-agent-7.md): a farm builder, every requirement
+  supported, 0 warnings, 8 min 44 s. Its findings are fixed (`slate test <file>` false pass, prefab filter on
+  event expectations, two missing format tables).
+- Next (evidence from Tiny Town **and** run #7):
   - a signal on refused placements (a "can't build there" message);
+  - `when` conditions that count copies of a prefab, which replace hand-kept counters.
+- Candidates, waiting for more evidence:
   - per-prefab costs or grouped connections (Tiny Town needs 26 connections, 9 of them for clear/refund);
   - drag input (ADR 0010);
   - terrain that blocks walking;

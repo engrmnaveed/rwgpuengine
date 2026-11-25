@@ -60,7 +60,7 @@ The fixed-step simulation. A frame is one simulation step.
 
 ## Scenes: scenes/*.toml
 
-A scene has optional `[scene]`, `[camera]` and `[ground]` tables, then any number of `[[entity]]` and `[[connect]]` tables. Entities get ids 0, 1, 2, ... in file order (an entry with `cells` makes one entity per cell).
+A scene has optional `[scene]`, `[camera]` and `[ground]` tables (with `[[terrain]]` tables for a ground `map`), then any number of `[[entity]]` and `[[connect]]` tables. Entities get ids 0, 1, 2, ... in file order (an entry with `cells` makes one entity per cell); spawned entities get the next ids.
 
 ### `scene file`
 
@@ -105,6 +105,18 @@ Floor cells from [0, 0] to [size_x - 1, size_y - 1], drawn as a checkerboard. Gi
 | `color` | color | `"#6fa86a"` | Floor color (without `map`). |
 | `alt_color` | color | — | Color of every other cell. Default: `color`, slightly darker. |
 
+### `[[terrain]]`
+
+A kind of ground for `[ground] map`: its character, look, and whether things can be built on it. Spawned entities (`action = "spawn"`) can only be placed where every cell of their footprint is buildable.
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `char` | string | **required** | The single character that marks this terrain in `[ground] map`, e.g. "g" or "~". |
+| `name` | name | — | Name used in messages and `inspect`, e.g. `water`. Default: the character. |
+| `color` | color | `"#6fa86a"` | Cell color. |
+| `alt_color` | color | — | Color of every other cell (checkerboard). Default: `color`, slightly darker. |
+| `build` | bool | `true` | Spawned entities can be placed on it. false for water, rock, roads you must keep clear. |
+
 ### `entity`
 
 A thing in the world. Starts from an optional prefab; keys here override it (component tables merge key by key).
@@ -146,6 +158,20 @@ When `from` emits `signal`, apply `action` to `to`, if every `when` condition ho
 | `value` | bool \| number \| string | — | With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), of the prop's type. |
 | `prefab` | name | — | With `spawn`: the prefab to place. It goes on the tapped cell (`from = "ground"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`). |
 | `when` | [{ condition }, ...] | — | Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`. |
+
+### `when condition`
+
+One item of a `[[connect]]` `when` list, checked against the current state when the signal arrives. Names an `entity` and exactly one of `occupied`, `enabled` or `prop`: `{ entity = "plate_b", occupied = true }`, `{ entity = "gate", enabled = false }`, `{ entity = "hud", prop = "coins", at_least = 3 }`.
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `entity` | name | **required** | The entity to look at, by name. |
+| `occupied` | bool | — | true: an enabled actor or pushable is on the entity's cell right now (for a trigger: one its `only` accepts). false: nothing is. |
+| `enabled` | bool | — | The entity's enabled state. |
+| `prop` | name | — | One of the entity's props, compared with `equals`, `at_least` and/or `at_most`. |
+| `equals` | bool \| number \| string | — | With `prop`: the prop has exactly this value. |
+| `at_least` | number | — | With `prop`: the number prop is ≥ this. |
+| `at_most` | number | — | With `prop`: the number prop is ≤ this. |
 
 
 ## Prefabs: prefabs/<name>.toml
@@ -309,7 +335,7 @@ A check at `frame`. Entity state (`entity` with `pos`/`enabled`/`solid`/`props`/
 | `solid` | bool | — | Expected solid state. |
 | `props` | table | — | Expected values of these props (others are ignored). |
 | `text` | string | — | Expected label text as shown, with placeholders filled in (`"Coins: 3/3"`). |
-| `prefab` | name | — | Count the enabled entities made from this prefab (placed or spawned), optionally only those at `pos`. Checked with `count`, or at least one when `count` is absent. |
+| `prefab` | name | — | Without `event`: count the enabled entities made from this prefab (placed or spawned), optionally only those at `pos`, checked with `count` (at least one when absent). With `event`: only count events about the prefab: its spawns, refused spawns (`blocked`) and skipped spawns, and events whose subject is a copy of it (`event = "skipped", prefab = "barn"` = barn spawns stopped by a `when`). |
 | `count` | integer ≥ 0 | — | With `prefab`: exactly this many. `count = 0` with `pos` asserts nothing of that prefab stands there. |
 | `event` | input \| tap \| tap_miss \| moved \| blocked \| trigger \| signal \| action \| skipped \| spawned \| error \| custom | — | Count events of this kind that happened before `frame`. |
 | `other` | name | — | With `event`: only events whose other party is this entity (the blocker of `blocked`, the actor of `trigger`, the emitter of `action`). |

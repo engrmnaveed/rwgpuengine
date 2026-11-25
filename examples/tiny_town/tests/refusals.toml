@@ -92,6 +92,30 @@ prefab = "house"
 pos = [3, 4]
 count = 0
 
+# Refusals by prefab: all five refused placements were houses.
+[[expect]]
+frame = 60
+event = "blocked"
+prefab = "house"
+at_least = 5
+at_most = 5
+
+# The last tap (frame 120, Tree tool selected) is the only tree spawn stopped by
+# the coins condition: 8 earlier skips came from the House tool, then one more.
+[[expect]]
+frame = 120
+event = "skipped"
+prefab = "tree"
+at_least = 8
+at_most = 8
+
+[[expect]]
+frame = 121
+event = "skipped"
+prefab = "tree"
+at_least = 9
+at_most = 9
+
 # The end: 3 houses and 3 trees spent all 12 coins; the last tap bought nothing.
 [[expect]]
 prefab = "house"

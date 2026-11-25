@@ -1,0 +1,116 @@
+[test]
+doc = "A barn and 3 crop patches show 'The farm is ready!'; removing a crop patch hides it, replanting shows it again."
+scene = "scenes/main.toml"
+frames = 32
+
+[[input]]
+frame = 2
+tap = [131, 456]     # btn_barn
+
+[[input]]
+frame = 4
+tap = [128, 192]     # field cell (0, 5): barn (10 -> 5)
+
+[[input]]
+frame = 6
+tap = [280, 456]     # btn_crop
+
+[[input]]
+frame = 8
+tap = [192, 288]     # field cell (4, 7): crop 1 (5 -> 4)
+
+[[input]]
+frame = 10
+tap = [256, 320]     # field cell (6, 7): crop 2 (4 -> 3)
+
+[[input]]
+frame = 12
+tap = [320, 352]     # field cell (8, 7): crop 3 (3 -> 2): ready
+
+[[input]]
+frame = 14
+tap = [438, 456]     # btn_fence
+
+[[input]]
+frame = 16
+tap = [352, 304]     # field cell (7, 5): fence post (2 -> 0)
+
+[[input]]
+frame = 22
+tap = [590, 456]     # btn_remove
+
+[[input]]
+frame = 24
+tap = [256, 320]     # crop 2 at (6, 7): removed (0 -> 1), only 2 crops: not ready
+
+[[input]]
+frame = 26
+tap = [280, 456]     # btn_crop
+
+[[input]]
+frame = 28
+tap = [256, 320]     # field cell (6, 7) again: crop (1 -> 0), ready again
+
+# Two crop patches and a barn: not ready yet.
+[[expect]]
+frame = 11
+entity = "ready_msg"
+enabled = false
+
+[[expect]]
+frame = 11
+entity = "farm"
+props = { barns = 1, crops = 2 }
+
+# The third crop patch: ready.
+[[expect]]
+frame = 13
+entity = "ready_msg"
+enabled = true
+text = "The farm is ready!"
+
+[[expect]]
+frame = 13
+entity = "farm"
+props = { seeds = 2, barns = 1, crops = 3 }
+
+[[expect]]
+frame = 20
+entity = "farm"
+props = { seeds = 0, barns = 1, crops = 3 }
+text = "Seeds: 0\nBarns: 1  Crops: 3"
+
+[[expect]]
+frame = 20
+prefab = "crop"
+count = 3
+
+[[expect]]
+frame = 20
+prefab = "fence"
+count = 1
+pos = [7, 5]
+
+# Removing one crop patch hides the message.
+[[expect]]
+frame = 25
+entity = "ready_msg"
+enabled = false
+
+[[expect]]
+frame = 25
+entity = "farm"
+props = { seeds = 1, crops = 2 }
+
+# Planting it again shows it again.
+[[expect]]
+entity = "ready_msg"
+enabled = true
+
+[[expect]]
+entity = "farm"
+props = { seeds = 0, barns = 1, crops = 3 }
+
+[[shot]]
+frame = 20
+reference = "tests/refs/ready.png"

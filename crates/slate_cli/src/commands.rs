@@ -512,7 +512,7 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
             o.line(format!("      trigger occupied by {}", Json::Arr(t.to_vec()).to_compact()));
         }
         if let Some(shown) = e.pointer("label/shown").and_then(Json::as_str) {
-            let at = e.get("screen_pos").map(|p| format!(" at screen {}", p.to_compact())).unwrap_or_default();
+            let at = e.get("screen_pos").map(|p| format!(" (screen_pos {})", p.to_compact())).unwrap_or_default();
             o.line(format!("      text {shown:?}{at}"));
         }
         if let Some(Json::Obj(props)) = e.get("props")
@@ -575,9 +575,34 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
 // test
 
 pub fn test(p: &Parsed, games: &GameFactory) -> Outcome {
-    let loc = tri!(locate(p.positional(0)));
+    let mut loc = tri!(locate(p.positional(0)));
     let filter = p.value("--filter");
-    let mut paths: Vec<String> = match loc.playtest_arg() {
+    // A file argument is run as that one playtest, wherever it is (a copy
+    // under out/ included); a scene, prefab or project file is a mistake,
+    // never a silent "run everything".
+    let one = match loc.file.clone() {
+        None => None,
+        Some(f) if f.starts_with("tests/") => Some(f),
+        Some(f)
+            if f == slate_data::PROJECT_FILE
+                || f.starts_with("scenes/")
+                || f.starts_with("prefabs/")
+                || !f.ends_with(".toml") =>
+        {
+            return Outcome::usage(args::bad_arg(
+                format!("`{f}` is not a playtest"),
+                Some("pass the project folder to run every tests/*.toml, or the path of one playtest file".into()),
+            ));
+        }
+        Some(f) => {
+            if !loc.vfs.contains(&f) {
+                let text = tri!(std::fs::read_to_string(loc.abs(&f)).map_err(|e| io_err(&f, &e)));
+                loc.vfs.insert(f.clone(), text);
+            }
+            Some(f)
+        }
+    };
+    let mut paths: Vec<String> = match one {
         Some(one) => vec![one],
         None => loc.vfs.paths_under("tests", ".toml").map(str::to_string).collect(),
     };

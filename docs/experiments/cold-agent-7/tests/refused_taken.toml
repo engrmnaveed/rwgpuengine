@@ -1,0 +1,107 @@
+[test]
+doc = "A spot that is already taken refuses a new placement, and nothing is paid."
+scene = "scenes/main.toml"
+frames = 22
+
+[[input]]
+frame = 2
+tap = [438, 456]     # btn_fence
+
+[[input]]
+frame = 4
+tap = [288, 304]     # field cell (6, 6): fence post (10 -> 8)
+
+[[input]]
+frame = 6
+tap = [280, 456]     # btn_crop
+
+[[input]]
+frame = 8
+tap = [302, 304]     # the ground of cell (6, 6), right of the post: crop refused, the cell is taken
+
+[[input]]
+frame = 10
+tap = [131, 456]     # btn_barn
+
+[[input]]
+frame = 12
+tap = [256, 256]     # field cell (4, 5): the barn would cover (4..6, 5..6), which includes the post
+
+[[input]]
+frame = 14
+tap = [128, 192]     # field cell (0, 5): the barn fits (8 -> 3)
+
+[[input]]
+frame = 16
+tap = [280, 456]     # btn_crop
+
+[[input]]
+frame = 18
+tap = [160, 202]     # on the barn: the tap hits the barn, so no crop is attempted there
+
+# The crop on the fence post's cell.
+[[expect]]
+frame = 9
+event = "blocked"
+reason = "occupied"
+at_least = 1
+at_most = 1
+
+[[expect]]
+frame = 9
+prefab = "crop"
+count = 0
+
+[[expect]]
+frame = 9
+entity = "farm"
+props = { seeds = 8 }
+
+# The barn over the post.
+[[expect]]
+frame = 13
+event = "blocked"
+reason = "occupied"
+at_least = 2
+at_most = 2
+
+[[expect]]
+frame = 13
+prefab = "barn"
+count = 0
+
+[[expect]]
+frame = 13
+entity = "farm"
+props = { seeds = 8, barns = 0 }
+
+# The barn on free cells is built.
+[[expect]]
+frame = 15
+prefab = "barn"
+count = 1
+pos = [0, 5]
+
+[[expect]]
+frame = 15
+entity = "farm"
+props = { seeds = 3, barns = 1 }
+
+# Tapping the barn with the crop tool builds nothing.
+[[expect]]
+prefab = "crop"
+count = 0
+
+[[expect]]
+prefab = "fence"
+count = 1
+pos = [6, 6]
+
+[[expect]]
+event = "spawned"
+at_least = 2
+at_most = 2
+
+[[expect]]
+entity = "farm"
+props = { seeds = 3, barns = 1, crops = 0 }

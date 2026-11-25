@@ -1,0 +1,74 @@
+[test]
+doc = "With too few seeds a purchase is refused: nothing is built, nothing is paid, and the hint says why."
+scene = "scenes/main.toml"
+frames = 16
+
+[[input]]
+frame = 2
+tap = [131, 456]     # btn_barn
+
+[[input]]
+frame = 4
+tap = [128, 192]     # field cell (0, 5): barn (10 -> 5)
+
+[[input]]
+frame = 6
+tap = [288, 272]     # field cell (5, 5): barn (5 -> 0)
+
+[[input]]
+frame = 8
+tap = [288, 112]     # field cell (0, 0): a barn would fit, but there are 0 seeds
+
+[[input]]
+frame = 10
+tap = [280, 456]     # btn_crop
+
+[[input]]
+frame = 12
+tap = [192, 288]     # field cell (4, 7): free, but a crop patch costs 1 seed
+
+[[expect]]
+frame = 7
+entity = "farm"
+props = { seeds = 0, barns = 2 }
+
+# The third barn is refused for lack of seeds.
+[[expect]]
+frame = 9
+prefab = "barn"
+count = 2
+
+[[expect]]
+frame = 9
+prefab = "barn"
+pos = [0, 0]
+count = 0
+
+[[expect]]
+frame = 9
+entity = "notice"
+text = "Not enough seeds for a barn (5)"
+
+# The crop patch is refused too.
+[[expect]]
+prefab = "crop"
+count = 0
+
+[[expect]]
+entity = "notice"
+text = "Not enough seeds for a crop patch (1)"
+
+[[expect]]
+entity = "farm"
+props = { seeds = 0, barns = 2, crops = 0 }
+text = "Seeds: 0\nBarns: 2  Crops: 0"
+
+[[expect]]
+event = "spawned"
+at_least = 2
+at_most = 2
+
+# Not a placement problem: no spawn was even attempted.
+[[expect]]
+event = "blocked"
+at_most = 0

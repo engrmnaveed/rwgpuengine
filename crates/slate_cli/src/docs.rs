@@ -61,10 +61,19 @@ pub fn formats_body(h: &str) -> String {
         &mut out,
         h,
         "Scenes: scenes/*.toml",
-        "A scene has optional `[scene]`, `[camera]` and `[ground]` tables, then any number of `[[entity]]` and \
-         `[[connect]]` tables. Entities get ids 0, 1, 2, ... in file order (an entry with `cells` makes one entity \
-         per cell).",
-        &[&schema::SCENE_FILE, &schema::SCENE, &schema::CAMERA, &schema::GROUND, &schema::ENTITY, &schema::CONNECT],
+        "A scene has optional `[scene]`, `[camera]` and `[ground]` tables (with `[[terrain]]` tables for a ground \
+         `map`), then any number of `[[entity]]` and `[[connect]]` tables. Entities get ids 0, 1, 2, ... in file \
+         order (an entry with `cells` makes one entity per cell); spawned entities get the next ids.",
+        &[
+            &schema::SCENE_FILE,
+            &schema::SCENE,
+            &schema::CAMERA,
+            &schema::GROUND,
+            &schema::TERRAIN,
+            &schema::ENTITY,
+            &schema::CONNECT,
+            &schema::CONDITION,
+        ],
     );
     section(
         &mut out,
@@ -373,6 +382,10 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
 
   The house's back corner goes on the tapped cell and it grows toward +x and +y. A refused placement (water,
   a taken cell, the edge) spawns nothing, so nothing is paid; the `blocked` event says which cell failed.
+  A tap **on** a building hits the building (it emits `tapped`), not the ground, so no placement is tried
+  there at all. An `occupied` refusal comes from a footprint that overlaps something (a 2 × 2 house tapped
+  next to a wall), or a tap on visible ground of a taken cell (beside a thin post); `--place house@x,y`
+  shows the answer without tapping.
 - **Choose what to build (a toolbar).** Screen buttons `set` a prop: `from = "btn_tree" signal = "tapped"
   to = "town" action = "set" prop = "tool" value = "tree"`, and each spawn connection adds
   `{{ entity = "town", prop = "tool", equals = "tree" }}` to its `when`. Show the tool with a label
@@ -387,7 +400,11 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   tap pixel: a player cannot tap it either.
 - **Prove a build**: `[[expect]] prefab = "house"` with `count = 2` (enabled copies), optionally `pos = [4, 1]`
   for one spot (`count = 0` there: nothing was built). Prove a refusal with `event = "blocked"` and
-  `reason = "terrain"` / `"occupied"` / `"edge"`.
+  `reason = "terrain"` / `"occupied"` / `"edge"`, plus `prefab = "house"` to count only house placements.
+  Prove "could not afford it" with `event = "skipped"` + `prefab = "house"`: a skipped spawn's message names
+  the condition that failed. Other tools' taps also skip the house spawn (the tool condition fails), so check
+  the count just before and just after the tap (`at_most = N` at the tap's frame, `at_least = N + 1` one frame
+  later), with the House tool selected.
 
 ## Tips
 
@@ -522,8 +539,9 @@ Supported (no workaround needed): text and numbers on screen (`label`, with `{pr
 and variables (`props` with `[[connect]]` `add`/`set`), conditions (`when` on `[[connect]]`: AND within one
 connection, OR as several connections), a screen-space HUD (`screen_pos`), objects that hold pressure
 plates (`pushable` crates the player pushes), terrain maps (`[ground] map` + `[[terrain]]`), multi-cell
-objects (`footprint`), tapping the ground, and building at runtime (`spawn` a prefab where the player taps,
-with placement rules; `from_prefab` wires every copy). See the Recipes.
+objects (`footprint`), tapping the ground, building at runtime (`spawn` a prefab where the player taps,
+with placement rules; `from_prefab` wires every copy), and removing what the player taps (`disable` the copy:
+it disappears and frees its cells). See the Recipes.
 
 | not in this version | what you can do instead (and what it costs) |
 |---|---|
@@ -537,7 +555,7 @@ with placement rules; `from_prefab` wires every copy). See the Recipes.
 | **Dragging** (drag to build a row, drag to move a building) | Taps only: one tap, one `spawn`. Moving a building is clear (disable) and build again. |
 | **Feedback when a placement is refused** (a "can't build there" message or sound) | A refused spawn logs `blocked` but emits no signal, so the game cannot react to it. Show costs and rules up front (button labels); "not enough coins" can be its own `[[connect]]` on the ground's `tapped` with `when = [{ ..., prop = "coins", at_most = 2 }]`. |
 | **Terrain that blocks walking** | `build = false` only stops spawning; movers walk on every terrain. Put solid entities (`cells = [...]`) where they must not walk. |
-| **Deleting entities** | `disable` is the removal: a disabled copy takes no space and is not drawn, but stays in `inspect` (and keeps its id). |
+| **Deleting entities from the world's list** (removing what the player taps *is* supported, see above) | `disable` is the removal: a disabled copy takes no space, is not drawn and cannot be tapped, but stays in `inspect` (and keeps its id). |
 | **Rust game code in a `slate new` project** | The engine supports Rust systems (`Game` trait), but `slate new` makes data-only projects and the CLI cannot load Rust code yet. Everything above is data. |
 
 Behaviours worth knowing:

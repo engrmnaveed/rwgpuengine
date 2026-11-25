@@ -1,0 +1,70 @@
+[test]
+doc = "Nothing can be built on the pond or the stone path; a refused placement costs nothing."
+scene = "scenes/main.toml"
+frames = 16
+
+[[input]]
+frame = 2
+tap = [280, 456]     # btn_crop
+
+[[input]]
+frame = 4
+tap = [512, 256]     # pond cell (8, 1)
+
+[[input]]
+frame = 6
+tap = [131, 456]     # btn_barn
+
+[[input]]
+frame = 8
+tap = [352, 176]     # field cell (3, 1): the barn would cover (3..5, 1..2); (5, 1) and (5, 2) are path
+
+[[input]]
+frame = 10
+tap = [438, 456]     # btn_fence
+
+[[input]]
+frame = 12
+tap = [224, 208]     # path cell (2, 4)
+
+# The crop on the pond is refused by the terrain.
+[[expect]]
+frame = 5
+event = "blocked"
+reason = "terrain"
+at_least = 1
+at_most = 1
+
+[[expect]]
+frame = 5
+prefab = "crop"
+count = 0
+
+[[expect]]
+frame = 5
+entity = "farm"
+props = { seeds = 10 }
+
+# The barn that would overlap the path, and the fence on the path, are refused too.
+[[expect]]
+event = "blocked"
+reason = "terrain"
+at_least = 3
+at_most = 3
+
+[[expect]]
+prefab = "barn"
+count = 0
+
+[[expect]]
+prefab = "fence"
+count = 0
+
+[[expect]]
+event = "spawned"
+at_most = 0
+
+[[expect]]
+entity = "farm"
+props = { seeds = 10, barns = 0, crops = 0 }
+text = "Seeds: 10\nBarns: 0  Crops: 0"

@@ -3,6 +3,23 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Cold-agent test #7: a farm builder, accepted
+
+- A new builder task (pond and path terrain, a 3 × 2 barn, crops, fences, seeds on screen, remove with refund,
+  a ready message, six required proofs) on builder kit v1. Every requirement supported, nothing approximated
+  except the extra feedback the engine cannot give. 6 playtests with 59 expects, 0 warnings. 8 min 44 s,
+  28 tool calls, ~156K tokens. Re-verified independently. ADR 0013's acceptance is met.
+- Its most important finding was a **false pass**: `slate test out/x.toml` ran the project's tests instead of
+  that file. Now it runs exactly that file, and a scene or prefab path is an error; the smoke chain guards it.
+- Also fixed:
+  - event expectations filter by `prefab` (Tiny Town's refusals test uses it);
+  - `[[terrain]]` and `when` condition tables are in AGENTS.md;
+  - the recipe explains why tapping a building never yields `occupied`;
+  - removal wording is consistent;
+  - `inspect` labels `screen_pos`.
+- Next, with evidence from two games: a refusal signal and conditions that count copies.
+  [Experiment report](experiments/2026-11-25-cold-agent-7.md).
+
 ## 2026-11-25 — Q3 decided: the isometric builder; builder kit v1 and Tiny Town (M3.1)
 
 - The owner picked the isometric builder as reference game 1. Tiny Town ([spec](games/tiny-town.md)): tap a

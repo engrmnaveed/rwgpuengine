@@ -170,6 +170,16 @@ sprite = { shape = "diamond", color = "#4fc3f7", size = [20, 28] }
     let test = call(&["test"], &project)?;
     expect_eq(&test, "failed", 0)?;
     let ms = start.elapsed().as_millis();
+    // Not timed: a playtest file outside tests/ runs as itself, never as
+    // "run every test" (a broken copy under out/ must fail).
+    std::fs::create_dir_all(project.join("out")).map_err(|e| e.to_string())?;
+    std::fs::write(project.join("out/broken.toml"), input.replace("pos = [4, 2]", "pos = [0, 0]"))
+        .map_err(|e| e.to_string())?;
+    let (ok, out) = capture(&slate_s, &["test", "out/broken.toml", "--json"], &project)?;
+    let j = Json::parse(&out).map_err(|e| format!("slate test out/broken.toml: bad JSON ({e})"))?;
+    if ok || j.get("failed").and_then(Json::as_i64) != Some(1) || j.get("passed").and_then(Json::as_i64) != Some(0) {
+        return Err(format!("slate test out/broken.toml should run only that (failing) file: {}", j.to_pretty()));
+    }
     eprintln!("smoke chain ok in {ms} ms (state {})", run_j.get("state_hash").and_then(Json::as_str).unwrap_or("?"));
     Ok(ms)
 }

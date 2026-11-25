@@ -1,0 +1,102 @@
+[test]
+doc = "The remove tool takes back whatever is tapped and refunds its seeds; the freed cells can be built on again."
+scene = "scenes/main.toml"
+frames = 28
+
+[[input]]
+frame = 2
+tap = [131, 456]     # btn_barn
+
+[[input]]
+frame = 4
+tap = [128, 192]     # field cell (0, 5): barn (10 -> 5)
+
+[[input]]
+frame = 6
+tap = [280, 456]     # btn_crop
+
+[[input]]
+frame = 8
+tap = [192, 288]     # field cell (4, 7): crop patch (5 -> 4)
+
+[[input]]
+frame = 10
+tap = [438, 456]     # btn_fence
+
+[[input]]
+frame = 12
+tap = [288, 304]     # field cell (6, 6): fence post (4 -> 2)
+
+[[input]]
+frame = 14
+tap = [590, 456]     # btn_remove
+
+[[input]]
+frame = 16
+tap = [160, 202]     # the barn: removed, +5 (2 -> 7)
+
+[[input]]
+frame = 18
+tap = [192, 288]     # the crop patch: removed, +1 (7 -> 8)
+
+[[input]]
+frame = 20
+tap = [288, 291]     # the fence post: removed, +2 (8 -> 10)
+
+[[input]]
+frame = 22
+tap = [131, 456]     # btn_barn
+
+[[input]]
+frame = 24
+tap = [128, 192]     # field cell (0, 5) again: the barn fits, its old cells are free (10 -> 5)
+
+[[expect]]
+frame = 13
+entity = "farm"
+props = { seeds = 2, barns = 1, crops = 1 }
+
+[[expect]]
+frame = 17
+prefab = "barn"
+count = 0
+
+[[expect]]
+frame = 17
+entity = "farm"
+props = { seeds = 7, barns = 0 }
+
+[[expect]]
+frame = 19
+prefab = "crop"
+count = 0
+
+[[expect]]
+frame = 19
+entity = "farm"
+props = { seeds = 8, crops = 0 }
+
+[[expect]]
+frame = 21
+prefab = "fence"
+count = 0
+
+[[expect]]
+frame = 21
+entity = "farm"
+props = { seeds = 10, barns = 0, crops = 0 }
+text = "Seeds: 10\nBarns: 0  Crops: 0"
+
+# Built again on the freed cells.
+[[expect]]
+prefab = "barn"
+count = 1
+pos = [0, 5]
+
+[[expect]]
+entity = "farm"
+props = { seeds = 5, barns = 1 }
+
+[[expect]]
+event = "blocked"
+at_most = 0

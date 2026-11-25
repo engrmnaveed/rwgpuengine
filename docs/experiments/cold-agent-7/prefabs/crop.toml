@@ -1,0 +1,2 @@
+doc = "A crop patch: one flat cell of ripening wheat. Costs 1 seed."
+tile = { color = "#d8b84a" }

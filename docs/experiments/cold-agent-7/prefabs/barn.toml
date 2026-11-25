@@ -1,0 +1,4 @@
+doc = "A barn: 3 cells along x by 2 along y, red walls and a dark roof. Costs 5 seeds."
+footprint = [3, 2]
+block = { color = "#b5473b", top = "#6b2e2a", height = 1.2 }
+solid = true

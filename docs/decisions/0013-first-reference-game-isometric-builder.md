@@ -59,3 +59,12 @@ tables, 9 of them the clear/refund wiring (3 per prefab): that is the evidence t
 A cold agent builds a different small builder game from a short spec with the generated AGENTS.md only:
 terrain, tap-to-build with costs, a multi-cell building, clear with refund and playtests that prove each rule,
 with 0 warnings. That is cold-agent run #7, offered as the next step.
+
+**Result ([run #7](../experiments/2026-11-25-cold-agent-7.md)): met.**
+- A farm builder (pond and path terrain, a 3 × 2 barn, crops, fences, remove with refund, a ready message):
+  every requirement supported, 6 playtests, 0 warnings, 8 min 44 s.
+- Its findings are fixed: `slate test <file>` outside `tests/` silently ran everything; event expectations
+  can now filter by `prefab`; the `[[terrain]]` and condition key tables are in AGENTS.md; the taken-cell and
+  removal wording.
+- Its top feature requests match Tiny Town's gaps: a signal on refused placements, and conditions that count
+  copies of a prefab.

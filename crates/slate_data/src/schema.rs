@@ -669,8 +669,10 @@ pub static EXPECT: Spec = Spec {
             "prefab",
             Ty::Name,
             None,
-            "Count the enabled entities made from this prefab (placed or spawned), optionally only those at `pos`. \
-             Checked with `count`, or at least one when `count` is absent.",
+            "Without `event`: count the enabled entities made from this prefab (placed or spawned), optionally only \
+             those at `pos`, checked with `count` (at least one when absent). With `event`: only count events about \
+             the prefab: its spawns, refused spawns (`blocked`) and skipped spawns, and events whose subject is a \
+             copy of it (`event = \"skipped\", prefab = \"barn\"` = barn spawns stopped by a `when`).",
         ),
         opt(
             "count",
