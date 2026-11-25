@@ -475,7 +475,10 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
             .into_iter()
             .filter(|c| e.get(c).is_some())
             .collect();
-        let cell = e.get("cell").map(Json::to_compact).unwrap_or_default();
+        let at = match e.get("screen_pos") {
+            Some(_) => "screen".to_string(),
+            None => format!("cell {}", e.get("cell").map(Json::to_compact).unwrap_or_default()),
+        };
         let enabled = if e.get("enabled").and_then(Json::as_bool) == Some(true) { "" } else { "  (disabled)" };
         let solid = if e.get("solid").and_then(Json::as_bool) == Some(true) { " solid" } else { "" };
         let screen = e.get("screen").map(Json::to_compact).unwrap_or_default();
@@ -488,7 +491,7 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
             state.push_str(&format!(" next {}", next.to_compact()));
         }
         o.line(format!(
-            "  {id:>3} {label:<12} cell {cell:<8} {:<20}{solid}{state} screen {screen}{tap}{enabled}",
+            "  {id:>3} {label:<12} {at:<13} {:<20}{solid}{state} screen {screen}{tap}{enabled}",
             comps.join("+")
         ));
         if let Some(t) = e.get("trigger").and_then(|t| t.get("occupied_by")).and_then(Json::as_array)

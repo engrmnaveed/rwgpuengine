@@ -1,0 +1,2 @@
+doc = "A stone golem: a patrol (an actor), so it can hold a pressure plate. It walks a fixed path on a fixed schedule; the player does not control it. Give it `patrol` in the scene."
+sprite = { shape = "rect", color = "#9aa7c7", size = [26, 34] }

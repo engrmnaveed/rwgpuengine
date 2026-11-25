@@ -1,0 +1,38 @@
+# Walking back over a coin's spot does not count it again.
+
+[test]
+doc = "A collected coin is gone and counts once, even when the player walks over its cell again."
+scene = "scenes/main.toml"
+frames = 60
+
+[[input]]
+frame = 0
+hold = "right"       # 2 steps: (1, 7) (2, 7)=coin1 (step 8)
+for = 16
+
+[[input]]
+frame = 24
+press = "left"       # back to (1, 7)
+
+[[input]]
+frame = 40
+press = "right"      # onto (2, 7) again: coin1 is disabled, nothing happens
+
+[[expect]]
+entity = "player"
+pos = [2, 7]
+
+[[expect]]
+event = "trigger"
+entity = "coin1"
+at_least = 1
+at_most = 1
+
+[[expect]]
+entity = "coin1"
+enabled = false
+
+[[expect]]
+entity = "hud"
+props = { coins = 1 }
+text = "Coins: 1/3"

@@ -251,6 +251,9 @@ fn screen_labels_draw_on_top_at_their_pixel() {
     assert!(list.items[first_hud..].iter().all(|i| i.entity == Some(hud)));
     let r = report.entities.iter().find(|r| r.id == hud).unwrap();
     assert_eq!(r.text.as_deref(), Some("Coins 7"));
+    // Its label covers its own backdrop: that is not "hidden" (counted once).
+    assert!(r.on_screen && r.visible_ratio() == 1.0, "{} of {}", r.visible_px, r.drawn_px);
+    assert!(report.to_text().contains("hud            sprite+label  screen       rect [10, 6, 60, 14]  visible 100%"));
     assert!(report.issues.is_empty(), "{:#?}", report.issues);
     // Taps on the HUD hit it, even over the world.
     assert_eq!(pick(&list, 12.0, 8.0).hit, Some(hud));

@@ -80,6 +80,7 @@ Deliberate gaps in v0.1 — each waits for a reference game that needs it (guard
 
 ## Next
 
-Data logic v1 is built (M1.6, [ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)). Next:
-cold-agent run #5 on run #3's task to check the acceptance targets (every requirement supported, 0 warnings,
-≤ 5 min), then M2/M3 once Q3 picks the first reference game.
+Data logic v1 is built and accepted with caveats (M1.6, [ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md),
+[run #5](experiments/2026-11-25-cold-agent-5.md)): the logic is fully supported, and 10 min 2 s missed the
+5-minute target. Candidate next: objects that hold plates (runs #3–#5 all worked around it). Then M2/M3 once
+Q3 picks the first reference game.

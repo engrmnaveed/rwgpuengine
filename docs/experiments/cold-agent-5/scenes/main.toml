@@ -1,0 +1,160 @@
+# The vault.
+#
+# Grid: +x runs down-right on screen, +y down-left, z is height.
+# The ground is 8x8: cells (0, 0) to (7, 7).
+#
+#   y = 0..1   inside the vault (empty floor)
+#   y = 2      the vault wall, with the vault door at (4, 2)
+#   y = 3..7   the room: three coins, plate_a at (2, 4), plate_b at (6, 4)
+#
+# The vault door is open (disabled) only while BOTH plates are held by an
+# actor, and closes again as soon as either plate is left.
+#
+# Approximation (see AGENTS.md "Limits in this version"): slate 0.1 cannot
+# hold a plate with an object, and there is only one controllable character,
+# so the player can hold just one plate at a time. Plate B is held by the
+# golem, a patrol that steps onto plate_b and off it again every 60 frames
+# (on it during frames 60-119, 180-239, 300-359, ...). The player has to
+# stand on plate_a while the golem is on plate_b.
+
+[scene]
+name = "Vault"
+doc = "The vault door opens only while both pressure plates are held; a HUD counts the coins collected."
+
+[ground]
+size = [8, 8]
+
+# --- The vault wall and its door -------------------------------------------
+
+[[entity]]
+prefab = "wall"
+cells = [[0, 2], [1, 2], [2, 2], [3, 2], [5, 2], [6, 2], [7, 2]]
+
+[[entity]]
+name = "vault_door"
+prefab = "door"
+pos = [4, 2]
+
+# --- The two pressure plates -------------------------------------------------
+
+[[entity]]
+name = "plate_a"
+prefab = "plate"
+pos = [2, 4]
+
+[[entity]]
+name = "plate_b"
+prefab = "plate"
+pos = [6, 4]
+
+# --- The golem: the second "weight" (a patrol, not player-controlled) --------
+
+[[entity]]
+name = "golem"
+prefab = "golem"
+pos = [7, 4]
+patrol = { path = [[7, 4], [6, 4]], step_frames = 60, mode = "pingpong" }
+
+# --- Three coins -------------------------------------------------------------
+
+[[entity]]
+name = "coin1"
+prefab = "coin"
+pos = [2, 7]
+
+[[entity]]
+name = "coin2"
+prefab = "coin"
+pos = [5, 6]
+
+[[entity]]
+name = "coin3"
+prefab = "coin"
+pos = [4, 4]
+
+# --- The player --------------------------------------------------------------
+
+[[entity]]
+name = "player"
+prefab = "player"
+pos = [0, 7]
+
+# --- HUD: the coin counter, drawn at a fixed screen pixel --------------------
+
+[[entity]]
+name = "hud"
+screen_pos = [8, 8]
+sprite = { shape = "rect", color = "#000000aa", size = [126, 24] }
+label = { text = "Coins: {coins}/3", offset = [4, 4], scale = 2 }
+props = { coins = 0 }
+
+# --- Vault door logic: AND of the two plates ---------------------------------
+# A plate being pressed opens the door only if the OTHER plate is occupied
+# right now; either plate being released closes it.
+
+[[connect]]
+from = "plate_a"
+signal = "pressed"
+to = "vault_door"
+action = "disable"
+when = [{ entity = "plate_b", occupied = true }]
+
+[[connect]]
+from = "plate_b"
+signal = "pressed"
+to = "vault_door"
+action = "disable"
+when = [{ entity = "plate_a", occupied = true }]
+
+[[connect]]
+from = "plate_a"
+signal = "released"
+to = "vault_door"
+action = "enable"
+
+[[connect]]
+from = "plate_b"
+signal = "released"
+to = "vault_door"
+action = "enable"
+
+# --- Coins: each one disables itself (counts once) and adds 1 to the HUD -----
+
+[[connect]]
+from = "coin1"
+signal = "collected"
+to = "coin1"
+action = "disable"
+
+[[connect]]
+from = "coin1"
+signal = "collected"
+to = "hud"
+action = "add"
+prop = "coins"
+
+[[connect]]
+from = "coin2"
+signal = "collected"
+to = "coin2"
+action = "disable"
+
+[[connect]]
+from = "coin2"
+signal = "collected"
+to = "hud"
+action = "add"
+prop = "coins"
+
+[[connect]]
+from = "coin3"
+signal = "collected"
+to = "coin3"
+action = "disable"
+
+[[connect]]
+from = "coin3"
+signal = "collected"
+to = "hud"
+action = "add"
+prop = "coins"

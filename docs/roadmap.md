@@ -18,7 +18,7 @@ decision in [open-questions.md](open-questions.md).
   prop actions, conditions and a HUD layer were built in M1.6 (ADR 0011). Still candidates, waiting for a
   game that needs them: pushable blocks or weights for plates; a single "cell is passable" expectation.
 
-## M1.6 — Data logic v1 ([ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)) — built 2026-11-25, acceptance run pending
+## M1.6 — Data logic v1 ([ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)) — done 2026-11-25
 
 Need: scores, counts and conditions (cold-agent runs #3/#4 spent 14–19 min building them from parts).
 
@@ -28,8 +28,11 @@ Need: scores, counts and conditions (cold-agent runs #3/#4 spent 14–19 min bui
 - Static checks, events (condition results, prop before/after), frame report "clipped text".
 - Acceptance: run #3's task with no approximations in ≤ 5 min; budgets and determinism hold.
 - Status: all of the above is built, with `examples/coin_vault` as the reference example (4 playtests).
-  Budgets and determinism hold (native = web for state and image hashes). The cold-agent acceptance run
-  (#5) is next.
+  Budgets and determinism hold (native = web for state and image hashes).
+- Acceptance ([run #5](experiments/2026-11-25-cold-agent-5.md)): every logic requirement supported, 0 warnings,
+  10 min 2 s (target ≤ 5 min missed; run #4 took 14 min 6 s). The remaining approximation is the plate
+  holder, a separate limit. Candidate next: objects that hold plates (pushable block / weight), with
+  evidence from runs #3, #4 and #5.
 
 ## M2 — The live loop
 

@@ -637,7 +637,8 @@ impl World {
                     data = data
                         .with("value", prop_json(&value))
                         .with("before", prop_json(&before))
-                        .with("after", prop_json(&after));
+                        .with("after", prop_json(&after))
+                        .with("changed", after != before);
                     (change, after != before)
                 }
                 None => return,
@@ -651,7 +652,7 @@ impl World {
                     _ => !before,
                 };
                 let after = e.enabled;
-                data = data.with("before", before).with("after", after);
+                data = data.with("before", before).with("after", after).with("changed", before != after);
                 let state = |b: bool| if b { "enabled" } else { "disabled" };
                 let change = if before == after {
                     format!("{}: stays {}", c.action.name(), state(after))

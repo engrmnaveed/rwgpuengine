@@ -419,6 +419,7 @@ fn and_door_opens_only_while_both_plates_are_held_in_either_order() {
         let action = w.events.all().iter().rev().find(|e| e.kind == EventKind::Action).unwrap();
         assert!(action.message.contains("; when '"), "{}", action.message);
         assert_eq!(action.data.pointer("when/0/held").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(action.data.get("changed").and_then(|v| v.as_bool()), Some(true));
 
         // Stepping off either closes it again.
         set_enabled(&mut w, order[0], false);

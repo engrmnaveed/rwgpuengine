@@ -33,7 +33,7 @@ Codes are stable: never renumbered or reused. `E` codes are errors (the command 
 | [W0301](#w0301) | `offscreen` | Entity is drawn entirely off-screen |
 | [W0302](#w0302) | `occluded` | Sprite is mostly hidden |
 | [W0303](#w0303) | `clipped` | Entity is partly off-screen |
-| [W0304](#w0304) | `hidden-trigger` | Trigger tile is less than 75% visible |
+| [W0304](#w0304) | `hidden-trigger` | Trigger tile is less than 75% visible behind things in front of it |
 | [W0305](#w0305) | `label-cut` | Label text is cut off or covered |
 | [E0401](#e0401) | `expect-failed` | Playtest expectation failed |
 | [E0402](#e0402) | `image-mismatch` | Screenshot differs from reference image |
@@ -321,7 +321,7 @@ Fix: adjust the camera or display size if the whole entity should be visible.
 
 ## W0304
 
-**Trigger tile is less than 75% visible** (`hidden-trigger`, warning)
+**Trigger tile is less than 75% visible behind things in front of it** (`hidden-trigger`, warning)
 
 Less than three quarters of a trigger's floor tile (a pressure plate, a goal) is visible, usually because
 a tall block in front of it (larger x + y) covers it. Entities standing on the trigger's own cell do not

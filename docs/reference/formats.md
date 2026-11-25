@@ -374,7 +374,7 @@ Every event has `frame` (the step that produced it: `[N]` happened in step N, so
 | `blocked` | the mover | the blocker (for `solid` and `actor`) | cause, from, to, reason, frames_left | A move was refused. `reason`: solid, actor, edge, area or cooldown. |
 | `trigger` | the trigger | the actor that entered or left | signal, by | The trigger's cell became occupied or empty; it emits `signal`. |
 | `signal` | the emitter | — | signal, connections | A signal was dispatched to this many `[[connect]]` tables (0 = nothing listens). |
-| `action` | the target | the emitter | signal, action, before, after; prop, value (add/set); when (each condition, held, seen) | A connection changed its target: enabled, disabled or toggled it, or added to or set a prop (`before`/`after` are the prop's values). |
+| `action` | the target | the emitter | signal, action, before, after, changed; prop, value (add/set); when (each condition, held, seen) | A connection's action ran on its target: enable, disable, toggle, or add/set a prop (`before`/`after` are the enabled state or the prop's values). It is logged even when nothing changes (`enable` on an enabled entity: "stays enabled", `changed = false`), so `[[expect]] event = "action"` counts every time the connection fired. |
 | `skipped` | the target | the emitter | signal, action, prop, when (each condition, held, seen) | A connection's signal arrived, but a `when` condition did not hold, so nothing was done. The message names the first failing condition and what was seen. |
 | `error` | the emitter | — | code, signal | A runtime error, such as more than 1000 signals in one step (E0301). |
 | `custom` | set by game code | set by game code | set by game code | Logged by Rust game code. |

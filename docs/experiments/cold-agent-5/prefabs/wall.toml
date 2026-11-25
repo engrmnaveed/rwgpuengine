@@ -1,0 +1,3 @@
+doc = "A stone vault wall. Blocks movement."
+block = { color = "#5b6170", height = 1.2 }
+solid = true

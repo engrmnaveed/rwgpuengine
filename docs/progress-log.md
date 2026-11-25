@@ -3,6 +3,26 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Cold-agent test #5: logic supported, two targets missed
+
+- Run #3's task on the data-logic build. AND door, re-closing and the on-screen counter were all supported
+  with no approximation (`when`, `add`, `label`, `screen_pos`). The first scene checked clean, 0 warnings
+  throughout, 3 playtests with 42 expects. Re-verified independently.
+- Time: 10 min 2 s (run #4 14:06, run #3 18:42); 33 tool calls, ~149K tokens. The scene is a third the size
+  of run #4's.
+- ADR 0011's acceptance targets: "≤ 5 min" was missed. "No approximations" was miscalibrated: the task needs
+  two plate holders, and objects can't hold plates (a separate limit ADR 0011 didn't cover). Every verdict was
+  reachable at 0:26; most of the remaining time was designing around the second holder.
+- Fixes from its findings:
+  - the AND recipe says who can hold the plates;
+  - the limits table carries the wording tasks use;
+  - `action` events carry `changed` and the docs admit no-ops;
+  - W0304's title is more precise;
+  - reports print `screen` for HUD entities;
+  - an entity's self-overlap no longer counts as hidden.
+- Evidence for the next feature: runs #3–#5 all built a patrol stand-in to hold a plate.
+  [Experiment report](experiments/2026-11-25-cold-agent-5.md).
+
 ## 2026-11-25 — Data logic v1 built (M1.6)
 
 - Built ADR 0011's set: `[[connect]]` `add`/`set` on props (the owner emits `changed`), `when` conditions

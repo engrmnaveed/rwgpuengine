@@ -1,0 +1,3 @@
+doc = "A coin. The player collects it by stepping onto its cell; the scene's [[connect]] tables disable it and add 1 to the HUD counter."
+sprite = { shape = "circle", color = "#f5c542", size = [14, 14], offset = [0, -6] }
+trigger = { on_enter = "collected", only = "player" }

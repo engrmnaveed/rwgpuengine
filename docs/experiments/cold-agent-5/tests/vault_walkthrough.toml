@@ -1,0 +1,225 @@
+# Playtest: collect the three coins, stand on plate_a, and watch the vault
+# door open only while the golem is ALSO on plate_b. Then step off plate_a
+# and back on again.
+#
+# Golem (patrol, step_frames = 60): on plate_b during frames 60-119,
+# 180-239, 300-359; off it (at (7, 4)) during 0-59, 120-179, 240-299, 360-.
+
+[test]
+doc = "Coins count up on the HUD; the vault door is open only while both plates are held, and closes when either one is left."
+scene = "scenes/main.toml"
+frames = 380
+
+[[input]]
+frame = 0
+hold = "right"       # 5 steps: (1, 7) (2, 7)=coin1 (3, 7) (4, 7) (5, 7)
+for = 40
+
+[[input]]
+frame = 48
+hold = "up"          # 3 steps: (5, 6)=coin2 (5, 5) (5, 4)
+for = 24
+
+[[input]]
+frame = 80
+hold = "left"        # 3 steps: (4, 4)=coin3 (3, 4) (2, 4)=plate_a (step 96)
+for = 24
+
+[[input]]
+frame = 200
+press = "up"         # (2, 3): the player steps off plate_a
+
+[[input]]
+frame = 320
+press = "down"       # (2, 4): back onto plate_a while the golem is on plate_b
+
+# --- The coin counter on the HUD ---------------------------------------------
+
+[[expect]]
+frame = 0
+entity = "hud"
+text = "Coins: 0/3"
+
+[[expect]]
+frame = 9            # coin1 collected in step 8
+entity = "hud"
+props = { coins = 1 }
+text = "Coins: 1/3"
+
+[[expect]]
+frame = 49           # coin2 collected in step 48
+entity = "hud"
+text = "Coins: 2/3"
+
+[[expect]]
+frame = 81           # coin3 collected in step 80
+entity = "hud"
+props = { coins = 3 }
+text = "Coins: 3/3"
+
+[[expect]]
+entity = "coin1"
+enabled = false
+
+[[expect]]
+entity = "coin2"
+enabled = false
+
+[[expect]]
+entity = "coin3"
+enabled = false
+
+[[expect]]
+entity = "hud"       # last frame: still 3, nothing counted twice
+props = { coins = 3 }
+text = "Coins: 3/3"
+
+# --- Only plate_b held (golem on it, player not yet on plate_a): closed -------
+
+[[expect]]
+frame = 90
+entity = "golem"
+pos = [6, 4]
+
+[[expect]]
+frame = 90
+entity = "player"
+pos = [3, 4]
+
+[[expect]]
+frame = 90
+entity = "vault_door"
+enabled = true       # closed: only one plate is held
+solid = true
+
+[[expect]]
+frame = 90           # the golem stepping on plate_b alone was refused (step 59)
+event = "skipped"
+entity = "vault_door"
+signal = "pressed"
+at_least = 1
+at_most = 1
+
+# --- Both plates held (player on plate_a since step 96): open -----------------
+
+[[expect]]
+frame = 97
+entity = "player"
+pos = [2, 4]
+
+[[expect]]
+frame = 97
+entity = "vault_door"
+enabled = false      # open: disabled entities are not drawn and not solid
+
+[[expect]]
+frame = 119          # still open on the golem's last frame on plate_b
+entity = "vault_door"
+enabled = false
+
+# --- The golem steps OFF plate_b (step 119): closed again ---------------------
+
+[[expect]]
+frame = 120
+entity = "golem"
+pos = [7, 4]
+
+[[expect]]
+frame = 120
+entity = "vault_door"
+enabled = true
+
+[[expect]]
+frame = 150          # player alone on plate_a: stays closed
+entity = "player"
+pos = [2, 4]
+
+[[expect]]
+frame = 150
+entity = "vault_door"
+enabled = true
+
+# --- The golem steps back ON plate_b (step 179): open -------------------------
+
+[[expect]]
+frame = 180
+entity = "vault_door"
+enabled = false
+
+# --- The player steps OFF plate_a (step 200): closed again --------------------
+
+[[expect]]
+frame = 201
+entity = "player"
+pos = [2, 3]
+
+[[expect]]
+frame = 201
+entity = "golem"     # the golem is still on plate_b
+pos = [6, 4]
+
+[[expect]]
+frame = 201
+entity = "vault_door"
+enabled = true
+
+# --- Golem on plate_b again (step 299) while the player is off plate_a: closed -
+
+[[expect]]
+frame = 310
+entity = "golem"
+pos = [6, 4]
+
+[[expect]]
+frame = 310
+entity = "vault_door"
+enabled = true
+
+[[expect]]
+frame = 310
+event = "skipped"
+entity = "vault_door"
+at_least = 2
+at_most = 2
+
+# --- The player steps back ON plate_a (step 320): open --------------------------
+
+[[expect]]
+frame = 321
+entity = "vault_door"
+enabled = false
+
+# --- The golem steps OFF (step 359): closed -------------------------------------
+
+[[expect]]
+frame = 360
+entity = "vault_door"
+enabled = true
+
+[[expect]]
+event = "action"     # opened 3 times (96, 179, 320) ...
+entity = "vault_door"
+signal = "pressed"
+at_least = 3
+at_most = 3
+
+[[expect]]
+event = "action"     # ... and the 4 releases each ran `enable` (119, 200, 239, 359)
+entity = "vault_door"
+signal = "released"
+at_least = 4
+at_most = 4
+
+# --- Screenshots ----------------------------------------------------------------
+
+[[shot]]
+frame = 0            # start: door closed, HUD 0/3
+reference = "tests/refs/vault_start.png"
+
+[[shot]]
+frame = 100          # both plates held: door open, HUD 3/3
+reference = "tests/refs/vault_open.png"
+
+[[shot]]
+frame = 150          # golem off plate_b, player alone on plate_a: door closed
+reference = "tests/refs/vault_closed_again.png"

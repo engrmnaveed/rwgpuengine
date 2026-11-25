@@ -237,7 +237,7 @@ character behind a wall, a deliberately layered sprite), add
 
 Fix: adjust the camera or display size if the whole entity should be visible.";
 
-    HIDDEN_TRIGGER = "W0304", "hidden-trigger", Warning, "Trigger tile is less than 75% visible",
+    HIDDEN_TRIGGER = "W0304", "hidden-trigger", Warning, "Trigger tile is less than 75% visible behind things in front of it",
 "Less than three quarters of a trigger's floor tile (a pressure plate, a goal) is visible, usually because
 a tall block in front of it (larger x + y) covers it. Entities standing on the trigger's own cell do not
 count. Players cannot see where to step.

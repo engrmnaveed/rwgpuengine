@@ -99,6 +99,17 @@ Measured: wasm 504,174 → 580,108 bytes (budget 700,000; most of the growth is 
 run in the browser). State hashes and reference images of existing examples are unchanged; coin_vault's
 hashes match natively and in the browser.
 
+## Acceptance result (run #5, 2026-11-25)
+
+[Cold-agent run #5](../experiments/2026-11-25-cold-agent-5.md) on run #3's task:
+
+| target | result |
+|---|---|
+| every requirement supported, no approximations | Every *logic* requirement supported. One approximation is left, the second plate holder (a patrol). Objects can't hold plates, and that was outside this ADR's scope, so the target was miscalibrated for this task |
+| `slate check` clean, 0 warnings | met |
+| ≤ 5 min | missed: 10 min 2 s (run #4: 14 min 6 s, run #3: 18 min 42 s); verdicts at 0:26 and the first scene checked clean |
+| budgets, determinism | met |
+
 ## Revisit when
 
 A reference game needs logic that would require loops, variables beyond props, or an expression language.

@@ -136,9 +136,11 @@ pub const EVENT_DOCS: &[EventDoc] = &[
         kind: EventKind::Action,
         subject: "the target",
         other: "the emitter",
-        fields: "signal, action, before, after; prop, value (add/set); when (each condition, held, seen)",
-        meaning: "A connection changed its target: enabled, disabled or toggled it, or added to or set a prop \
-                  (`before`/`after` are the prop's values).",
+        fields: "signal, action, before, after, changed; prop, value (add/set); when (each condition, held, seen)",
+        meaning: "A connection's action ran on its target: enable, disable, toggle, or add/set a prop \
+                  (`before`/`after` are the enabled state or the prop's values). It is logged even when nothing \
+                  changes (`enable` on an enabled entity: \"stays enabled\", `changed = false`), so \
+                  `[[expect]] event = \"action\"` counts every time the connection fired.",
     },
     EventDoc {
         kind: EventKind::Skipped,

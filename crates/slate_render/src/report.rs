@@ -31,9 +31,13 @@ pub struct EntityReport {
     pub label: String,
     pub parts: Vec<&'static str>,
     pub cell: [i32; 2],
+    /// Drawn on the screen (`screen_pos`), not in the world: `cell` is meaningless.
+    pub on_screen: bool,
     /// Union of the entity's shapes, in screen pixels (may extend off-screen).
     pub bounds: Rect,
+    /// Pixels of the entity's footprint (its parts' union) inside the frame.
     pub drawn_px: u32,
+    /// Of those, pixels still showing the entity at the end.
     pub visible_px: u32,
     /// Pixels area outside the frame, from the bounding rectangle.
     pub offscreen: bool,
@@ -97,6 +101,7 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
                 label: world.get(id).map_or_else(|| format!("#{id}"), |e| e.label()),
                 parts: Vec::new(),
                 cell: item.cell,
+                on_screen: world.get(id).is_some_and(|e| e.screen_pos.is_some()),
                 bounds: Rect::EMPTY,
                 drawn_px: 0,
                 visible_px: 0,
@@ -111,7 +116,11 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
         }
         entry.bounds = entry.bounds.union(&item.shape.bbox());
         let s = &stats[idx];
-        entry.drawn_px += s.drawn;
+        // Pixels where the entity covers itself (a label over its own backdrop,
+        // a sprite over its own tile) count once.
+        let self_covered: u32 =
+            s.covered_by.iter().filter(|(o, _)| list.items[**o].entity == Some(id)).map(|(_, n)| *n).sum();
+        entry.drawn_px += s.drawn.saturating_sub(self_covered);
         entry.visible_px += s.visible;
         if item.part == Part::Tile && world.get(id).is_some_and(|e| e.trigger.is_some()) {
             let hidden: u32 =
@@ -283,7 +292,7 @@ impl FrameReport {
                     .with("entity", r.label.as_str())
                     .with("id", r.id)
                     .with("parts", r.parts.iter().map(|p| Json::from(*p)).collect::<Vec<_>>())
-                    .with("cell", r.cell)
+                    .with("cell", if r.on_screen { Json::Null } else { Json::from(r.cell) })
                     .with("rect", r.bounds.xywh())
                     .with("drawn_px", r.drawn_px)
                     .with("visible_px", r.visible_px)
@@ -317,12 +326,11 @@ impl FrameReport {
         );
         for r in &self.entities {
             let [x, y, w, h] = r.bounds.xywh();
+            let at = if r.on_screen { "screen".to_string() } else { format!("cell ({}, {})", r.cell[0], r.cell[1]) };
             let mut line = format!(
-                "  {:<14} {:<13} cell ({}, {})  rect [{x}, {y}, {w}, {h}]  visible {:>3}%",
+                "  {:<14} {:<13} {at:<12} rect [{x}, {y}, {w}, {h}]  visible {:>3}%",
                 r.label,
                 r.parts.join("+"),
-                r.cell[0],
-                r.cell[1],
                 (r.visible_ratio() * 100.0).round() as i64
             );
             if let Some(t) = &r.text {

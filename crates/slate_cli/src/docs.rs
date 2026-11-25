@@ -254,6 +254,11 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   ```
 
   OR is several `[[connect]]` tables to the same target; NOT is `occupied = false` or `enabled = false`.
+  **Who holds the plates?** One player can stand on only one plate, objects cannot hold plates, and every
+  mover follows the same input (see Limits). So the second plate needs another actor: a patrol that paces onto
+  it on a schedule, or a stationary one (see below) that a `[[connect]]` enables. And a player who holds one of
+  the plates can never walk through the door, because stepping off closes it: if the player must get through,
+  let actors hold both plates (e.g. taps or other plates enable stationary weights).
 - **Collectible (counts once).** Put the sprite and the trigger on the **same** entity and connect its signal
   to itself: `trigger = {{ on_enter = "collected", only = "player" }}` +
   `[[connect]] from = "coin1" signal = "collected" to = "coin1" action = "disable"`. Disabling it also
@@ -434,8 +439,8 @@ connection, OR as several connections), and a screen-space HUD (`screen_pos`). S
 |---|---|
 | **Expressions and arithmetic beyond add/set** (multiply, one prop from another, random numbers in data) | `add` a constant and `set` a constant; compare props with constants in `when`. For a few fixed outcomes, write one `[[connect]]` per case with `when` conditions. |
 | **Timers and delays** | No timer component. A patrol stepping on and off a trigger fires on a fixed period (`step_frames`); use its `pressed` signal as the tick. |
-| **Holding a plate with an object** (pushable blocks, weights) | Only actors (`mover`, `patrol`, `wander`) set off triggers. Use a patrol as the "weight": a pacing one, or a stationary one (`patrol = { path = [[x, y]] }` on its own cell) that a `[[connect]]` enables. |
-| **Several independently controlled characters** | Every enabled `mover` responds to the same input, so they move together. Use one mover; other characters are patrols or wanderers. |
+| **Holding a plate with an object** (pushable blocks, crates or weights on plates, "put X on the plate") | Only actors (`mover`, `patrol`, `wander`) set off triggers. Use a patrol as the "weight": a pacing one, or a stationary one (`patrol = { path = [[x, y]] }` on its own cell) that a `[[connect]]` enables. |
+| **Several independently controlled characters** (two players, co-op, switching characters, "the player holds both plates") | Every enabled `mover` responds to the same input, so they move together. Use one mover; other characters are patrols or wanderers. |
 | **Text beyond printable ASCII** (accents, other scripts, emoji), fonts and text styles | One built-in pixel font: printable ASCII, a color and an integer `scale`. Other characters draw as a box (W0207). |
 | **Image sprites, audio, animation** | Shapes only (`circle`, `rect`, `diamond`), colors, blocks, tiles and text. |
 | **Multi-cell objects, rotation, scrolling camera** | One cell per entity (use `cells` for rows of copies); the camera is fixed per scene. |
