@@ -3,6 +3,28 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Architecture audit by the senior architect session
+
+- The new supervisor session (Fable 5.2) audited the baseline against the vision:
+  [audit report](audits/2026-11-25-architecture-audit.md). No engine code changed.
+- **Verdict:** the base is sound; the direction has drifted. None of the vision's three differentiators is
+  started (Rust game code has zero users, no tablet was measured, no learning kit exists), and a game still
+  cannot be shipped, have levels, play sound or save progress.
+- **Measured for the first time:**
+  - Determinism on three more native targets (x86-64 macOS, x86-64 Linux, arm64 Linux with all 128 unit
+    tests) and on wasm under Node with no browser: all 9 playtests give equal state hashes, and the wasm
+    gives equal image hashes too. The native-equals-web check can be a CI gate.
+  - The web player spends 97 % of a frame on work it can skip. A span rasterizer prototype is
+    pixel-identical on 1,932 of 1,932 frames and 38–56 times faster than rasterize + report; only 8.4 % of
+    frames change any pixel. On that evidence wgpu can wait (Q4).
+  - A mutation fuzz of 2,000 runs: no panic, no malformed JSON, 7 hangs, all from `footprint = [4096, 4096]`
+    (schema-valid, `check` passes, `shot` runs for more than 90 s).
+  - 61 % of the generated AGENTS.md is the format reference that `slate explain` already serves.
+  - Release binaries contain the build machine's home path (48 strings in the CLI, 21 in the wasm).
+- Ten owner decisions (D1–D10) and a nine-step plan are in the report. The scripts are in
+  [audits/2026-11-25/tools/](audits/2026-11-25/tools/).
+- Not done: no tablet, Windows or Safari run; no cold-agent run; nothing merged from the prototype.
+
 ## 2026-11-25 — Size pass, baseline, pause for the senior architect
 
 - **Size pass** ([ADR 0017](decisions/0017-web-profile-and-budgets.md)). I measured the web build in the
