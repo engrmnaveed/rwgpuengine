@@ -1,0 +1,19 @@
+[package]
+name = "rwgpuengine_web"
+description = "The web player core: rwgpu compiled to wasm32 with a small C ABI for hand-written JavaScript glue (web/player.js)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rwgpuengine_core.workspace = true
+rwgpuengine_data.workspace = true
+rwgpuengine_sim.workspace = true
+rwgpuengine_runtime.workspace = true
+
+[lints]
+workspace = true

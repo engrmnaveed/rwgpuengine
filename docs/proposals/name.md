@@ -1,6 +1,10 @@
-# Proposal: the engine's name (open question Q1) — not decided
+# Proposal: the engine's name (open question Q1) — decided: rwgpuengine
 
-> Status: **second shortlist for the owner**, checked on 2026-11-25. The owner decided to rename. A first
+> **Decided on 2026-11-25:** the owner chose **`rwgpuengine`**, and the rename is done
+> ([ADR 0019](../decisions/0019-name-rwgpuengine.md)). The rest of this page is the shortlist as it was
+> put to the owner.
+>
+> Status then: **second shortlist for the owner**, checked on 2026-11-25. The owner decided to rename. A first
 > shortlist used the `<word>16x` family suffix (`game16x` and others); the owner then asked to **drop the
 > `16x` suffix** and to name the engine after **the technology it is built on, Rust and wgpu**, in the form
 > **`<alias>engine`**. The first shortlist is at the end, for the record.

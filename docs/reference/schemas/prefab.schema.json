@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://slate.dev/schema/prefab.json",
-  "title": "slate prefab file",
+  "$id": "urn:rwgpuengine:schema:prefab",
+  "title": "rwgpu prefab file",
   "type": "object",
   "description": "A reusable entity template: prefabs/<name>.toml. Same keys as an entity, minus name/prefab/pos/cells.",
   "properties": {

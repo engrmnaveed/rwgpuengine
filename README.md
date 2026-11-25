@@ -1,12 +1,13 @@
-# slate
+# rwgpuengine
 
 **An agent-native 2D/2.5D game engine in Rust**, for learning games on the web and tablets.
 The game is text files; the engine is a command line that checks, runs, renders and inspects them —
 deterministically, without a screen, with JSON output and rustc-quality diagnostics.
 
-> Status: **v0.1.0 — first milestone done** (natively and in the browser). Working codename "slate";
-> it will be renamed (see [open questions](docs/open-questions.md) Q1). Not published yet; the licence will be
-> Apache-2.0.
+> Status: **v0.1.0 — first milestone done** (natively and in the browser). The engine is **rwgpuengine**
+> (Rust + wgpu) and its command is `rwgpu`; until 2026-11-25 it had the working codename "slate", which older
+> records still use ([ADR 0019](docs/decisions/0019-name-rwgpuengine.md)). Not published yet; the licence will
+> be Apache-2.0.
 >
 > **Direction (2026-11-25):** the target is a **3D engine on the GPU (wgpu), native and web**, for strategy
 > games, city builders, car-building and simulation games, and children's games. What is in this repository
@@ -14,17 +15,17 @@ deterministically, without a screen, with JSON output and rustc-quality diagnost
 > simulation and checks carry over. See the [direction update](docs/vision.md#direction-update--2026-11-25-owner).
 
 ```console
-$ slate new demo && cd demo
-$ slate check
+$ rwgpu new demo && cd demo
+$ rwgpu check
 check ok: 1 scene(s), 4 prefab(s), 1 playtest(s) — 0 error(s), 0 warning(s)
-$ slate run --frames 300 --input tests/smoke.toml
+$ rwgpu run --frames 300 --input tests/smoke.toml
 ran scenes/main.toml for 300 frames (seed 1, input tests/smoke.toml)
   state hash  f21213c8b806d36f
   entities    8 (7 enabled)
   events      input 2, moved 6, trigger 2, signal 2, action 1
-$ slate shot --input tests/smoke.toml --report        # PNG + what is drawn where
-$ slate inspect --frame 300 --entity door --events --json
-$ slate test
+$ rwgpu shot --input tests/smoke.toml --report        # PNG + what is drawn where
+$ rwgpu inspect --frame 300 --entity door --events --json
+$ rwgpu test
 test smoke ... ok (3 expect(s), 0 shot(s), 120 frames, state 366ea4f4954ba87c)
 ```
 
@@ -41,7 +42,7 @@ error[E0103]: unknown key `sprit` in entity
 
 ## Why
 
-Coding agents are best at reading files and running commands. slate makes those the engine's main
+Coding agents are best at reading files and running commands. rwgpuengine makes those the engine's main
 interface: text files with a published schema, a CLI where every command speaks JSON, a deterministic
 headless core, a queryable world with an event log that says *why* things happened, and built-in visual
 checks. Read [docs/vision.md](docs/vision.md).
@@ -51,31 +52,31 @@ checks. Read [docs/vision.md](docs/vision.md).
 Requires `rustup`; the toolchain (Rust 1.100.0 + wasm32) installs itself from `rust-toolchain.toml`.
 
 ```bash
-cargo build --release            # target/release/slate
-cargo slate test examples/iso_garden
+cargo build --release            # target/release/rwgpu
+cargo rwgpu test examples/iso_garden
 ```
 
 Web player (same engine compiled to wasm, same pixels as native):
 
 ```bash
-cargo xtask web                  # builds target/wasm32-unknown-unknown/web/slate_web.wasm
-cargo slate serve examples/iso_garden   # open http://127.0.0.1:4410/
+cargo xtask web                  # builds target/wasm32-unknown-unknown/web/rwgpuengine_web.wasm
+cargo rwgpu serve examples/iso_garden   # open http://127.0.0.1:4410/
 ```
 
 Add `?input=tests/walkthrough.toml&frames=300` to the URL to replay a playtest; the state hash on the
-page matches `slate run`. Edit any file in the project and the page reloads it.
+page matches `rwgpu run`. Edit any file in the project and the page reloads it.
 
 ## Repository map
 
 | path | what |
 |---|---|
-| `crates/slate_core` | JSON, diagnostics + stable codes, RNG, hashing (zero deps) |
-| `crates/slate_data` | file formats: schema registry, validation, loaders, static checks |
-| `crates/slate_sim` | deterministic world, built-in behaviors, signals, event log |
-| `crates/slate_render` | iso projection, draw list, CPU rasterizer, frame report, picking, PNG |
-| `crates/slate_runtime` | sessions, scripted input, playtests, the `Game` trait for Rust code |
-| `crates/slate_cli` | the `slate` command line (+ project template, dev server) |
-| `crates/slate_web` | wasm build with a small C ABI; `web/` holds the page and JS glue |
+| `crates/rwgpuengine_core` | JSON, diagnostics + stable codes, RNG, hashing (zero deps) |
+| `crates/rwgpuengine_data` | file formats: schema registry, validation, loaders, static checks |
+| `crates/rwgpuengine_sim` | deterministic world, built-in behaviors, signals, event log |
+| `crates/rwgpuengine_render` | iso projection, draw list, CPU rasterizer, frame report, picking, PNG |
+| `crates/rwgpuengine_runtime` | sessions, scripted input, playtests, the `Game` trait for Rust code |
+| `crates/rwgpuengine_cli` | the `rwgpu` command line (+ project template, dev server) |
+| `crates/rwgpuengine_web` | wasm build with a small C ABI; `web/` holds the page and JS glue |
 | `examples/iso_garden` | reference example: plate opens gate, goal raises flag; 2 playtests |
 | `examples/coin_vault` | reference example for data logic: coin counter on a HUD, vault opens at 3, AND lock held by a pushed crate; 4 playtests |
 | `examples/tiny_town` | **reference game 1** ([spec](docs/games/tiny-town.md)): an isometric builder — terrain map, tap to build 2 × 2 houses, trees and a well within a coin budget, clear with refund, a job card that counts copies, hints that say why nothing was built; 3 playtests |

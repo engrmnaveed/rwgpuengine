@@ -7,7 +7,7 @@
 # enforced yet" and is reported as such.
 
 [web]
-# slate_web.wasm built with the `web` profile. v0.1.0 measured 466,628 bytes;
+# rwgpuengine_web.wasm built with the `web` profile. v0.1.0 measured 466,628 bytes;
 # M3.4 with the hybrid profile (ADR 0017) 643,317 (234,702 gzipped). Raised
 # from 700,000 by the owner's call to leave room for more features (ADR 0017).
 # With the paint path the web module no longer holds the reference rasterizer
@@ -15,11 +15,11 @@
 wasm_bytes = 800_000
 
 [cli]
-# Release `slate` binary (stripped). v0.1.0 measured ~1.3 MB on aarch64-apple-darwin.
+# Release `rwgpu` binary (stripped). v0.1.0 measured ~1.3 MB on aarch64-apple-darwin.
 binary_bytes = 3_000_000
 
 [deps]
-# External (non-slate) crates in the runtime's normal dependency tree.
+# External (non-rwgpu) crates in the runtime's normal dependency tree.
 runtime_crates = 20
 # Proc-macro crates anywhere in the runtime tree. Zero is the policy (ADR 0004).
 proc_macro_crates = 0
@@ -27,14 +27,14 @@ proc_macro_crates = 0
 [time]
 # new -> check -> run 300 -> shot -> inspect -> test with the release binary.
 smoke_chain_ms = 4_000
-# Recompile slate_sim and everything above it (dev profile): the code edit
+# Recompile rwgpuengine_sim and everything above it (dev profile): the code edit
 # loop. v0.1.0 measured 0.38 s on an Apple M5 Pro; CI runners are slower.
 incremental_rebuild_ms = 10_000
 # Render one 640x480 frame of Tiny Town with its town built (release build,
 # native; `cargo xtask render-bench`). M3.4 measured ~2,270 us on an Apple M5
 # Pro. The limit catches a rasterizer regression of ~2.5x on slower CI
 # machines; the web profile's opt-levels are checked separately (ADR 0017).
-# This is the reference path: `slate shot`, playtest `[[shot]]`s and reports.
+# This is the reference path: `rwgpu shot`, playtest `[[shot]]`s and reports.
 render_frame_us = 6_000
 # Paint the same frame the way a player does when the picture changed:
 # build the draw list and fill spans, no report (ADR 0018). Measured 55-60 us on

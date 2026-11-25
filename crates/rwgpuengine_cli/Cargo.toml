@@ -1,0 +1,24 @@
+[package]
+name = "rwgpuengine_cli"
+description = "The rwgpu command line: new, check, run, test, shot, inspect, explain, schema, docs, serve. JSON output everywhere."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "rwgpu"
+path = "src/main.rs"
+
+[dependencies]
+rwgpuengine_core.workspace = true
+rwgpuengine_data.workspace = true
+rwgpuengine_sim.workspace = true
+rwgpuengine_render.workspace = true
+rwgpuengine_runtime.workspace = true
+
+[lints]
+workspace = true

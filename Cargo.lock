@@ -129,6 +129,67 @@ dependencies = [
 ]
 
 [[package]]
+name = "rwgpuengine_cli"
+version = "0.1.0"
+dependencies = [
+ "rwgpuengine_core",
+ "rwgpuengine_data",
+ "rwgpuengine_render",
+ "rwgpuengine_runtime",
+ "rwgpuengine_sim",
+]
+
+[[package]]
+name = "rwgpuengine_core"
+version = "0.1.0"
+
+[[package]]
+name = "rwgpuengine_data"
+version = "0.1.0"
+dependencies = [
+ "rwgpuengine_core",
+ "toml_edit",
+]
+
+[[package]]
+name = "rwgpuengine_render"
+version = "0.1.0"
+dependencies = [
+ "png",
+ "rwgpuengine_core",
+ "rwgpuengine_data",
+ "rwgpuengine_sim",
+]
+
+[[package]]
+name = "rwgpuengine_runtime"
+version = "0.1.0"
+dependencies = [
+ "rwgpuengine_core",
+ "rwgpuengine_data",
+ "rwgpuengine_render",
+ "rwgpuengine_sim",
+]
+
+[[package]]
+name = "rwgpuengine_sim"
+version = "0.1.0"
+dependencies = [
+ "rwgpuengine_core",
+ "rwgpuengine_data",
+]
+
+[[package]]
+name = "rwgpuengine_web"
+version = "0.1.0"
+dependencies = [
+ "rwgpuengine_core",
+ "rwgpuengine_data",
+ "rwgpuengine_runtime",
+ "rwgpuengine_sim",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -153,67 +214,6 @@ name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
-
-[[package]]
-name = "slate_cli"
-version = "0.1.0"
-dependencies = [
- "slate_core",
- "slate_data",
- "slate_render",
- "slate_runtime",
- "slate_sim",
-]
-
-[[package]]
-name = "slate_core"
-version = "0.1.0"
-
-[[package]]
-name = "slate_data"
-version = "0.1.0"
-dependencies = [
- "slate_core",
- "toml_edit",
-]
-
-[[package]]
-name = "slate_render"
-version = "0.1.0"
-dependencies = [
- "png",
- "slate_core",
- "slate_data",
- "slate_sim",
-]
-
-[[package]]
-name = "slate_runtime"
-version = "0.1.0"
-dependencies = [
- "slate_core",
- "slate_data",
- "slate_render",
- "slate_sim",
-]
-
-[[package]]
-name = "slate_sim"
-version = "0.1.0"
-dependencies = [
- "slate_core",
- "slate_data",
-]
-
-[[package]]
-name = "slate_web"
-version = "0.1.0"
-dependencies = [
- "slate_core",
- "slate_data",
- "slate_runtime",
- "slate_sim",
-]
 
 [[package]]
 name = "syn"
@@ -275,10 +275,10 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "slate_cli",
- "slate_core",
- "slate_data",
- "slate_runtime",
+ "rwgpuengine_cli",
+ "rwgpuengine_core",
+ "rwgpuengine_data",
+ "rwgpuengine_runtime",
 ]
 
 [[package]]

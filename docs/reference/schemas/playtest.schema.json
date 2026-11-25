@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://slate.dev/schema/playtest.json",
-  "title": "slate playtest file",
+  "$id": "urn:rwgpuengine:schema:playtest",
+  "title": "rwgpu playtest file",
   "type": "object",
-  "description": "Scripted input plus expectations, run by `slate test`. `run`, `shot` and `inspect` accept it as `--input`.",
+  "description": "Scripted input plus expectations, run by `rwgpu test`. `run`, `shot` and `inspect` accept it as `--input`.",
   "properties": {
     "test": {
       "type": "object",
@@ -77,7 +77,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "description": "A check at `frame`. Entity state (`entity` with `pos`/`enabled`/`solid`/`props`/`text`), a count of entities made from a prefab (`prefab` with `count`, optionally at `pos`), or the event log (`event`, filtered by `entity`, `other`, `signal`, `reason`, counted with `at_least`/`at_most`). Events are counted if they happened *before* `frame`: an event logged as `[N]` happened in step N and counts from `frame = N + 1`. `entity` matches the event's subject and `other` its other party (`slate explain events` lists both for every kind).",
+        "description": "A check at `frame`. Entity state (`entity` with `pos`/`enabled`/`solid`/`props`/`text`), a count of entities made from a prefab (`prefab` with `count`, optionally at `pos`), or the event log (`event`, filtered by `entity`, `other`, `signal`, `reason`, counted with `at_least`/`at_most`). Events are counted if they happened *before* `frame`: an event logged as `[N]` happened in step N and counts from `frame = N + 1`. `entity` matches the event's subject and `other` its other party (`rwgpu explain events` lists both for every kind).",
         "properties": {
           "frame": {
             "type": "integer",
@@ -172,7 +172,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "description": "Render a frame and compare it with a reference PNG. Create or refresh references with `slate test --update-refs`.",
+        "description": "Render a frame and compare it with a reference PNG. Create or refresh references with `rwgpu test --update-refs`.",
         "properties": {
           "frame": {
             "type": "integer",

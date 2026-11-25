@@ -1,53 +1,53 @@
 # Architecture
 
-How slate is built, as of v0.1.0 (first milestone). Decisions behind each choice are in
+How rwgpuengine is built, as of v0.1.0 (first milestone). Decisions behind each choice are in
 [decisions/](decisions/). The vision is in [vision.md](vision.md).
 
 ## Crates and layers
 
 ```text
                 ┌──────────────────────────────────────────────────────────────┐
- agent surface  │ slate_cli   `slate` binary + library: commands, --json,       │
+ agent surface  │ rwgpuengine_cli   `rwgpu` binary + library: commands, --json,       │
                 │             help/docs from registries, dev server (serve)      │
-                │ slate_web   wasm32 cdylib, C ABI for web/player.js             │
+                │ rwgpuengine_web   wasm32 cdylib, C ABI for web/player.js             │
                 └───────────────┬──────────────────────────────┬───────────────┘
                                 │                              │
                 ┌───────────────▼──────────────────────────────▼───────────────┐
- composition    │ slate_runtime  Session (project+scene+script), stepping,      │
+ composition    │ rwgpuengine_runtime  Session (project+scene+script), stepping,      │
                 │                tap picking, inspect views, playtests, Game     │
                 └──────┬───────────────────────┬────────────────────┬──────────┘
                        │                       │                    │
  core runtime   ┌──────▼──────┐        ┌───────▼───────┐            │
-                │ slate_sim   │◄───────┤ slate_render  │            │
+                │ rwgpuengine_sim   │◄───────┤ rwgpuengine_render  │            │
                 │ world, step,│        │ iso view, draw│            │
                 │ signals,    │        │ list, CPU     │            │
                 │ event log   │        │ raster, report│            │
                 └──────┬──────┘        └───────┬───────┘            │
                        │                       │                    │
                 ┌──────▼───────────────────────▼────────────────────▼──────────┐
- text + schema  │ slate_data  TOML → span tree → schema check → typed defs;     │
-                │             Vfs, loaders, static checks (`slate check`)        │
+ text + schema  │ rwgpuengine_data  TOML → span tree → schema check → typed defs;     │
+                │             Vfs, loaders, static checks (`rwgpu check`)        │
                 └──────────────────────────────┬───────────────────────────────┘
                 ┌──────────────────────────────▼───────────────────────────────┐
- foundation     │ slate_core  JSON, diagnostics + code registry, PCG32, FNV,    │
+ foundation     │ rwgpuengine_core  JSON, diagnostics + code registry, PCG32, FNV,    │
                 │             colors, suggestions. Zero dependencies.            │
                 └──────────────────────────────────────────────────────────────┘
  rented         toml_edit (parsing) · png (encode/decode)         [later: wgpu, winit, audio, text]
  dev tooling    xtask: ci, web, smoke, budgets, docs
 ```
 
-Dependency rule: arrows only point down. `slate_sim` knows nothing about rendering; `slate_render` reads
-the world but never changes it; only `slate_runtime` holds both (picking needs the drawn frame).
+Dependency rule: arrows only point down. `rwgpuengine_sim` knows nothing about rendering; `rwgpuengine_render` reads
+the world but never changes it; only `rwgpuengine_runtime` holds both (picking needs the drawn frame).
 
 | crate | owns | must not |
 |---|---|---|
-| `slate_core` | JSON, `Diagnostic`, the code registry, RNG, hashing, colors | depend on anything |
-| `slate_data` | file formats: the schema registry, validation, typed definitions, `Vfs`, static checks | run anything |
-| `slate_sim` | `World`, entities, built-in behaviors, signals, event log, state hash | render, read files, use wall-clock time |
-| `slate_render` | iso projection, draw list, rasterizer, frame report, picking, PNG | change the world |
-| `slate_runtime` | sessions, scripted input, playtests, the `Game` trait | touch the filesystem (the CLI does) |
-| `slate_cli` | commands, output envelope, docs generation, templates, dev server | contain engine logic |
-| `slate_web` | the wasm C ABI | contain engine logic |
+| `rwgpuengine_core` | JSON, `Diagnostic`, the code registry, RNG, hashing, colors | depend on anything |
+| `rwgpuengine_data` | file formats: the schema registry, validation, typed definitions, `Vfs`, static checks | run anything |
+| `rwgpuengine_sim` | `World`, entities, built-in behaviors, signals, event log, state hash | render, read files, use wall-clock time |
+| `rwgpuengine_render` | iso projection, draw list, rasterizer, frame report, picking, PNG | change the world |
+| `rwgpuengine_runtime` | sessions, scripted input, playtests, the `Game` trait | touch the filesystem (the CLI does) |
+| `rwgpuengine_cli` | commands, output envelope, docs generation, templates, dev server | contain engine logic |
+| `rwgpuengine_web` | the wasm C ABI | contain engine logic |
 
 ## Data flow of one command
 
@@ -69,7 +69,7 @@ Every command is a **pure function of (files, input script, seed, frame)**. `sho
 
 ## The file model
 
-- `slate.toml` marks the project root (found by walking up, like Cargo.toml).
+- `rwgpu.toml` marks the project root (found by walking up, like Cargo.toml).
 - `scenes/*.toml`: `[scene]`, `[camera]`, `[ground]` (a size or a terrain `map`), `[[terrain]]`, `[[entity]]`,
   `[[connect]]`.
 - `prefabs/<name>.toml`: an entity template; entity keys override it, component tables merge key by key.
@@ -77,8 +77,8 @@ Every command is a **pure function of (files, input script, seed, frame)**. `sho
 
 Parsing pipeline (ADR 0003): `toml_edit` parses → converted at once into an owned `Node` tree that keeps
 byte spans for every key and value → `Checker` validates against the **schema registry**
-(`slate_data::schema`) → `Fields` decodes with defaults taken from the same registry. The registry also
-generates JSON Schemas, the reference docs and `slate explain <component>`; one table, four uses.
+(`rwgpuengine_data::schema`) → `Fields` decodes with defaults taken from the same registry. The registry also
+generates JSON Schemas, the reference docs and `rwgpu explain <component>`; one table, four uses.
 
 ## The world
 
@@ -140,7 +140,7 @@ only IEEE-exact operations (clippy bans libm transcendental functions); `BTreeMa
 
 Verified on 2026-11-25 ([audit](audits/2026-11-25-architecture-audit.md), section 3.1): all nine example
 playtests reach the same state hashes on aarch64 and x86-64 macOS, aarch64 and x86-64 Linux, and wasm32, and
-the wasm's pixels hash to native `slate shot`'s image hashes. The current fingerprints are in the
+the wasm's pixels hash to native `rwgpu shot`'s image hashes. The current fingerprints are in the
 [baseline](baselines/2026-11-25.md); this page does not repeat them, because copies go stale.
 
 ## Rendering
@@ -155,10 +155,10 @@ ADR 0007. The **draw list** is the central artifact:
   whose coverage is a bit test, so text is as deterministic, reportable and pickable as everything else.
 - `rasterize` fills shapes with exact integer coverage tests at pixel centers (doubled coordinates,
   top-left fill rule) and integer shading/blending; it records which item owns each pixel. It is the
-  **reference**: `slate shot`, playtest `[[shot]]`s and the frame report use it.
+  **reference**: `rwgpu shot`, playtest `[[shot]]`s and the frame report use it.
 - `paint` (ADR 0018) gives the same pixels from the same list, colors only, by solving the coverage rule for
   whole runs of pixels: 55 µs against 2,256 µs for rasterize plus report on a Tiny Town frame. Players use it
-  through `slate_runtime::Presenter`, which repaints only when the draw list changed. Tests hold the two
+  through `rwgpuengine_runtime::Presenter`, which repaints only when the draw list changed. Tests hold the two
   pixel-identical on every frame of every example playtest.
 - `build_report` turns ownership into per-entity drawn/visible pixels and "covered by", and flags W0301
   off-screen, W0302 mostly-hidden sprites, W0303 clipped.
@@ -171,34 +171,34 @@ Isometric projection: `sx = ox + (x − y)·tw/2`, `sy = oy + (x + y)·th/2 − 
 
 ## The agent surface
 
-- **CLI** (`slate_cli`): the command registry (`args::COMMANDS`) is data; parsing, `help`, `help --json`
+- **CLI** (`rwgpuengine_cli`): the command registry (`args::COMMANDS`) is data; parsing, `help`, `help --json`
   and docs/reference/cli.md all come from it.
 - **Output envelope**: with `--json`, exactly one object:
-  `{"slate","format","command","ok",…command fields…,"errors","warnings","diagnostics"}`.
+  `{"rwgpu","format","command","ok",…command fields…,"errors","warnings","diagnostics"}`.
   Exit codes: 0 ok, 1 errors/failed checks, 2 bad command line.
-- **Diagnostics**: stable codes in `slate_core::codes` (never reused), rustc-style text, JSON fields
+- **Diagnostics**: stable codes in `rwgpuengine_core::codes` (never reused), rustc-style text, JSON fields
   `code severity message file line column hint notes`.
-- **Docs**: `slate docs` and the AGENTS.md written by `slate new` are generated from the registries of
+- **Docs**: `rwgpu docs` and the AGENTS.md written by `rwgpu new` are generated from the registries of
   the running binary.
 
 ## The web player
 
-ADR 0008. `slate_web` compiles to a wasm module with zero imports (585,725 bytes with the paint path,
+ADR 0008. `rwgpuengine_web` compiles to a wasm module with zero imports (about 586 KB with the paint path,
 ADR 0018; budget 800,000). `web/player.js` (no framework, no build step) loads it, fetches the project as a
-bundle (`path\0text\0…`), steps at the project's tick rate, and asks `slate_present` each frame: only when
-the picture changed does it copy the pixels to the canvas with `putImageData`. `slate serve` (std-only HTTP) rebuilds
+bundle (`path\0text\0…`), steps at the project's tick rate, and asks `rwgpu_present` each frame: only when
+the picture changed does it copy the pixels to the canvas with `putImageData`. `rwgpu serve` (std-only HTTP) rebuilds
 the bundle from disk per request; the page polls a content hash and reloads on change, showing
 diagnostics in the page. Touch first: tap = tap, swipe = move along the iso axes, on-screen pad.
 
 ## Extension points
 
-- **Rust game code**: implement `slate_runtime::Game` (a `Systems` with `name`, `on_start`, `inspect`)
-  and ship a binary that calls `slate_cli::main_with(args, &|| Box::new(MyGame))`. It runs after the
+- **Rust game code**: implement `rwgpuengine_runtime::Game` (a `Systems` with `name`, `on_start`, `inspect`)
+  and ship a binary that calls `rwgpuengine_cli::main_with(args, &|| Box::new(MyGame))`. It runs after the
   built-ins each step and can read/write entities, props and emit signals. (Hot-patching is M4.)
-- **New component**: add a `Spec` + `Field` in `slate_data::schema`, decode it in `defs.rs`, give
+- **New component**: add a `Spec` + `Field` in `rwgpuengine_data::schema`, decode it in `defs.rs`, give
   `Entity` a field, add behavior to `World::tick`, draw it in `draw::build` if visual, add it to
   `dump::entity_json` and `state_hash`. Docs and schemas follow from the registry.
-- **New diagnostic**: add it to `slate_core::codes` (next free number in its range, never reuse).
+- **New diagnostic**: add it to `rwgpuengine_core::codes` (next free number in its range, never reuse).
 - **New command**: add a `Command` to `args::COMMANDS` and dispatch it in `lib.rs`.
 
 ## Known limits of v0.1 (by design, for now)

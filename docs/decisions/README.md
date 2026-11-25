@@ -3,6 +3,10 @@
 One file per decision: context, decision, consequences, and **when to revisit**. Decisions are changed by
 adding a new ADR that supersedes the old one (and marking the old one), never by silently editing.
 
+> **The name.** Until 2026-11-25 the engine had the working codename "slate". ADRs 0001–0018 were written
+> then and keep that name: read `slate` as `rwgpu`, `slate_core` as `rwgpuengine_core`, `slate.toml` as
+> `rwgpu.toml` ([ADR 0019](0019-name-rwgpuengine.md) has the full table).
+
 | ADR | decision | status |
 |---|---|---|
 | [0001](0001-build-from-scratch.md) | Build from scratch; own the core, rent platform layers | accepted |
@@ -23,5 +27,6 @@ adding a new ADR that supersedes the old one (and marking the old one), never by
 | [0016](0016-spawn-costs-and-funds-refusal.md) | Spawn `cost` (paid only if placed) and the `funds` refusal reason | accepted, built (M3.4) |
 | [0017](0017-web-profile-and-budgets.md) | Web profile: size-first with the renderer at `opt-level = 3`; budgets 800 KB wasm and a render-time limit | accepted, built |
 | [0018](0018-paint-path-for-players.md) | A paint path for players (`paint`, `Presenter`, `slate_present`): the reference pixels 41× faster, unchanged frames skipped; the reference rasterizer stays for checks | accepted, built |
+| [0019](0019-name-rwgpuengine.md) | The engine is named **rwgpuengine** (Rust + wgpu); the command is `rwgpu`; crates `rwgpuengine_*`; project file `rwgpu.toml`; JSON `format` 2. Old records keep the old name | accepted, done |
 
 Template: copy any ADR; keep it under a page.

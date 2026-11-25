@@ -13,9 +13,11 @@ decision in [open-questions.md](open-questions.md).
 1. ~~Audit~~: done ([report](audits/2026-11-25-architecture-audit.md)).
 2. ~~First consolidation step, the players' paint path~~: done
    ([ADR 0018](decisions/0018-paint-path-for-players.md)).
-3. **The 3D direction study** (next; [open questions](open-questions.md) Q16): measured options and a
-   proposed architecture, new budgets, the ADRs it supersedes, a new roadmap, and a name shortlist (Q1).
-4. Then, in the order the study proposes and the owner approves: the 3D core; open-source readiness and the
+3. ~~The name~~: done. The engine is **rwgpuengine** and the command is `rwgpu`
+   ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
+4. **The 3D direction study** (next; [open questions](open-questions.md) Q16): measured options and a
+   proposed architecture, new budgets, the ADRs it supersedes, and a new roadmap.
+5. Then, in the order the study proposes and the owner approves: the 3D core; open-source readiness and the
    first public push (licence Apache-2.0, Q10); templates per kind of game; demos; the desktop app.
 
 Not started and now in question: the audit's step 4 (splitting `load.rs` and `world.rs`). The 3D world model
@@ -29,12 +31,12 @@ Core feature work is **paused** at [baseline 2026-11-25](baselines/2026-11-25.md
 1. **Owner review** of the baseline and the handoff notes.
 2. **The senior architect session.** The owner starts a new session in this repository on a higher-end model
    (Fable 5.2, Extra mode) with the [brief](handoff/senior-architect-brief.md). It:
-   - audits slate against the vision;
+   - audits rwgpuengine against the vision;
    - consolidates the core and lays the complete platform foundation;
    - becomes the project's **main supervisor** from then on.
 
    Its plan, in approved steps, replaces the milestones below where they differ.
-3. **Demos**: real games built with slate on the consolidated platform, each with the procedural steps of
+3. **Demos**: real games built with rwgpuengine on the consolidated platform, each with the procedural steps of
    how it was built (`BUILD.md`). They are also the foundation's acceptance test.
 4. **The desktop app** for game producers, with agentic support through a bridge to Claude Desktop and
    other agent platforms later ([proposal](proposals/desktop-app.md)). It starts only after the foundation.
@@ -80,9 +82,9 @@ Need: scores, counts and conditions (cold-agent runs #3/#4 spent 14–19 min bui
 
 Need: people (and agents) iterate on feel, not just on end states.
 
-- `slate export web` → static site (wasm + page + bundle) for hosting on any static server (Q11).
+- `rwgpu export web` → static site (wasm + page + bundle) for hosting on any static server (Q11).
 - Record from the web player: export the live session as a playtest (`[[input]]` list) — record/replay.
-- `slate watch`: re-run `check`/`test` on file change, JSON lines out.
+- `rwgpu watch`: re-run `check`/`test` on file change, JSON lines out.
 - (Text labels moved to M1.6.)
 - Image sprites from PNG files (Q6), still deterministic in the CPU rasterizer.
 - Native window player (winit + softbuffer or wgpu) — only if the web player is not enough (Q4).
@@ -98,10 +100,10 @@ Need: the first real game. Q3 is decided: the **isometric builder**, Tiny Town
   - `spawn` with placement rules (edge, terrain, occupied).
   - Multi-cell `footprint` with sliced draw order.
   - `from_prefab` / `to = "self"`, `block.top`, `[[expect]] prefab` + `count`.
-  - `slate inspect --place` ("can I build here?", with tap pixels).
+  - `rwgpu inspect --place` ("can I build here?", with tap pixels).
   - `examples/tiny_town` with 3 playtests; native = web.
 - Accepted by [cold-agent run #7](experiments/2026-11-25-cold-agent-7.md): a farm builder, every requirement
-  supported, 0 warnings, 8 min 44 s. Its findings are fixed (`slate test <file>` false pass, prefab filter on
+  supported, 0 warnings, 8 min 44 s. Its findings are fixed (`rwgpu test <file>` false pass, prefab filter on
   event expectations, two missing format tables).
 - **M3.2 — builder kit v2: done 2026-11-25** ([ADR 0014](decisions/0014-refusal-signal-and-count-props.md)),
   from the evidence of Tiny Town **and** run #7:
@@ -142,7 +144,7 @@ Need: the first real game. Q3 is decided: the **isometric builder**, Tiny Town
 
 Need: logic that data alone cannot express.
 
-- `slate new --rust`: a game crate whose binary is `slate_cli::main_with(MyGame)`.
+- `rwgpu new --rust`: a game crate whose binary is `rwgpuengine_cli::main_with(MyGame)`.
 - Hot-patching with subsecond for code edits; budget the code edit loop.
 - Game code in the browser: build the game crate to wasm with the same C ABI (Q7).
 - Typed props access helpers; custom component registration (maybe) if props are not enough.
@@ -156,7 +158,7 @@ Need: logic that data alone cannot express.
 
 ## M6 — Optional MCP adapter
 
-- `slate mcp`: a thin stdio server with a handful of tools that map 1:1 onto CLI commands (`check`, `run`,
+- `rwgpu mcp`: a thin stdio server with a handful of tools that map 1:1 onto CLI commands (`check`, `run`,
   `shot`, `inspect`, `explain`), discovered progressively (Q9). The CLI stays the source of truth.
 
 ## Always

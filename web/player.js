@@ -1,8 +1,8 @@
-// slate web player: glue between the page and slate_web.wasm.
+// rwgpu web player: glue between the page and rwgpuengine_web.wasm.
 //
-// The wasm module exports a small C ABI (see crates/slate_web/src/lib.rs):
+// The wasm module exports a small C ABI (see crates/rwgpuengine_web/src/lib.rs):
 // strings go in as (pointer, length) into linear memory, text comes back
-// through slate_out_ptr/slate_out_len. No wasm-bindgen, no build step.
+// through rwgpu_out_ptr/rwgpu_out_len. No wasm-bindgen, no build step.
 'use strict';
 
 const ACTION = { up: 1, down: 2, left: 4, right: 8, confirm: 16, cancel: 32 };
@@ -30,13 +30,13 @@ let stepMs = 1000 / 60;
 
 function withStr(s, fn) {
   const bytes = enc.encode(s);
-  const ptr = w.slate_alloc(bytes.length);
+  const ptr = w.rwgpu_alloc(bytes.length);
   new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes);
-  try { return fn(ptr, bytes.length); } finally { w.slate_free(ptr, bytes.length); }
+  try { return fn(ptr, bytes.length); } finally { w.rwgpu_free(ptr, bytes.length); }
 }
 
 function out() {
-  return dec.decode(new Uint8Array(w.memory.buffer, w.slate_out_ptr(), w.slate_out_len()));
+  return dec.decode(new Uint8Array(w.memory.buffer, w.rwgpu_out_ptr(), w.rwgpu_out_len()));
 }
 
 function showProblems(text) {
@@ -58,7 +58,7 @@ function showProblems(text) {
 async function loadBundle() {
   const res = await fetch('/bundle', { cache: 'no-store' });
   const text = await res.text();
-  const status = withStr(text, (p, n) => w.slate_set_bundle(p, n));
+  const status = withStr(text, (p, n) => w.rwgpu_set_bundle(p, n));
   if (status !== 0) { showProblems(out()); return false; }
   return true;
 }
@@ -66,16 +66,16 @@ async function loadBundle() {
 function start() {
   const scene = $('scene').value;
   const input = $('input').value;
-  const status = withStr(scene, (sp, sn) => withStr(input, (ip, il) => w.slate_start(sp, sn, ip, il)));
+  const status = withStr(scene, (sp, sn) => withStr(input, (ip, il) => w.rwgpu_start(sp, sn, ip, il)));
   showProblems(out());
   $('events').innerHTML = '';
   lastEventFrame = 0;
   if (status !== 0) { pausedByError = !paused; setPaused(true); return false; }
   if (pausedByError) { pausedByError = false; setPaused(false); }
-  const cw = w.slate_width(), ch = w.slate_height();
+  const cw = w.rwgpu_width(), ch = w.rwgpu_height();
   const canvas = $('screen');
   if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
-  stepMs = 1000 / w.slate_tick_rate();
+  stepMs = 1000 / w.rwgpu_tick_rate();
   return true;
 }
 
@@ -83,23 +83,23 @@ function step() {
   let down = pressed;
   for (const a of held) down |= ACTION[a];
   const tap = taps.shift();
-  w.slate_step(pressed, down, tap ? 1 : 0, tap ? tap[0] : 0, tap ? tap[1] : 0);
+  w.rwgpu_step(pressed, down, tap ? 1 : 0, tap ? tap[0] : 0, tap ? tap[1] : 0);
   pressed = 0;
 }
 
 function draw() {
-  const width = w.slate_width(), height = w.slate_height();
+  const width = w.rwgpu_width(), height = w.rwgpu_height();
   if (!width) return;
-  // Most frames change nothing: slate_present repaints only when the picture
+  // Most frames change nothing: rwgpu_present repaints only when the picture
   // did, and says so (it always does on the first frame after a start).
-  if (w.slate_present()) {
-    const pixels = new Uint8ClampedArray(w.memory.buffer, w.slate_pixels(), width * height * 4);
+  if (w.rwgpu_present()) {
+    const pixels = new Uint8ClampedArray(w.memory.buffer, w.rwgpu_pixels(), width * height * 4);
     ctx.putImageData(new ImageData(pixels, width, height), 0, 0);
   }
-  $('frame').textContent = w.slate_frame();
-  w.slate_hash();
+  $('frame').textContent = w.rwgpu_frame();
+  w.rwgpu_hash();
   $('hash').textContent = out();
-  w.slate_events(lastEventFrame);
+  w.rwgpu_events(lastEventFrame);
   const events = JSON.parse(out() || '[]');
   if (events.length) {
     const list = $('events');
@@ -123,7 +123,7 @@ async function restart(fromUrl) {
   if (!start()) { draw(); return; }
   const frames = fromUrl ? parseInt(params.get('frames') || '', 10) : NaN;
   if (Number.isFinite(frames)) {
-    w.slate_run_to(frames);
+    w.rwgpu_run_to(frames);
     setPaused(true);
     $('note').textContent = `ran ${frames} frames`;
   } else {
@@ -146,7 +146,7 @@ async function main() {
   const { instance } = await WebAssembly.instantiateStreaming(fetch('/player.wasm'), {});
   w = instance.exports;
   const project = await (await fetch('/project', { cache: 'no-store' })).json();
-  $('project').textContent = `${project.name || '?'} · slate ${project.version}`;
+  $('project').textContent = `${project.name || '?'} · rwgpu ${project.version}`;
   fill($('scene'), project.scenes, params.get('scene') || project.main_scene);
   fill($('input'), project.tests, params.get('input') || '');
   bundleHash = await (await fetch('/bundle-hash', { cache: 'no-store' })).text();
@@ -209,7 +209,7 @@ async function main() {
   const loop = (now) => {
     acc += Math.min(now - last, 250);
     last = now;
-    if (!paused && w.slate_width()) {
+    if (!paused && w.rwgpu_width()) {
       let n = 0;
       while (acc >= stepMs && n < 5) { step(); acc -= stepMs; n++; }
       draw();

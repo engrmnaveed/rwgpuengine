@@ -1,7 +1,7 @@
-# Mutation fuzz: break example files at random and check that slate never
+# Mutation fuzz: break example files at random and check that rwgpu never
 # panics, hangs or prints non-JSON under --json. Deterministic (seeded).
 import json, pathlib, random, re, shutil, subprocess, sys, collections
-slate, repo, work, n = sys.argv[1], pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3]), int(sys.argv[4])
+rwgpu, repo, work, n = sys.argv[1], pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3]), int(sys.argv[4])
 rng = random.Random(20261125)
 examples = ['iso_garden', 'coin_vault', 'tiny_town']
 VALUES = ['-1', '0', '999999999999', '1e308', '-0.0', '""', '"ground"', '"self"', 'true', 'false', '[]', '[[1,2],[3]]',
@@ -40,7 +40,7 @@ for it in range(n):
         f = rng.choice(files); f.write_text(mutate(f.read_text()))
     for cmd in (['check'], ['test'], ['run', '--frames', '200'], ['shot', '--report'], ['inspect', '--events']):
         try:
-            p = subprocess.run([slate, *cmd, '--json'], cwd=dst, capture_output=True, timeout=20)
+            p = subprocess.run([rwgpu, *cmd, '--json'], cwd=dst, capture_output=True, timeout=20)
         except subprocess.TimeoutExpired:
             stats['TIMEOUT'] += 1; bad.append((it, ex, cmd, 'timeout')); shutil.copytree(dst, work / f'bad_{it}_{cmd[0]}', dirs_exist_ok=True); continue
         stats[f'exit {p.returncode}'] += 1

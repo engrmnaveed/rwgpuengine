@@ -7,10 +7,10 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-slate_core.workspace = true
-slate_data.workspace = true
-slate_cli.workspace = true
-slate_runtime.workspace = true
+rwgpuengine_core.workspace = true
+rwgpuengine_data.workspace = true
+rwgpuengine_cli.workspace = true
+rwgpuengine_runtime.workspace = true
 
 [lints]
 workspace = true

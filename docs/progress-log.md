@@ -3,6 +3,27 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+> Entries before "The engine is named rwgpuengine" were written when the working codename was "slate" and
+> keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
+> ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
+
+## 2026-11-25 — The engine is named rwgpuengine (ADR 0019)
+
+- The owner chose **`rwgpuengine`** (Rust + wgpu + engine) from the second shortlist. The rename is done in
+  one commit ([ADR 0019](decisions/0019-name-rwgpuengine.md)): the command is `rwgpu`, the crates are
+  `rwgpuengine_*`, the project file is `rwgpu.toml`, the web ABI is `rwgpu_*`.
+- Two things changed that are not only a name: the first key of every `--json` output is now `rwgpu`, so
+  `format` is 2; and the JSON Schemas' `$id` is a `urn:`, because `slate.dev` was never the project's domain.
+- Proof that nothing else changed: 99 command outputs and generated files compared between the build before
+  and the build after, with the name substituted in the old ones: 0 differ, PNG files included. All nine
+  playtest state hashes are the same, the web module still matches native, and the generated AGENTS.md is
+  the same 67,313 bytes ("slate" and "rwgpu" are the same length).
+- Old records (ADRs 0001–0018, experiment reports and their archived projects, earlier log entries, the
+  baseline, the audit, the handoff brief) keep the old name on purpose. They quote commands and prompts word
+  for word.
+- Not done: nothing is published or reserved on crates.io; no crate is named plain `rwgpuengine` yet (that is
+  decided with the 3D crate layout); the LICENSE file.
+
 ## 2026-11-25 — Name shortlist (Q1)
 
 - The owner asked for the name before the 3D study, and said it may carry the 16xbrains family branding

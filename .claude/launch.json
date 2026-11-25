@@ -2,13 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "slate-web-iso-garden",
+      "name": "rwgpu-web-iso-garden",
       "runtimeExecutable": "cargo",
       "runtimeArgs": [
         "run",
         "--quiet",
         "--bin",
-        "slate",
+        "rwgpu",
         "--",
         "serve",
         "examples/iso_garden",
@@ -18,13 +18,13 @@
       "port": 4410
     },
     {
-      "name": "slate-web-coin-vault",
+      "name": "rwgpu-web-coin-vault",
       "runtimeExecutable": "cargo",
       "runtimeArgs": [
         "run",
         "--quiet",
         "--bin",
-        "slate",
+        "rwgpu",
         "--",
         "serve",
         "examples/coin_vault",
@@ -34,13 +34,13 @@
       "port": 4411
     },
     {
-      "name": "slate-web-tiny-town",
+      "name": "rwgpu-web-tiny-town",
       "runtimeExecutable": "cargo",
       "runtimeArgs": [
         "run",
         "--quiet",
         "--bin",
-        "slate",
+        "rwgpu",
         "--",
         "serve",
         "examples/tiny_town",

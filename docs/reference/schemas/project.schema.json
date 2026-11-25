@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://slate.dev/schema/project.json",
-  "title": "slate slate.toml",
+  "$id": "urn:rwgpuengine:schema:project",
+  "title": "rwgpu rwgpu.toml",
   "type": "object",
   "description": "Project settings. Its folder is the project root; every path in the project is relative to it.",
   "properties": {
@@ -15,7 +15,7 @@
         },
         "engine": {
           "type": "string",
-          "description": "slate version the project targets, e.g. \"0.1\". `check` warns (W0205) if the running slate differs."
+          "description": "rwgpu version the project targets, e.g. \"0.1\". `check` warns (W0205) if the running rwgpu differs."
         },
         "main_scene": {
           "type": "string",

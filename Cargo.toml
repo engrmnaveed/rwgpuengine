@@ -1,4 +1,4 @@
-# slate — an agent-native 2D/2.5D game engine in Rust.
+# rwgpuengine — an agent-native game engine in Rust. Its command is `rwgpu`.
 # See README.md for the overview and docs/architecture.md for the layer map.
 
 [workspace]
@@ -17,12 +17,12 @@ publish = false
 
 [workspace.dependencies]
 # Owned crates.
-slate_core = { path = "crates/slate_core" }
-slate_data = { path = "crates/slate_data" }
-slate_sim = { path = "crates/slate_sim" }
-slate_render = { path = "crates/slate_render" }
-slate_runtime = { path = "crates/slate_runtime" }
-slate_cli = { path = "crates/slate_cli" }
+rwgpuengine_core = { path = "crates/rwgpuengine_core" }
+rwgpuengine_data = { path = "crates/rwgpuengine_data" }
+rwgpuengine_sim = { path = "crates/rwgpuengine_sim" }
+rwgpuengine_render = { path = "crates/rwgpuengine_render" }
+rwgpuengine_runtime = { path = "crates/rwgpuengine_runtime" }
+rwgpuengine_cli = { path = "crates/rwgpuengine_cli" }
 
 # Rented crates. Keep this list short; every addition needs an ADR or a note in
 # docs/decisions/0004-few-dependencies-no-proc-macros.md.
@@ -66,8 +66,8 @@ lto = true
 codegen-units = 1
 panic = "abort"
 
-[profile.web.package.slate_render]
+[profile.web.package.rwgpuengine_render]
 opt-level = 3
 
-[profile.web.package.slate_core]
+[profile.web.package.rwgpuengine_core]
 opt-level = 3

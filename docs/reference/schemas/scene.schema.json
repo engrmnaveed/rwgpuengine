@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://slate.dev/schema/scene.json",
-  "title": "slate scene file",
+  "$id": "urn:rwgpuengine:schema:scene",
+  "title": "rwgpu scene file",
   "type": "object",
   "description": "A level: ground, entities and the connections between their signals.",
   "properties": {
@@ -518,7 +518,7 @@
               },
               "additionalProperties": false
             },
-            "description": "Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). They are checked once, before the first action. For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`."
+            "description": "Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). They are checked once, before the first action. For OR, write one `[[connect]]` per alternative. Item keys: `rwgpu explain condition`."
           },
           "actions": {
             "type": "array",
@@ -575,7 +575,7 @@
               "required": ["action"],
               "additionalProperties": false
             },
-            "description": "Several actions for the same signal and `when`, run in order: `actions = [{ action = \"set\", to = \"town\", prop = \"tool\", value = \"tree\" }, { action = \"set\", to = \"hint\", prop = \"msg\", value = \"\" }]`. Each item has the keys `action`, `to`, `prop`, `value`, `prefab` and `cost` (`slate explain action`), which then cannot be on the [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run."
+            "description": "Several actions for the same signal and `when`, run in order: `actions = [{ action = \"set\", to = \"town\", prop = \"tool\", value = \"tree\" }, { action = \"set\", to = \"hint\", prop = \"msg\", value = \"\" }]`. Each item has the keys `action`, `to`, `prop`, `value`, `prefab` and `cost` (`rwgpu explain action`), which then cannot be on the [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run."
           }
         },
         "required": ["signal"],

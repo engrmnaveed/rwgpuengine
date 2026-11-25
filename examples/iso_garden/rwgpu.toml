@@ -1,0 +1,21 @@
+# iso_garden — the reference example for rwgpu's first milestone.
+# Every path in this project is relative to this folder.
+
+[project]
+name = "iso-garden"
+engine = "0.1"
+main_scene = "scenes/garden.toml"
+
+[display]
+width = 640
+height = 480
+background = "#1d2330"
+
+[iso]
+tile_width = 64
+tile_height = 32
+z_height = 32
+
+[sim]
+tick_rate = 60
+seed = 7

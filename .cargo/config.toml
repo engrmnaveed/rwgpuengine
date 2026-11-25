@@ -1,5 +1,5 @@
 [alias]
 # Dev automation: `cargo xtask ci`, `cargo xtask web`, `cargo xtask smoke`, ...
 xtask = "run --quiet --package xtask --"
-# The engine CLI from source: `cargo slate check examples/iso_garden`
-slate = "run --quiet --package slate_cli --bin slate --"
+# The engine CLI from source: `cargo rwgpu check examples/iso_garden`
+rwgpu = "run --quiet --package rwgpuengine_cli --bin rwgpu --"

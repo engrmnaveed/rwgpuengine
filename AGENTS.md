@@ -1,7 +1,7 @@
-# AGENTS.md — working on the slate engine
+# AGENTS.md — working on rwgpuengine
 
-This file is for agents (and people) changing **the engine itself**. Games made with slate get their own
-AGENTS.md from `slate new` (preview it with `cargo slate docs --agents`).
+This file is for agents (and people) changing **the engine itself**. Games made with rwgpuengine get their own
+AGENTS.md from `rwgpu new` (preview it with `cargo rwgpu docs --agents`).
 
 ## Orientation (read in this order)
 
@@ -16,9 +16,9 @@ AGENTS.md from `slate new` (preview it with `cargo slate docs --agents`).
 ```bash
 cargo xtask ci                       # the full gate: run before every commit
 cargo test                           # all unit tests (fast)
-cargo slate <command> ...            # the CLI from source, e.g. cargo slate check examples/iso_garden
+cargo rwgpu <command> ...            # the CLI from source, e.g. cargo rwgpu check examples/iso_garden
 cargo xtask web                      # build the wasm web player
-cargo slate serve examples/iso_garden   # web player at http://127.0.0.1:4410/
+cargo rwgpu serve examples/iso_garden   # web player at http://127.0.0.1:4410/
 cargo xtask docs                     # regenerate docs/reference after changing commands/formats/codes
 cargo xtask budgets                  # measure size/time/dependency budgets
 ```
@@ -29,13 +29,13 @@ cargo xtask budgets                  # measure size/time/dependency budgets
   no `HashMap`/`HashSet`, no wall-clock time in engine crates — clippy enforces it. If a change alters
   state hashes or reference images, say so in the commit and update references only after looking at them.
 - **No proc macros in the runtime tree, few dependencies** ([ADR 0004](docs/decisions/0004-few-dependencies-no-proc-macros.md)).
-  No serde/clap/rand: use `slate_core::json`, `slate_cli::args`, `slate_core::rng`.
-- **Layers point down only**: core ← data ← sim ← render ← runtime ← cli/web. `slate_sim` never renders;
-  `slate_render` never mutates the world; only `slate_cli` touches the filesystem.
-- **Formats live in one registry** (`slate_data::schema`). Never parse a key that is not declared there.
-- **Every problem is a `Diagnostic` with a registered code** (`slate_core::codes`), a location and, when
+  No serde/clap/rand: use `rwgpuengine_core::json`, `rwgpuengine_cli::args`, `rwgpuengine_core::rng`.
+- **Layers point down only**: core ← data ← sim ← render ← runtime ← cli/web. `rwgpuengine_sim` never renders;
+  `rwgpuengine_render` never mutates the world; only `rwgpuengine_cli` touches the filesystem.
+- **Formats live in one registry** (`rwgpuengine_data::schema`). Never parse a key that is not declared there.
+- **Every problem is a `Diagnostic` with a registered code** (`rwgpuengine_core::codes`), a location and, when
   possible, a hint. Never reuse a code. Never print errors any other way.
-- **Commands are data** (`slate_cli::args::COMMANDS`); help and docs are generated from it.
+- **Commands are data** (`rwgpuengine_cli::args::COMMANDS`); help and docs are generated from it.
 - **Reference games drive features**: do not add engine features no example or reference game uses.
 - Run `cargo xtask docs` after changing commands, formats or codes, and commit the regenerated reference.
 
@@ -44,10 +44,10 @@ cargo xtask budgets                  # measure size/time/dependency budgets
 | change | touch |
 |---|---|
 | new component | `schema.rs` (Spec + Field) → `defs.rs` (decode) → `world.rs` (Entity field, behavior, state_hash) → `dump.rs` (JSON) → `draw.rs` if visual → tests → `cargo xtask docs` |
-| new diagnostic | `slate_core/src/codes.rs` (next free number in range) → emit with `.at(src, span).hint(..)` → test asserts the code |
-| new command | `slate_cli/src/args.rs` (Command entry with examples) → `lib.rs` dispatch → `commands.rs` → `cargo xtask docs` |
-| new event kind | `slate_sim/src/events.rs` + `schema::EVENT_KINDS` (a test keeps them equal) |
-| visual change | run `cargo slate test examples/iso_garden`; if refs differ on purpose, `--update-refs`, then look at the PNG |
+| new diagnostic | `rwgpuengine_core/src/codes.rs` (next free number in range) → emit with `.at(src, span).hint(..)` → test asserts the code |
+| new command | `rwgpuengine_cli/src/args.rs` (Command entry with examples) → `lib.rs` dispatch → `commands.rs` → `cargo xtask docs` |
+| new event kind | `rwgpuengine_sim/src/events.rs` + `schema::EVENT_KINDS` (a test keeps them equal) |
+| visual change | run `cargo rwgpu test examples/iso_garden`; if refs differ on purpose, `--update-refs`, then look at the PNG |
 
 ## Commits
 

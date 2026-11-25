@@ -1,8 +1,8 @@
-//! Dev automation for the slate workspace. Run through the cargo alias:
+//! Dev automation for the rwgpuengine workspace. Run through the cargo alias:
 //!
 //! ```text
 //! cargo xtask ci        everything CI runs, in order (fails fast)
-//! cargo xtask web       build slate_web.wasm (web profile)
+//! cargo xtask web       build rwgpuengine_web.wasm (web profile)
 //! cargo xtask smoke     the first-milestone command chain on a fresh project
 //! cargo xtask budgets   measure and enforce budgets.toml
 //! cargo xtask docs      regenerate docs/reference (`--check` to verify only)
@@ -18,9 +18,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Instant;
 
-use slate_core::diag::SourceFile;
-use slate_core::json::Json;
-use slate_data::node::{Table, parse_toml};
+use rwgpuengine_core::diag::SourceFile;
+use rwgpuengine_core::json::Json;
+use rwgpuengine_data::node::{Table, parse_toml};
 
 type Result<T = ()> = std::result::Result<T, String>;
 
@@ -77,15 +77,15 @@ fn ci() -> Result {
     step("clippy (native)");
     run("cargo", &["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])?;
     step("clippy (wasm)");
-    run("cargo", &["clippy", "-p", "slate_web", "--target", "wasm32-unknown-unknown", "--", "-D", "warnings"])?;
+    run("cargo", &["clippy", "-p", "rwgpuengine_web", "--target", "wasm32-unknown-unknown", "--", "-D", "warnings"])?;
     step("tests");
     run("cargo", &["test", "--workspace"])?;
     step("generated docs are current");
     docs(true)?;
     step("example playtests");
     for example in ["examples/iso_garden", "examples/coin_vault", "examples/tiny_town"] {
-        run("cargo", &["run", "--quiet", "--bin", "slate", "--", "check", example])?;
-        run("cargo", &["run", "--quiet", "--bin", "slate", "--", "test", example])?;
+        run("cargo", &["run", "--quiet", "--bin", "rwgpu", "--", "check", example])?;
+        run("cargo", &["run", "--quiet", "--bin", "rwgpu", "--", "test", example])?;
     }
     step("budgets (builds web + release, runs smoke)");
     budgets()?;
@@ -95,35 +95,35 @@ fn ci() -> Result {
 
 fn web() -> Result<PathBuf> {
     step("web build");
-    run("cargo", &["build", "-p", "slate_web", "--target", "wasm32-unknown-unknown", "--profile", "web"])?;
-    let wasm = root().join("target/wasm32-unknown-unknown/web/slate_web.wasm");
+    run("cargo", &["build", "-p", "rwgpuengine_web", "--target", "wasm32-unknown-unknown", "--profile", "web"])?;
+    let wasm = root().join("target/wasm32-unknown-unknown/web/rwgpuengine_web.wasm");
     let size = std::fs::metadata(&wasm).map_err(|e| format!("{}: {e}", wasm.display()))?.len();
     eprintln!("built {} ({size} bytes)", wasm.display());
     Ok(wasm)
 }
 
 fn release_cli() -> Result<PathBuf> {
-    run("cargo", &["build", "--release", "--bin", "slate"])?;
-    Ok(root().join("target/release/slate"))
+    run("cargo", &["build", "--release", "--bin", "rwgpu"])?;
+    Ok(root().join("target/release/rwgpu"))
 }
 
 /// The first milestone, end to end, with JSON assertions at each step.
 fn smoke() -> Result<u128> {
     step("smoke: new -> check -> run -> shot -> inspect -> test");
-    let slate = release_cli()?;
+    let rwgpu = release_cli()?;
     let dir = root().join("target/xtask-smoke");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let slate_s = slate.to_string_lossy().to_string();
+    let rwgpu_s = rwgpu.to_string_lossy().to_string();
 
     let start = Instant::now();
     let call = |args: &[&str], cwd: &Path| -> Result<Json> {
         let mut full: Vec<&str> = args.to_vec();
         full.push("--json");
-        let (ok, out) = capture(&slate_s, &full, cwd)?;
-        let j = Json::parse(&out).map_err(|e| format!("slate {}: bad JSON ({e}): {out}", args.join(" ")))?;
+        let (ok, out) = capture(&rwgpu_s, &full, cwd)?;
+        let j = Json::parse(&out).map_err(|e| format!("rwgpu {}: bad JSON ({e}): {out}", args.join(" ")))?;
         if !ok || j.get("ok").and_then(Json::as_bool) != Some(true) {
-            return Err(format!("slate {} failed: {}", args.join(" "), j.to_pretty()));
+            return Err(format!("rwgpu {} failed: {}", args.join(" "), j.to_pretty()));
         }
         Ok(j)
     };
@@ -178,10 +178,10 @@ sprite = { shape = "diamond", color = "#4fc3f7", size = [20, 28] }
     std::fs::create_dir_all(project.join("out")).map_err(|e| e.to_string())?;
     std::fs::write(project.join("out/broken.toml"), input.replace("pos = [4, 2]", "pos = [0, 0]"))
         .map_err(|e| e.to_string())?;
-    let (ok, out) = capture(&slate_s, &["test", "out/broken.toml", "--json"], &project)?;
-    let j = Json::parse(&out).map_err(|e| format!("slate test out/broken.toml: bad JSON ({e})"))?;
+    let (ok, out) = capture(&rwgpu_s, &["test", "out/broken.toml", "--json"], &project)?;
+    let j = Json::parse(&out).map_err(|e| format!("rwgpu test out/broken.toml: bad JSON ({e})"))?;
     if ok || j.get("failed").and_then(Json::as_i64) != Some(1) || j.get("passed").and_then(Json::as_i64) != Some(0) {
-        return Err(format!("slate test out/broken.toml should run only that (failing) file: {}", j.to_pretty()));
+        return Err(format!("rwgpu test out/broken.toml should run only that (failing) file: {}", j.to_pretty()));
     }
     eprintln!("smoke chain ok in {ms} ms (state {})", run_j.get("state_hash").and_then(Json::as_str).unwrap_or("?"));
     Ok(ms)
@@ -197,7 +197,7 @@ fn expect_eq(j: &Json, key: &str, want: i64) -> Result {
 fn docs(check_only: bool) -> Result {
     let dir = root().join("docs/reference");
     let mut stale = Vec::new();
-    for (rel, text) in slate_cli::commands::reference_files() {
+    for (rel, text) in rwgpuengine_cli::commands::reference_files() {
         let path = dir.join(&rel);
         let current = std::fs::read_to_string(&path).unwrap_or_default();
         if current != text {
@@ -305,15 +305,15 @@ fn budgets() -> Result {
     r.add("time.smoke_chain_ms", smoke_ms as i64, b.limit("time", "smoke_chain_ms"));
 
     step("incremental rebuild");
-    run("cargo", &["build", "--bin", "slate"])?;
-    // A changed env var read by slate_sim (option_env!) forces the same
+    run("cargo", &["build", "--bin", "rwgpu"])?;
+    // A changed env var read by rwgpuengine_sim (option_env!) forces the same
     // recompile as a source edit, without modifying files.
     let probe = format!("{:?}", std::time::SystemTime::now());
-    eprintln!("$ SLATE_REBUILD_PROBE=... cargo build --bin slate");
+    eprintln!("$ RWGPU_REBUILD_PROBE=... cargo build --bin rwgpu");
     let start = Instant::now();
     let status = Command::new("cargo")
-        .args(["build", "--bin", "slate"])
-        .env("SLATE_REBUILD_PROBE", probe)
+        .args(["build", "--bin", "rwgpu"])
+        .env("RWGPU_REBUILD_PROBE", probe)
         .current_dir(root())
         .status()
         .map_err(|e| e.to_string())?;
@@ -327,13 +327,13 @@ fn budgets() -> Result {
 }
 
 /// The web profile keeps the renderer fast (ADR 0017): the size-first
-/// `opt-level = "z"` made frames 22% slower, so slate_render and slate_core
+/// `opt-level = "z"` made frames 22% slower, so rwgpuengine_render and rwgpuengine_core
 /// are built at `opt-level = 3`. A native measurement cannot see this, so
 /// check the setting itself.
 fn check_web_profile() -> Result {
     let text = std::fs::read_to_string(root().join("Cargo.toml")).map_err(|e| e.to_string())?;
     let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-    for pkg in ["slate_render", "slate_core"] {
+    for pkg in ["rwgpuengine_render", "rwgpuengine_core"] {
         if !compact.contains(&format!("[profile.web.package.{pkg}]opt-level=3")) {
             return Err(format!(
                 "Cargo.toml: `[profile.web.package.{pkg}] opt-level = 3` is missing; without it web frames are \
@@ -346,13 +346,13 @@ fn check_web_profile() -> Result {
 
 /// Microseconds for one 640x480 frame of Tiny Town with its town built
 /// (`build_town` at frame 120), two ways: `Session::render` (the reference
-/// pixels plus the frame report, what `slate shot` does) and `Session::paint`
+/// pixels plus the frame report, what `rwgpu shot` does) and `Session::paint`
 /// (what a player does for a frame that changed; ADR 0018). Each is the
 /// median of 5 batches of 100. Printed on stdout as `render paint`; meant
 /// for a release build (`budgets` runs it that way).
 fn render_bench() -> Result {
-    use slate_runtime::{DataOnly, Session, SessionConfig};
-    let vfs = slate_data::Vfs::from_dir(&root().join("examples/tiny_town")).map_err(|e| e.to_string())?;
+    use rwgpuengine_runtime::{DataOnly, Session, SessionConfig};
+    let vfs = rwgpuengine_data::Vfs::from_dir(&root().join("examples/tiny_town")).map_err(|e| e.to_string())?;
     let cfg = SessionConfig { script: Some("tests/build_town.toml".into()), ..SessionConfig::default() };
     let mut session = Session::load(&vfs, &cfg, Box::new(DataOnly)).map_err(|d| format!("{d:?}"))?;
     while session.frame() < 120 {
@@ -390,11 +390,11 @@ fn file_size(p: &Path) -> Result<i64> {
     Ok(std::fs::metadata(p).map_err(|e| format!("{}: {e}", p.display()))?.len() as i64)
 }
 
-/// (external crates, proc-macro crates) in slate_runtime's normal dependency tree.
+/// (external crates, proc-macro crates) in rwgpuengine_runtime's normal dependency tree.
 fn runtime_deps() -> Result<(Vec<String>, Vec<String>)> {
     let (ok, tree) = capture(
         "cargo",
-        &["tree", "-p", "slate_runtime", "-e", "normal", "--prefix", "none", "--format", "{p}"],
+        &["tree", "-p", "rwgpuengine_runtime", "-e", "normal", "--prefix", "none", "--format", "{p}"],
         &root(),
     )?;
     if !ok {
@@ -403,7 +403,7 @@ fn runtime_deps() -> Result<(Vec<String>, Vec<String>)> {
     let mut names: Vec<String> = tree
         .lines()
         .filter_map(|l| l.split_whitespace().next())
-        .filter(|n| !n.starts_with("slate_"))
+        .filter(|n| !n.starts_with("rwgpuengine_"))
         .map(str::to_string)
         .collect();
     names.sort();
