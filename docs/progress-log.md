@@ -3,6 +3,26 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — The owner's decisions and a course correction: 3D on the GPU
+
+- The owner answered the audit's ten decisions and corrected the direction. The earlier documents had read
+  "keep it simple" as "2D and 2.5D on the CPU"; the owner meant simple **assets**.
+  - **The target is 3D, the GPU is a must, and the renderer is written on wgpu.**
+  - **Native and web from the start**; phones and tablets must be reachable; no over-engineering, and no
+    bending for older systems and hardware.
+  - **Kinds of games:** strategy and planning, city builders (towards Cities: Skylines), car-building and
+    simulation, children's games (fun and STEM); learning games stay possible. A template for each.
+  - **Scale:** a town first, on an architecture sized for a city.
+  - **Licence: Apache-2.0. Rename: yes** (shortlist to come).
+- Delegated to the architect and decided: 3D art is shapes written as text first; identity in the public
+  history; where data logic stops; audio as events; hosting. Reference games 2 and 3 and the resolution
+  question are reopened by the 3D direction.
+- Recorded in [vision.md](vision.md#direction-update--2026-11-25-owner) (the update wins over the PDF),
+  [open-questions.md](open-questions.md) (new Q16: the 3D architecture) and the [roadmap](roadmap.md).
+- What it changes for the plan: the audit's steps 5–9 are replaced by a **3D direction study**; the split of
+  `load.rs` and `world.rs` waits for the 3D world model. What it does not change: the agent-native
+  principles. The GPU is for players; the agent's loop must never need one.
+
 ## 2026-11-25 — A paint path for players (ADR 0018)
 
 - The owner chose to consolidate before the public push. First consolidation step: the web player's frame
@@ -23,7 +43,7 @@ findings that are not code (experiment results, surprises, things to remember).
   - The audit's wasm estimate was wrong: the first paint path was six times slower in wasm than natively at
     high resolution (no vector instructions). Filling long runs by block copy fixed it (3.9 ms → 0.91 ms).
   - Clippy 1.100 rejects `chunks_exact_mut` with a constant size; `as_chunks_mut` is the form to use.
-- Not done: a presentation scale; anything on the GPU. Both now belong to the 3D direction (next entry up).
+- Not done: a presentation scale; anything on the GPU. Both now belong to the 3D direction (the entry above).
 
 ## 2026-11-25 — Architecture audit by the senior architect session
 

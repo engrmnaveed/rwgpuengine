@@ -4,8 +4,14 @@
 The game is text files; the engine is a command line that checks, runs, renders and inspects them —
 deterministically, without a screen, with JSON output and rustc-quality diagnostics.
 
-> Status: **v0.1.0 — first milestone done** (natively and in the browser). Working codename "slate"
-> (see [open questions](docs/open-questions.md) Q1). Not published; no license chosen yet (Q2).
+> Status: **v0.1.0 — first milestone done** (natively and in the browser). Working codename "slate";
+> it will be renamed (see [open questions](docs/open-questions.md) Q1). Not published yet; the licence will be
+> Apache-2.0.
+>
+> **Direction (2026-11-25):** the target is a **3D engine on the GPU (wgpu), native and web**, for strategy
+> games, city builders, car-building and simulation games, and children's games. What is in this repository
+> today is the 2D/2.5D core that the 3D engine grows from: its text formats, command line, deterministic
+> simulation and checks carry over. See the [direction update](docs/vision.md#direction-update--2026-11-25-owner).
 
 ```console
 $ slate new demo && cd demo

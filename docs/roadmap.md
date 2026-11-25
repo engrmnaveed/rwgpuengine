@@ -4,7 +4,24 @@ Milestones after the MVP. Order and scope are proposals: guardrail 2 says **refe
 feature**, so each milestone names the game need that pulls it in. Items marked **(Q#)** wait on a
 decision in [open-questions.md](open-questions.md).
 
-## Now: pause, baseline, consolidate (owner's order, 2026-11-25)
+> **Out of date from M2 on.** On 2026-11-25 the owner set the target to **3D on the GPU (wgpu), native and web**
+> ([direction update](vision.md#direction-update--2026-11-25-owner)). The milestones below were written for a
+> 2D engine for learning games on tablets. They stay as a record until the 3D direction study replaces them.
+
+## Now (2026-11-25, after the audit and the direction update)
+
+1. ~~Audit~~: done ([report](audits/2026-11-25-architecture-audit.md)).
+2. ~~First consolidation step, the players' paint path~~: done
+   ([ADR 0018](decisions/0018-paint-path-for-players.md)).
+3. **The 3D direction study** (next; [open questions](open-questions.md) Q16): measured options and a
+   proposed architecture, new budgets, the ADRs it supersedes, a new roadmap, and a name shortlist (Q1).
+4. Then, in the order the study proposes and the owner approves: the 3D core; open-source readiness and the
+   first public push (licence Apache-2.0, Q10); templates per kind of game; demos; the desktop app.
+
+Not started and now in question: the audit's step 4 (splitting `load.rs` and `world.rs`). The 3D world model
+will reshape both files, so they are restructured as part of that work, not before it.
+
+## Before the direction update: pause, baseline, consolidate (owner's order, 2026-11-25)
 
 Core feature work is **paused** at [baseline 2026-11-25](baselines/2026-11-25.md) (git tag
 `baseline-2026-11-25`). The order from here:
