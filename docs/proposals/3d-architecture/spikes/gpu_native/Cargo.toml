@@ -1,0 +1,15 @@
+[package]
+name = "gpu_native"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+wgpu = "30.0.2"
+pollster = "1.0.3"
+
+[profile.release]
+debug = false
+strip = true
+
+[workspace]

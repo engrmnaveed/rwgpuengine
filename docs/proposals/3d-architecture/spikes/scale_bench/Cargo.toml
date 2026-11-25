@@ -1,0 +1,13 @@
+[package]
+name = "scale_bench"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rwgpuengine_sim = { path = "../../../../../crates/rwgpuengine_sim" }
+
+[profile.release]
+debug = false
+
+[workspace]

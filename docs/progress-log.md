@@ -7,6 +7,29 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-25 — The 3D direction study: a proposed architecture, with spikes
+
+- [The 3D architecture proposal](proposals/3d-architecture.md) is written and waits for the owner. Its core:
+  **two halves joined by one render list.** The agent's loop stays free of the GPU and checks 3D scenes with
+  an owned CPU reference renderer; players draw the same list with wgpu, natively and in the browser.
+- Measured in four spikes ([code](proposals/3d-architecture/spikes/)), Apple M5 Pro:
+  - **wgpu 30 to build:** 59 crates on macOS (80 with a window library, 113 on Linux), 4 proc macros, 10–12 s
+    for a clean build, and **0.3 s to rebuild after an edit**, the same as today.
+  - **wgpu to run:** 5,000 / 50,000 / 500,000 flat-shaded boxes at 1280 × 720 in 0.37 / 0.54 / 1.93 ms
+    natively and 0.47 / 1.02 / 2.26 ms in Chromium, **with identical pixels** in both.
+  - **wgpu on the web:** the WebGPU-only build of the spike is **116,791 bytes**; adding the WebGL2 fallback
+    makes it 1,850,824.
+  - **A CPU reference renderer** (150 lines, no dependencies) draws the same scenes in 4.9 / 11.8 / 63.9 ms
+    and differs from the GPU frame by **1 / 8 / 18 pixels of 921,600**. Its images are the same on arm64 and
+    x86-64, and its owner buffer gives the frame report.
+  - **The simulation today is quadratic:** 1.3 ms per step at 1,000 moving actors, 26.6 ms at 5,000 and
+    2.8 s at 50,000. With a cell index the same movement takes 0.15 ms at 50,000, and 1.5 ms at 500,000 with
+    positions in a column.
+- Found on the way: the new GitHub repository is public, so the first push publishes at once; wgpu 30's
+  `get_mapped_range` returns a `Result`, and vertex buffer layouts are wrapped in `Option`.
+- Not done: nothing from the spikes is in the engine. No window was opened, no phone, Windows or Linux GPU
+  was measured, and physics, hot reloading, mesh import and fonts were not studied.
+
 ## 2026-11-25 — The engine is named rwgpuengine (ADR 0019)
 
 - The owner chose **`rwgpuengine`** (Rust + wgpu + engine) from the second shortlist. The rename is done in

@@ -3,3 +3,8 @@
 .DS_Store
 *.orig
 *.swp
+
+# Study spikes under docs/ are built on their own; keep their build output out.
+/docs/**/target/
+/docs/**/Cargo.lock
+/docs/**/pkg/

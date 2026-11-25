@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>wgpu web spike</title>
+<pre id="out">starting</pre>
+<script type="module">
+import init, { run } from './pkg/gpu_web.js';
+const out = document.getElementById('out');
+window.results = [];
+try {
+  out.textContent += '\nnavigator.gpu: ' + (navigator.gpu ? 'present' : 'MISSING');
+  await init();
+  for (const n of [5000, 50000, 500000]) {
+    const r = await run(n, 60);
+    window.results.push(r);
+    out.textContent += '\n' + r;
+  }
+  window.done = true;
+} catch (e) {
+  window.error = String(e && e.stack || e);
+  out.textContent += '\nERROR ' + window.error;
+}
+</script>
