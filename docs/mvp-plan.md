@@ -47,7 +47,8 @@ Run #2: [tap lever + patrol timing + negative tests](experiments/2026-11-25-cold
 approximations, but 18 min 42 s because limits were undocumented. Run #4: [the same task with the limits
 table](experiments/2026-11-25-cold-agent-4.md) — every verdict at command 2, 14 min 6 s, 0 warnings. Runs #5–#6
 re-ran the vault task on new features ([#6](experiments/2026-11-25-cold-agent-6.md): 7 min 41 s, no stand-ins). Run #7:
-[a farm builder on builder kit v1](experiments/2026-11-25-cold-agent-7.md) — PASS in 8 min 44 s, 0 warnings.
+[a farm builder on builder kit v1](experiments/2026-11-25-cold-agent-7.md) — PASS in 8 min 44 s, 0 warnings. Run #8:
+[a park builder on builder kit v2](experiments/2026-11-25-cold-agent-8.md) — PASS in 6 min 24 s, 0 warnings.
 
 1. Build `slate` and put it on `PATH` (`cargo build --release` → `target/release/slate`).
 2. In an empty folder **outside this repo**, start a fresh coding agent with no other context.

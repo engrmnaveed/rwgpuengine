@@ -1,0 +1,141 @@
+# Refusal 3: not enough coins (and the edge of the park, which the 2 x 2 playground can hit).
+[test]
+doc = "Spend down to 1 coin, then a playground and a bench are refused for coins; spend the last coin, then a tree is refused for coins."
+scene = "scenes/main.toml"
+frames = 50
+
+[[input]]
+frame = 0
+tap = [144, 453]     # Playground button
+
+[[input]]
+frame = 3
+tap = [320, 352]     # cell (7, 7): the footprint would reach (8, 7), outside the park
+
+[[input]]
+frame = 5
+tap = [192, 256]     # playground on (2, 6): 9 -> 5 coins, clears the message
+
+[[input]]
+frame = 10
+tap = [320, 288]     # playground on (5, 5): 5 -> 1 coin
+
+[[input]]
+frame = 15
+tap = [320, 128]     # meadow (0, 0): a third playground needs 4 coins
+
+[[input]]
+frame = 20
+tap = [433, 453]     # Bench button
+
+[[input]]
+frame = 25
+tap = [320, 128]     # meadow (0, 0): a bench needs 2 coins
+
+[[input]]
+frame = 30
+tap = [275, 453]     # Tree button
+
+[[input]]
+frame = 35
+tap = [320, 128]     # tree on (0, 0): 1 -> 0 coins
+
+[[input]]
+frame = 40
+tap = [352, 144]     # meadow (1, 0): a tree needs 1 coin
+
+[[expect]]
+frame = 4
+entity = "hint"
+text = "No room: it would stick out past the edge of the park."
+
+[[expect]]
+frame = 4
+event = "blocked"
+reason = "edge"
+prefab = "playground"
+
+[[expect]]
+frame = 6
+entity = "hint"
+text = ""
+
+[[expect]]
+frame = 11
+entity = "park"
+props = { coins = 1 }
+
+[[expect]]
+frame = 11
+prefab = "playground"
+count = 2
+
+# a third playground: refused for coins (the spawn is skipped), nothing paid
+[[expect]]
+frame = 15
+event = "skipped"
+prefab = "playground"
+at_most = 0
+
+[[expect]]
+frame = 16
+event = "skipped"
+prefab = "playground"
+at_least = 1
+
+[[expect]]
+frame = 16
+entity = "hint"
+text = "Not enough coins: a playground costs 4."
+
+[[expect]]
+frame = 16
+prefab = "playground"
+count = 2
+
+[[expect]]
+frame = 16
+entity = "park"
+props = { coins = 1 }
+
+# a bench: refused for coins
+[[expect]]
+frame = 21
+entity = "hint"
+text = ""
+
+[[expect]]
+frame = 26
+entity = "hint"
+text = "Not enough coins: a bench costs 2."
+
+[[expect]]
+frame = 26
+prefab = "bench"
+count = 0
+
+# the last coin buys a tree, which clears the message
+[[expect]]
+frame = 36
+entity = "park"
+props = { coins = 0 }
+
+[[expect]]
+frame = 36
+prefab = "tree"
+count = 3
+
+# then a tree: refused for coins
+[[expect]]
+frame = 41
+entity = "hint"
+text = "Not enough coins: a tree costs 1."
+
+[[expect]]
+frame = 41
+prefab = "tree"
+count = 3
+
+[[expect]]
+entity = "park"
+props = { coins = 0 }

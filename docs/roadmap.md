@@ -71,9 +71,16 @@ Need: the first real game. Q3 is decided: the **isometric builder**, Tiny Town
   - refused spawns make their source emit `refused`; `when = [{ reason = "terrain" }]` picks one reason;
   - `counts = { houses = "house" }` props count enabled copies and emit `changed`, replacing hand-kept
     counters (Tiny Town: 6 counting connections → 0; a hint line now says why nothing was built).
+- Accepted by [cold-agent run #8](experiments/2026-11-25-cold-agent-8.md): a park builder with three refusal
+  messages and a count-driven goal, everything supported, 0 warnings, 6 min 24 s. Its findings are fixed
+  (quiet `--place`, prefab names on unnamed copies, two recipe facts).
+- Next (evidence from three builder games): **several actions per `[[connect]]`**. Merging connections that
+  share source, signal and `when` would cut the park from 41 to 27, the farm from 30 to 19, and Tiny Town
+  from 27 to 24. Run #8 ranked it first.
 - Candidates, waiting for more evidence:
-  - a cold-agent run on v2 (a builder task with "can't build there" feedback and a count-driven goal);
-  - per-prefab costs or grouped connections (Tiny Town has 27 connections; clear/refund is 6 of them);
+  - a "not equal" / `in` condition (run #8 used a flag prop);
+  - per-prefab costs with an automatic "can't afford" refusal (runs #7 and #8);
+  - `when` on the refused terrain's name (run #8);
   - a placement anchor (centre a multi-cell building on the tap; run #7);
   - drag input (ADR 0010);
   - terrain that blocks walking;

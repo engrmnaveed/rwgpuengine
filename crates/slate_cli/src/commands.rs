@@ -474,10 +474,16 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
         session.world.seed,
         session.hash_hex()
     ));
-    for e in data.get("entities").and_then(Json::as_array).unwrap_or(&[]) {
+    // `--place` alone answers one question: leave the entity table out.
+    let table = !(p.has("--place") && p.value("--entity").is_none() && p.value("--component").is_none());
+    for e in data.get("entities").and_then(Json::as_array).unwrap_or(&[]).iter().filter(|_| table) {
         let name = e.get("name").and_then(Json::as_str).map(str::to_string);
         let id = e.get("id").and_then(Json::as_i64).unwrap_or(0);
-        let label = name.unwrap_or_else(|| format!("#{id}"));
+        let label = match (name, e.get("prefab").and_then(Json::as_str)) {
+            (Some(n), _) => n,
+            (None, Some(p)) => format!("#{id} ({p})"),
+            (None, None) => format!("#{id}"),
+        };
         let comps: Vec<&str> = ["tile", "block", "sprite", "label", "mover", "patrol", "wander", "trigger"]
             .into_iter()
             .filter(|c| e.get(c).is_some())

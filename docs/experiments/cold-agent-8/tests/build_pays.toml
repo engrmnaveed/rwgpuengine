@@ -1,0 +1,91 @@
+# A build that pays: each placed object costs its price, and the sign counts it.
+[test]
+doc = "Place a playground, a tree and a bench; coins go 9 -> 5 -> 4 -> 2 and the sign counts them."
+scene = "scenes/main.toml"
+frames = 40
+
+[[input]]
+frame = 0
+tap = [144, 453]     # Playground button
+
+[[input]]
+frame = 5
+tap = [192, 256]     # meadow cell (2, 6): playground covers (2..3, 6..7)
+
+[[input]]
+frame = 10
+tap = [275, 453]     # Tree button
+
+[[input]]
+frame = 15
+tap = [320, 128]     # meadow cell (0, 0)
+
+[[input]]
+frame = 20
+tap = [433, 453]     # Bench button
+
+[[input]]
+frame = 25
+tap = [320, 288]     # meadow cell (5, 5)
+
+# before the first build
+[[expect]]
+frame = 5
+entity = "park"
+props = { coins = 9, tool = "playground" }
+
+# playground placed, 4 coins paid
+[[expect]]
+frame = 6
+prefab = "playground"
+pos = [2, 6]
+count = 1
+
+[[expect]]
+frame = 6
+entity = "park"
+text = "Coins: 5\nTool: playground"
+
+[[expect]]
+frame = 6
+entity = "sign"
+props = { playgrounds = 1, trees = 2, benches = 0 }
+
+# tree placed, 1 coin paid; the sign now shows 3 trees (2 old + 1 new)
+[[expect]]
+frame = 16
+prefab = "tree"
+pos = [0, 0]
+count = 1
+
+[[expect]]
+frame = 16
+entity = "park"
+props = { coins = 4 }
+
+[[expect]]
+frame = 16
+entity = "sign"
+props = { trees = 3 }
+
+# bench placed, 2 coins paid
+[[expect]]
+frame = 26
+prefab = "bench"
+pos = [5, 5]
+count = 1
+
+[[expect]]
+frame = 26
+entity = "park"
+text = "Coins: 2\nTool: bench"
+
+[[expect]]
+frame = 26
+entity = "sign"
+text = "PARK SIGN\nPlaygrounds: 1\nTrees: 3\nBenches: 1"
+
+# no message was ever needed
+[[expect]]
+entity = "hint"
+text = ""

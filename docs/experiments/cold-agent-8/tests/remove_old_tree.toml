@@ -1,0 +1,82 @@
+# The remove tool takes an old tree back and refunds 1 coin; the sign counts one tree fewer.
+[test]
+doc = "Remove both old trees (+1 coin each, tree count 2 -> 1 -> 0), then plant on the freed cell."
+scene = "scenes/main.toml"
+frames = 40
+
+[[input]]
+frame = 0
+tap = [585, 453]     # Remove button
+
+[[input]]
+frame = 5
+tap = [480, 218]     # old_tree_1 on (6, 1)
+
+[[input]]
+frame = 10
+tap = [160, 218]     # old_tree_2 on (1, 6)
+
+[[input]]
+frame = 15
+tap = [275, 453]     # Tree button
+
+[[input]]
+frame = 20
+tap = [480, 240]     # cell (6, 1), freed by the removal
+
+[[expect]]
+frame = 5
+entity = "sign"
+props = { trees = 2 }
+
+[[expect]]
+frame = 5
+entity = "park"
+props = { coins = 9, tool = "remove" }
+
+[[expect]]
+frame = 6
+entity = "old_tree_1"
+enabled = false
+
+[[expect]]
+frame = 6
+entity = "park"
+text = "Coins: 10\nTool: remove"
+
+[[expect]]
+frame = 6
+entity = "sign"
+text = "PARK SIGN\nPlaygrounds: 0\nTrees: 1\nBenches: 0"
+
+[[expect]]
+frame = 11
+entity = "old_tree_2"
+enabled = false
+
+[[expect]]
+frame = 11
+entity = "park"
+props = { coins = 11 }
+
+[[expect]]
+frame = 11
+entity = "sign"
+props = { trees = 0 }
+
+# the freed cell can be built on again
+[[expect]]
+frame = 21
+prefab = "tree"
+pos = [6, 1]
+count = 1
+
+[[expect]]
+frame = 21
+entity = "park"
+props = { coins = 10 }
+
+[[expect]]
+frame = 21
+entity = "sign"
+props = { trees = 1 }

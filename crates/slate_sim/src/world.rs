@@ -151,11 +151,12 @@ impl Entity {
         self.is_actor() || self.pushable
     }
 
-    /// `player` or `#12` for unnamed entities.
+    /// `player`, `#12 (house)` for an unnamed prefab copy, or `#12`.
     pub fn label(&self) -> String {
-        match &self.name {
-            Some(n) => n.clone(),
-            None => format!("#{}", self.id),
+        match (&self.name, &self.prefab) {
+            (Some(n), _) => n.clone(),
+            (None, Some(p)) => format!("#{} ({p})", self.id),
+            (None, None) => format!("#{}", self.id),
         }
     }
 

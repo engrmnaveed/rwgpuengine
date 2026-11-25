@@ -1,0 +1,90 @@
+# Refusal 2: the spot is already taken.
+[test]
+doc = "Tap an old tree with the Tree tool, tap the free ground of its cell, and put a playground over it: all refused as taken."
+scene = "scenes/main.toml"
+frames = 40
+
+[[input]]
+frame = 0
+tap = [275, 453]     # Tree button
+
+[[input]]
+frame = 5
+tap = [480, 218]     # right on old_tree_1 (6, 1): the tap hits the tree
+
+[[input]]
+frame = 10
+tap = [275, 453]     # Tree button again: clears the message
+
+[[input]]
+frame = 15
+tap = [480, 240]     # ground of cell (6, 1), beside the tree trunk: a ground tap
+
+[[input]]
+frame = 20
+tap = [144, 453]     # Playground button
+
+[[input]]
+frame = 25
+tap = [488, 200]     # cell (5, 0): the 2 x 2 footprint covers old_tree_1's cell (6, 1)
+
+[[expect]]
+frame = 6
+entity = "hint"
+text = "That spot is already taken."
+
+[[expect]]
+frame = 6
+event = "tap"
+entity = "old_tree_1"
+
+[[expect]]
+frame = 11
+entity = "hint"
+text = ""
+
+[[expect]]
+frame = 16
+entity = "hint"
+text = "That spot is already taken."
+
+[[expect]]
+frame = 16
+event = "blocked"
+reason = "occupied"
+prefab = "tree"
+other = "old_tree_1"
+
+[[expect]]
+frame = 21
+entity = "hint"
+text = ""
+
+[[expect]]
+frame = 26
+entity = "hint"
+text = "That spot is already taken."
+
+[[expect]]
+frame = 26
+event = "blocked"
+reason = "occupied"
+prefab = "playground"
+other = "old_tree_1"
+
+# nothing was built, nothing paid, the old tree is still there
+[[expect]]
+prefab = "tree"
+count = 2
+
+[[expect]]
+prefab = "playground"
+count = 0
+
+[[expect]]
+entity = "old_tree_1"
+enabled = true
+
+[[expect]]
+entity = "park"
+props = { coins = 9 }

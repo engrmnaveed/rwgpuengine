@@ -341,7 +341,9 @@ impl FrameReport {
                 let same_cell =
                     !r.on_screen && self.entities.iter().any(|x| x.id == *o && !x.on_screen && x.cell == r.cell);
                 let note = if same_cell { " standing on it" } else { "" };
-                line.push_str(&format!("  (covered most by #{o}{note}: {n} px)"));
+                let who =
+                    self.entities.iter().find(|x| x.id == *o).map_or_else(|| format!("#{o}"), |x| x.label.clone());
+                line.push_str(&format!("  (covered most by {who}{note}: {n} px)"));
             }
             if r.offscreen {
                 line.push_str("  OFFSCREEN");

@@ -132,7 +132,7 @@ pub static COMMANDS: &[Command] = &[
                 "--place",
                 Some("PREFAB[@X,Y]"),
                 "Can I build here? With a cell: whether a `spawn` of PREFAB fits there at this frame, and why not. \
-                 Without: every cell where it fits.",
+                 Without: every cell where it fits. Prints only that answer (add --entity for the table).",
             ),
             JSON,
         ],

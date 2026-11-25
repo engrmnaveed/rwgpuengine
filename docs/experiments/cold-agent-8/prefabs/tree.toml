@@ -1,0 +1,2 @@
+doc = "A tree. A new one costs 1 coin; removing any tree (old ones too) returns 1 coin."
+sprite = { shape = "circle", color = "#2f7d32", size = [22, 34] }

@@ -86,5 +86,12 @@ tables; a signal for `when` failures. Each waits for a game that needs it.
 
 ## Acceptance
 
-Accepted on Tiny Town's playtests and the mutation checks above. A cold-agent run on a builder task that
-asks for "can't build there" feedback and a count-driven goal would confirm it the way run #7 did for v1.
+Accepted on Tiny Town's playtests and the mutation checks above, and by a cold agent:
+
+**Result ([run #8](../experiments/2026-11-25-cold-agent-8.md)): met.** It was a park builder with three
+refusal messages (terrain, taken, coins), a sign whose counts include two trees already in the scene, and a
+"park is open" goal that switches off again. Every requirement was supported. It wrote 6 playtests (78
+expects) with 0 warnings in 6 min 24 s, the fastest builder run so far. It used `counts` with no counting
+connections, and `refused` with all three reasons, including `edge`, which it found on its own. Its findings
+were output noise and one fact that lived in a different recipe; both are fixed. Its top request is several
+actions per `[[connect]]`.

@@ -1,0 +1,143 @@
+# The open message appears when the park has a playground, 4+ trees and 1+ bench,
+# and goes away again whenever that stops being true.
+[test]
+doc = "Build playground + 2 trees + bench (open), remove a tree (closed), replant (open), remove the playground (closed)."
+scene = "scenes/main.toml"
+frames = 70
+
+[[input]]
+frame = 0
+tap = [144, 453]     # Playground button
+
+[[input]]
+frame = 5
+tap = [192, 256]     # playground on (2, 6): 9 -> 5
+
+[[input]]
+frame = 10
+tap = [275, 453]     # Tree button
+
+[[input]]
+frame = 15
+tap = [320, 128]     # tree on (0, 0): 5 -> 4, trees 3
+
+[[input]]
+frame = 20
+tap = [352, 144]     # tree on (1, 0): 4 -> 3, trees 4 (still no bench: not open)
+
+[[input]]
+frame = 25
+tap = [433, 453]     # Bench button
+
+[[input]]
+frame = 30
+tap = [320, 288]     # bench on (5, 5): 3 -> 1, benches 1: OPEN
+
+[[input]]
+frame = 35
+tap = [585, 453]     # Remove button
+
+[[input]]
+frame = 40
+tap = [352, 127]     # the new tree on (1, 0): +1 coin, trees 3: CLOSED
+
+[[input]]
+frame = 45
+tap = [275, 453]     # Tree button
+
+[[input]]
+frame = 50
+tap = [352, 144]     # tree on (1, 0) again: trees 4: OPEN
+
+[[input]]
+frame = 55
+tap = [585, 453]     # Remove button
+
+[[input]]
+frame = 60
+tap = [192, 277]     # the playground: +4 coins, playgrounds 0: CLOSED
+
+# not open at the start (2 old trees only), nor with 4 trees but no bench
+[[expect]]
+frame = 0
+entity = "banner"
+enabled = false
+
+[[expect]]
+frame = 21
+entity = "sign"
+props = { playgrounds = 1, trees = 4, benches = 0 }
+
+[[expect]]
+frame = 21
+entity = "banner"
+enabled = false
+
+# the bench completes the park: open
+[[expect]]
+frame = 31
+entity = "sign"
+text = "PARK SIGN\nPlaygrounds: 1\nTrees: 4\nBenches: 1"
+
+[[expect]]
+frame = 31
+entity = "banner"
+enabled = true
+
+[[expect]]
+frame = 31
+entity = "banner"
+text = "The park is open!"
+
+[[expect]]
+frame = 31
+entity = "park"
+props = { coins = 1 }
+
+# removing a tree (refund 1) closes it
+[[expect]]
+frame = 41
+entity = "sign"
+props = { trees = 3 }
+
+[[expect]]
+frame = 41
+entity = "park"
+props = { coins = 2 }
+
+[[expect]]
+frame = 41
+entity = "banner"
+enabled = false
+
+# replanting opens it again
+[[expect]]
+frame = 51
+entity = "sign"
+props = { trees = 4 }
+
+[[expect]]
+frame = 51
+entity = "banner"
+enabled = true
+
+# removing the playground (refund 4) closes it
+[[expect]]
+frame = 61
+entity = "sign"
+props = { playgrounds = 0 }
+
+[[expect]]
+frame = 61
+entity = "park"
+props = { coins = 5 }
+
+[[expect]]
+frame = 61
+entity = "banner"
+enabled = false
+
+# the open park, with the banner on the screen
+[[shot]]
+frame = 32
+reference = "tests/refs/park_open.png"

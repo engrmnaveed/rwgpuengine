@@ -1,0 +1,3 @@
+doc = "A playground: 2 cells along x, 2 along y. Costs 4 coins."
+footprint = [2, 2]
+block = { color = "#d9783b", top = "#f2c14e", height = 0.35 }

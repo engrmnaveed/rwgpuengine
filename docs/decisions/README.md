@@ -18,6 +18,6 @@ adding a new ADR that supersedes the old one (and marking the old one), never by
 | [0011](0011-game-logic-data-first-rust-escape-hatch.md) | Game logic: small data-level set (prop actions, `when` conditions, `label`, screen anchoring); Rust is the escape hatch | accepted, built (M1.6) |
 | [0012](0012-pushable-entities-hold-plates.md) | `pushable` entities: movers push them one cell; triggers count them | accepted, built |
 | [0013](0013-first-reference-game-isometric-builder.md) | First reference game: Tiny Town, an isometric builder; builder kit v1 (terrain maps, ground taps, `spawn`, `footprint`, `from_prefab`) | accepted, built (M3.1) |
-| [0014](0014-refusal-signal-and-count-props.md) | Builder kit v2: refused spawns emit `refused` (with `when` `reason`); `counts` props count enabled copies of a prefab | accepted, built (M3.2) |
+| [0014](0014-refusal-signal-and-count-props.md) | Builder kit v2: refused spawns emit `refused` (with `when` `reason`); `counts` props count enabled copies of a prefab | accepted, built (M3.2); cold-agent run #8 |
 
 Template: copy any ADR; keep it under a page.

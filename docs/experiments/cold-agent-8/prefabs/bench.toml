@@ -1,0 +1,2 @@
+doc = "A bench. Costs 2 coins."
+sprite = { shape = "rect", color = "#8a5a2b", size = [30, 10] }

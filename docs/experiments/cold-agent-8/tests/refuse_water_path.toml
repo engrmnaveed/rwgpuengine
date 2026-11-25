@@ -1,0 +1,92 @@
+# Refusal 1: nothing can be built on the lake or the gravel path.
+[test]
+doc = "Tree on the lake, tree on the path, playground half on the lake: all refused with the water/path message, nothing paid."
+scene = "scenes/main.toml"
+frames = 40
+
+[[input]]
+frame = 0
+tap = [275, 453]     # Tree button
+
+[[input]]
+frame = 5
+tap = [256, 192]     # lake cell (1, 3)
+
+[[input]]
+frame = 10
+tap = [275, 453]     # Tree button again: choosing a tool clears the message
+
+[[input]]
+frame = 15
+tap = [416, 208]     # path cell (4, 1)
+
+[[input]]
+frame = 20
+tap = [144, 453]     # Playground button
+
+[[input]]
+frame = 25
+tap = [288, 144]     # meadow cell (0, 1); the 2 x 2 footprint reaches lake cell (1, 2)
+
+[[expect]]
+frame = 6
+entity = "hint"
+text = "You can't build on the lake or the gravel path."
+
+[[expect]]
+frame = 6
+event = "blocked"
+reason = "terrain"
+prefab = "tree"
+at_least = 1
+
+[[expect]]
+frame = 11
+entity = "hint"
+text = ""
+
+[[expect]]
+frame = 16
+entity = "hint"
+text = "You can't build on the lake or the gravel path."
+
+[[expect]]
+frame = 16
+event = "blocked"
+reason = "terrain"
+prefab = "tree"
+at_least = 2
+
+[[expect]]
+frame = 21
+entity = "hint"
+text = ""
+
+[[expect]]
+frame = 26
+entity = "hint"
+text = "You can't build on the lake or the gravel path."
+
+[[expect]]
+frame = 26
+event = "blocked"
+reason = "terrain"
+prefab = "playground"
+at_least = 1
+
+# nothing was built and nothing was paid
+[[expect]]
+prefab = "tree"
+count = 2
+
+[[expect]]
+prefab = "playground"
+count = 0
+
+[[expect]]
+entity = "park"
+props = { coins = 9 }
+
+[[shot]]
+frame = 30
+reference = "tests/refs/refuse_water_path.png"

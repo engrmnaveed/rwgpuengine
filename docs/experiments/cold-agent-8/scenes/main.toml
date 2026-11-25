@@ -1,0 +1,470 @@
+# Park builder.
+#
+# Grid: +x runs down-right on screen, +y down-left. The ground is 8 x 8.
+# g = meadow (buildable), ~ = lake, p = gravel path (both not buildable).
+#
+# Pick a tool from the buttons at the bottom, then tap the meadow.
+# Playground (2 x 2) = 4 coins, tree = 1 coin, bench = 2 coins.
+# The Remove tool takes back what you tap and refunds its price.
+
+[scene]
+name = "Park"
+doc = "Build a park: playgrounds, trees and benches on a meadow with a lake and a gravel path."
+
+[ground]
+map = [
+  "ggggpggg",   # y = 0
+  "ggggpggg",   # y = 1
+  "g~~gpggg",   # y = 2
+  "~~~gpggg",   # y = 3
+  "~~~gpppp",   # y = 4
+  "g~~ggggg",   # y = 5
+  "gggggggg",   # y = 6
+  "gggggggg",   # y = 7
+]
+
+[[terrain]]
+char = "g"
+name = "meadow"
+color = "#7cb35a"
+alt_color = "#71a851"
+
+[[terrain]]
+char = "~"
+name = "lake"
+color = "#3d7fc4"
+alt_color = "#3a78b8"
+build = false
+
+[[terrain]]
+char = "p"
+name = "path"
+color = "#b9ad94"
+alt_color = "#ada189"
+build = false
+
+# --- the two old trees (made from the tree prefab, so the sign counts them)
+
+[[entity]]
+name = "old_tree_1"
+prefab = "tree"
+pos = [6, 1]
+sprite = { color = "#1f5e24", size = [28, 44] }
+
+[[entity]]
+name = "old_tree_2"
+prefab = "tree"
+pos = [1, 6]
+sprite = { color = "#1f5e24", size = [28, 44] }
+
+# --- HUD
+
+# Coins and the chosen tool. `building` is true while a build tool is chosen.
+[[entity]]
+name = "park"
+screen_pos = [8, 8]
+sprite = { shape = "rect", color = "#00000099", size = [200, 44] }
+label = { text = "Coins: {coins}\nTool: {tool}", scale = 2, offset = [5, 4] }
+props = { coins = 9, tool = "none", building = false }
+
+# The park sign: counts every enabled copy of each prefab (old trees included).
+[[entity]]
+name = "sign"
+screen_pos = [496, 8]
+sprite = { shape = "rect", color = "#5b3a1e", size = [136, 50] }
+label = { text = "PARK SIGN\nPlaygrounds: {playgrounds}\nTrees: {trees}\nBenches: {benches}", color = "#f5e6c8", offset = [6, 6] }
+counts = { playgrounds = "playground", trees = "tree", benches = "bench" }
+
+# Shown only while the park has a playground, 4+ trees and 1+ bench.
+[[entity]]
+name = "banner"
+screen_pos = [214, 60]
+enabled = false
+sprite = { shape = "rect", color = "#1e7a3a", size = [214, 26] }
+label = { text = "The park is open!", scale = 2, offset = [6, 4], color = "#ffffff" }
+
+# Why the last placement did not happen (empty when there is nothing to say).
+[[entity]]
+name = "hint"
+screen_pos = [16, 404]
+label = { text = "{msg}", color = "#ffd166" }
+props = { msg = "" }
+
+# --- tool buttons
+
+[[entity]]
+name = "btn_playground"
+screen_pos = [16, 438]
+sprite = { shape = "rect", color = "#d9783b", size = [140, 30] }
+label = { text = "Playground (4 coins)", offset = [11, 11] }
+
+[[entity]]
+name = "btn_tree"
+screen_pos = [168, 438]
+sprite = { shape = "rect", color = "#2f7d32", size = [140, 30] }
+label = { text = "Tree (1 coin)", offset = [32, 11] }
+
+[[entity]]
+name = "btn_bench"
+screen_pos = [320, 438]
+sprite = { shape = "rect", color = "#8a5a2b", size = [140, 30] }
+label = { text = "Bench (2 coins)", offset = [26, 11] }
+
+[[entity]]
+name = "btn_remove"
+screen_pos = [472, 438]
+sprite = { shape = "rect", color = "#9b2f2f", size = [140, 30] }
+label = { text = "Remove (refund)", offset = [26, 11] }
+
+# =====================================================================
+# Choosing a tool: remember it, and clear any old message.
+
+[[connect]]
+from = "btn_playground"
+signal = "tapped"
+to = "park"
+action = "set"
+prop = "tool"
+value = "playground"
+
+[[connect]]
+from = "btn_playground"
+signal = "tapped"
+to = "park"
+action = "set"
+prop = "building"
+value = true
+
+[[connect]]
+from = "btn_playground"
+signal = "tapped"
+to = "hint"
+action = "set"
+prop = "msg"
+value = ""
+
+[[connect]]
+from = "btn_tree"
+signal = "tapped"
+to = "park"
+action = "set"
+prop = "tool"
+value = "tree"
+
+[[connect]]
+from = "btn_tree"
+signal = "tapped"
+to = "park"
+action = "set"
+prop = "building"
+value = true
+
+[[connect]]
+from = "btn_tree"
+signal = "tapped"
+to = "hint"
+action = "set"
+prop = "msg"
+value = ""
+
+[[connect]]
+from = "btn_bench"
+signal = "tapped"
+to = "park"
+action = "set"
+prop = "tool"
+value = "bench"
+
+[[connect]]
+from = "btn_bench"
+signal = "tapped"
+to = "park"
+action = "set"
+prop = "building"
+value = true
+
+[[connect]]
+from = "btn_bench"
+signal = "tapped"
+to = "hint"
+action = "set"
+prop = "msg"
+value = ""
+
+[[connect]]
+from = "btn_remove"
+signal = "tapped"
+to = "park"
+action = "set"
+prop = "tool"
+value = "remove"
+
+[[connect]]
+from = "btn_remove"
+signal = "tapped"
+to = "park"
+action = "set"
+prop = "building"
+value = false
+
+[[connect]]
+from = "btn_remove"
+signal = "tapped"
+to = "hint"
+action = "set"
+prop = "msg"
+value = ""
+
+# =====================================================================
+# Building: tap the meadow with a build tool and enough coins.
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "playground"
+when = [{ entity = "park", prop = "tool", equals = "playground" }, { entity = "park", prop = "coins", at_least = 4 }]
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "tree"
+when = [{ entity = "park", prop = "tool", equals = "tree" }, { entity = "park", prop = "coins", at_least = 1 }]
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "bench"
+when = [{ entity = "park", prop = "tool", equals = "bench" }, { entity = "park", prop = "coins", at_least = 2 }]
+
+# Pay only for what was really placed, and clear the message.
+
+[[connect]]
+from_prefab = "playground"
+signal = "spawned"
+to = "park"
+action = "add"
+prop = "coins"
+value = -4
+
+[[connect]]
+from_prefab = "tree"
+signal = "spawned"
+to = "park"
+action = "add"
+prop = "coins"
+value = -1
+
+[[connect]]
+from_prefab = "bench"
+signal = "spawned"
+to = "park"
+action = "add"
+prop = "coins"
+value = -2
+
+[[connect]]
+from_prefab = "playground"
+signal = "spawned"
+to = "hint"
+action = "set"
+prop = "msg"
+value = ""
+
+[[connect]]
+from_prefab = "tree"
+signal = "spawned"
+to = "hint"
+action = "set"
+prop = "msg"
+value = ""
+
+[[connect]]
+from_prefab = "bench"
+signal = "spawned"
+to = "hint"
+action = "set"
+prop = "msg"
+value = ""
+
+# =====================================================================
+# Why a placement did not happen.
+
+# Not enough coins (the spawn's own `when` stopped it, so it needs its own case).
+[[connect]]
+from = "ground"
+signal = "tapped"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "Not enough coins: a playground costs 4."
+when = [{ entity = "park", prop = "tool", equals = "playground" }, { entity = "park", prop = "coins", at_most = 3 }]
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "Not enough coins: a tree costs 1."
+when = [{ entity = "park", prop = "tool", equals = "tree" }, { entity = "park", prop = "coins", at_most = 0 }]
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "Not enough coins: a bench costs 2."
+when = [{ entity = "park", prop = "tool", equals = "bench" }, { entity = "park", prop = "coins", at_most = 1 }]
+
+# No tool chosen yet.
+[[connect]]
+from = "ground"
+signal = "tapped"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "Pick a tool from the buttons first."
+when = [{ entity = "park", prop = "tool", equals = "none" }]
+
+# The placement was refused by the ground.
+[[connect]]
+from = "ground"
+signal = "refused"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "You can't build on the lake or the gravel path."
+when = [{ reason = "terrain" }]
+
+[[connect]]
+from = "ground"
+signal = "refused"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "That spot is already taken."
+when = [{ reason = "occupied" }]
+
+[[connect]]
+from = "ground"
+signal = "refused"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "No room: it would stick out past the edge of the park."
+when = [{ reason = "edge" }]
+
+# Tapping something that already stands there with a build tool: the tap hits
+# the object, not the ground, so say the spot is taken.
+[[connect]]
+from_prefab = "playground"
+signal = "tapped"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "That spot is already taken."
+when = [{ entity = "park", prop = "building", equals = true }]
+
+[[connect]]
+from_prefab = "tree"
+signal = "tapped"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "That spot is already taken."
+when = [{ entity = "park", prop = "building", equals = true }]
+
+[[connect]]
+from_prefab = "bench"
+signal = "tapped"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "That spot is already taken."
+when = [{ entity = "park", prop = "building", equals = true }]
+
+# =====================================================================
+# Removing: refund first, then take the object away.
+
+[[connect]]
+from_prefab = "playground"
+signal = "tapped"
+to = "park"
+action = "add"
+prop = "coins"
+value = 4
+when = [{ entity = "park", prop = "tool", equals = "remove" }]
+
+[[connect]]
+from_prefab = "playground"
+signal = "tapped"
+to = "self"
+action = "disable"
+when = [{ entity = "park", prop = "tool", equals = "remove" }]
+
+[[connect]]
+from_prefab = "tree"
+signal = "tapped"
+to = "park"
+action = "add"
+prop = "coins"
+value = 1
+when = [{ entity = "park", prop = "tool", equals = "remove" }]
+
+[[connect]]
+from_prefab = "tree"
+signal = "tapped"
+to = "self"
+action = "disable"
+when = [{ entity = "park", prop = "tool", equals = "remove" }]
+
+[[connect]]
+from_prefab = "bench"
+signal = "tapped"
+to = "park"
+action = "add"
+prop = "coins"
+value = 2
+when = [{ entity = "park", prop = "tool", equals = "remove" }]
+
+[[connect]]
+from_prefab = "bench"
+signal = "tapped"
+to = "self"
+action = "disable"
+when = [{ entity = "park", prop = "tool", equals = "remove" }]
+
+# =====================================================================
+# The park is open while it has a playground, 4+ trees and 1+ bench.
+
+[[connect]]
+from = "sign"
+signal = "changed"
+to = "banner"
+action = "enable"
+when = [{ entity = "sign", prop = "playgrounds", at_least = 1 }, { entity = "sign", prop = "trees", at_least = 4 }, { entity = "sign", prop = "benches", at_least = 1 }]
+
+[[connect]]
+from = "sign"
+signal = "changed"
+to = "banner"
+action = "disable"
+when = [{ entity = "sign", prop = "playgrounds", at_most = 0 }]
+
+[[connect]]
+from = "sign"
+signal = "changed"
+to = "banner"
+action = "disable"
+when = [{ entity = "sign", prop = "trees", at_most = 3 }]
+
+[[connect]]
+from = "sign"
+signal = "changed"
+to = "banner"
+action = "disable"
+when = [{ entity = "sign", prop = "benches", at_most = 0 }]

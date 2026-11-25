@@ -361,7 +361,8 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
 - **Buttons you tap.** Every entity emits `tapped` when tapped; wire it with `[[connect]]`. Get a pixel that
   is guaranteed to hit it from `slate inspect --entity lever --json` (field `tap`, also shown in the text
   table), then `[[input]] frame = 5` with `tap = [x, y]`. The tap point is for that frame: things in front
-  of the entity can move.
+  of the entity can move, and a screen entity's box (so its tap point) grows with its label's text. Tap
+  buttons with fixed text, or ask `inspect` at the tap's frame.
 - **Island or level map.** `[ground] map = ["~~gg~", ...]` (one string per row, one character per cell)
   plus one `[[terrain]]` per character: `char = "~"`, `name = "water"`, `color`, `build = false` where
   nothing may be built. Colors move to the terrains (`alt_color` is the checkerboard).
@@ -452,7 +453,12 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   Order is safe: the tap's own connections run first, and `refused` is a new signal dispatched after them, so
   the clearing never wipes the reason. "Not enough coins" is not a
   refusal (the spawn's `when` stopped it: `skipped`): give it its own `[[connect]]` on the ground's `tapped`
-  with the opposite condition (`{{ ..., prop = "coins", at_most = 2 }}`, plus the tool's condition).
+  with the opposite condition (`{{ ..., prop = "coins", at_most = 2 }}`, plus the tool's condition). The
+  `when` is checked first, so with too few coins no placement is tried and no `refused` follows, even over
+  water. A tap **on** a building hits the building, not the ground, so it is never refused either: to say
+  "taken" there, add `from_prefab = "house" signal = "tapped" to = "hint" ...` with the build tool's
+  condition (one per build tool, since `when` has no "not equal"; or keep a flag prop such as
+  `building = true` that the build buttons set and the remove button clears).
 - **Where can I tap to build?** `slate inspect --place house` lists every cell where a house fits right now,
   each with a `tap` pixel for `[[input]] tap`; `--place house@3,4` says whether it fits there and why not.
   Add `--input tests/x.toml --frame N` to ask after some building. A cell hidden behind a building has no
@@ -606,7 +612,7 @@ refused (the ground emits `refused` with the reason). See the Recipes.
 
 | not in this version | what you can do instead (and what it costs) |
 |---|---|
-| **Expressions and arithmetic beyond add/set** (multiply, one prop from another, random numbers in data) | `add` a constant and `set` a constant; compare props with constants in `when`. For a few fixed outcomes, write one `[[connect]]` per case with `when` conditions. |
+| **Expressions and arithmetic beyond add/set** (multiply, one prop from another, random numbers in data, "not equal" in `when`) | `add` a constant and `set` a constant; compare props with constants in `when` (`equals`, `at_least`, `at_most`). For a few fixed outcomes, write one `[[connect]]` per case with `when` conditions. For "any tool but Remove", write one connection per allowed value, or keep a flag prop that the buttons `set`. |
 | **Timers and delays** | No timer component. A patrol stepping on and off a trigger fires on a fixed period (`step_frames`); use its `pressed` signal as the tick. |
 | **Several independently controlled characters** (two players, co-op, switching characters, two people standing on plates at once) | Every enabled `mover` responds to the same input, so they move together. Use one mover; other characters are patrols or wanderers. Holding several plates at once is supported without characters: push crates onto them (`pushable`). |
 | **Pulling, lifting, or pushing several crates in a row** | A mover pushes one `pushable` one cell; a crate with another crate behind it does not move (reason `push`). |
@@ -625,6 +631,8 @@ Behaviours worth knowing:
   actor leaves.
 - `changed` is only emitted when some `[[connect]]` listens to it, and only when the value really changes; the
   same goes for `spawned` and `refused`.
+- `when = [{ reason = "terrain" }]` covers every terrain with `build = false`, so a lake and a path get the
+  same message (the `blocked` event's `terrain` field says which one, for tests and `inspect`).
 - A `counts` prop counts enabled copies anywhere, including ones on the screen (`screen_pos`); a disabled copy
   does not count.
 - A tap on bare ground is a miss (`tap_miss`, with the `cell`) unless a `[[connect]] from = "ground"` listens.

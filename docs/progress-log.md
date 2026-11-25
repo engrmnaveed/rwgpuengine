@@ -3,6 +3,28 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Cold-agent test #8: a park builder on kit v2, accepted
+
+- The task asked for both v2 features directly:
+  - three "why not" messages (water or path, taken, coins) that clear on the next success or tool choice;
+  - a sign whose counts include two trees already in the scene;
+  - a "park is open" goal that switches off again.
+- Every requirement was supported, with 6 playtests (78 expects) and 0 warnings. 6 min 24 s, 19 tool calls,
+  ~135K tokens: the fastest builder run, on the largest task. Re-verified independently, including two
+  mutation checks.
+- It used `counts` with no counting connections and `refused` with all three reasons. It handled `edge`,
+  which the task did not mention.
+- Fixed:
+  - `inspect --place` prints only the answer;
+  - unnamed copies are `#10 (house)` in every table and message;
+  - the recipe says a tap on a building never reaches the ground, and that `when` is checked before
+    placement;
+  - tap pixels of screen labels move with their text;
+  - "not equal" and per-terrain messages are listed as limits.
+- The gaps have moved from capability to volume: the park needed 41 connections, 12 for buttons alone.
+  Merging connections that share source, signal and `when` would make the three builder games 27 / 19 / 24
+  instead of 41 / 30 / 27. That is the next proposal. [Experiment report](experiments/2026-11-25-cold-agent-8.md).
+
 ## 2026-11-25 — Builder kit v2: `refused` and `counts` (M3.2)
 
 - Built the two gaps that Tiny Town and run #7 both showed
