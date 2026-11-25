@@ -344,6 +344,17 @@ One input event. Use exactly one of `press`, `hold`, `tap` or `camera`. Input at
 | `tap` | [x, y] | — | Tap the screen at pixel [x, y]; hits the topmost enabled entity drawn there. |
 | `camera` | table: playtest.input.camera | — | Move the camera: `{ turn = 90 }`, `{ zoom = 2 }`, `{ pan = [1, 0] }`, `{ view = "perspective" }`, or several at once. What a later tap hits depends on it. |
 
+### `camera`
+
+One move of the camera, as a player would make it. The parts given are applied together.
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `view` | iso \| perspective | — | Switch to this view (`iso` or `perspective`). |
+| `turn` | number -360–360 | `0` | Turn by this many degrees about the vertical line through the camera's center. |
+| `zoom` | number 0.1–10 | `1.0` | Multiply the zoom by this (it stays within 0.125–16). |
+| `pan` | [x, y] | `[0, 0]` | Move the camera's center by this many cells [x, y]. |
+
 ### `[[expect]]`
 
 A check at `frame`. Entity state (`entity` with `pos`/`enabled`/`solid`/`props`/`text`), a count of entities made from a prefab (`prefab` with `count`, optionally at `pos`), or the event log (`event`, filtered by `entity`, `other`, `signal`, `reason`, counted with `at_least`/`at_most`). Events are counted if they happened *before* `frame`: an event logged as `[N]` happened in step N and counts from `frame = N + 1`. `entity` matches the event's subject and `other` its other party (`rwgpu explain events` lists both for every kind).

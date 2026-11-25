@@ -97,7 +97,7 @@ pub fn formats_body(h: &str) -> String {
         "Playtests: tests/*.toml",
         "Scripted input and checks, run by `rwgpu test`. Any playtest can also drive `run`, `shot` and `inspect` \
          with `--input`.",
-        &[&schema::PLAYTEST_FILE, &schema::TEST, &schema::INPUT, &schema::EXPECT, &schema::SHOT],
+        &[&schema::PLAYTEST_FILE, &schema::TEST, &schema::INPUT, &schema::INPUT_CAMERA, &schema::EXPECT, &schema::SHOT],
     );
     out.push_str(&semantics_markdown(h));
     out
