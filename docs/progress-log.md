@@ -3,6 +3,18 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Name shortlist (Q1)
+
+- The owner asked for the name before the 3D study, and said it may carry the 16xbrains family branding
+  (`diskuse16x`, `macdisplay16x`). [Shortlist](proposals/name.md): **`game16x`** recommended, then `forge16x`,
+  `diorama16x`, `sim16x`, `play16x`, `world16x`.
+- Checked: 42 names of the form `<word>16x` are all free on crates.io (also with `_core`) and npm; the ten
+  finalists are unused as GitHub repository and account names; no web pages use them.
+- Finding: another vendor ships "16x Prompt", a tool for AI coding assistants, at `16x.engineer`. That rules
+  out `engine16x` and is noted for the owner.
+- Hosting (Q10) now reads: under the 16xbrains account, authors "The 16xbrains developers".
+- Not done: the rename itself; it waits for the owner's pick.
+
 ## 2026-11-25 — The owner's decisions and a course correction: 3D on the GPU
 
 - The owner answered the audit's ten decisions and corrected the direction. The earlier documents had read
