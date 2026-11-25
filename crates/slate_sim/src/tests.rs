@@ -1133,3 +1133,97 @@ fn refusals_and_counts_are_deterministic() {
     };
     assert_eq!(run(), run());
 }
+
+// ---------------------------------------------------------------------------
+// Several actions per [[connect]] (ADR 0015)
+
+const GROUPED: &str = r##"
+[ground]
+map = ["gggw", "gggw", "gggg"]
+
+[[terrain]]
+char = "g"
+name = "grass"
+
+[[terrain]]
+char = "w"
+name = "water"
+build = false
+
+[[entity]]
+name = "town"
+props = { coins = 3, note = "" }
+
+[[entity]]
+name = "lamp"
+pos = [3, 2]
+sprite = {}
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+when = [{ entity = "town", prop = "coins", at_least = 3 }]
+actions = [
+  { action = "spawn", prefab = "house" },
+  { action = "add", to = "town", prop = "coins", value = -3 },
+  { action = "set", to = "town", prop = "note", value = "bought" },
+]
+
+[[connect]]
+from = "lamp"
+signal = "tapped"
+actions = [{ action = "toggle", to = "self" }, { action = "set", to = "town", prop = "note", value = "lamp" }]
+"##;
+
+fn grouped() -> World {
+    let mut vfs = Vfs::new();
+    vfs.insert("scenes/main.toml", GROUPED);
+    vfs.insert("prefabs/house.toml", "footprint = [2, 2]\nblock = {}\nsolid = true\n");
+    let mut loader = SceneLoader::new(&vfs);
+    let def = loader.load_scene("scenes/main.toml").unwrap_or_else(|| panic!("{:#?}", loader.diags));
+    World::new(&def, 1)
+}
+
+#[test]
+fn a_refused_spawn_stops_the_rest_of_its_actions() {
+    let mut w = grouped();
+    // (2, 0) reaches the water at (3, 0): nothing placed, nothing paid.
+    w.tick(&ground_tap([2, 0]), &mut NoSystems);
+    assert_eq!(prop(&w, "town", "coins"), PropValue::Int(3));
+    assert_eq!(prop(&w, "town", "note"), PropValue::Str(String::new()));
+    let skipped = this_frame(&w, EventKind::Skipped);
+    assert_eq!(skipped.len(), 2, "{skipped:?}");
+    assert!(
+        skipped[0].contains("add skipped")
+            && skipped[0].ends_with("the 'house' spawn before it in this [[connect]] was refused"),
+        "{skipped:?}"
+    );
+    let e = w.events.all().iter().rev().find(|e| e.kind == EventKind::Skipped).unwrap();
+    assert_eq!(e.data.get("stopped_by").and_then(|v| v.as_str()), Some("refused spawn"));
+    // On grass: placed, then paid and noted, in order.
+    w.tick(&ground_tap([0, 0]), &mut NoSystems);
+    assert_eq!(prop(&w, "town", "coins"), PropValue::Int(0));
+    assert_eq!(prop(&w, "town", "note"), PropValue::Str("bought".into()));
+    let kinds: Vec<&str> = w.events.all().iter().filter(|e| e.frame == 1).map(|e| e.kind.name()).collect();
+    assert_eq!(kinds, ["tap", "signal", "spawned", "action", "action"]);
+}
+
+#[test]
+fn an_action_list_checks_its_when_once() {
+    let mut w = grouped();
+    // Paying the 3 coins makes `coins >= 3` false, but the note is still set:
+    // the condition held when the signal arrived.
+    w.tick(&ground_tap([0, 0]), &mut NoSystems);
+    assert_eq!(prop(&w, "town", "note"), PropValue::Str("bought".into()));
+    // Now it fails: every action of the list is skipped, each with its own event.
+    w.tick(&ground_tap([0, 2]), &mut NoSystems);
+    let skipped = this_frame(&w, EventKind::Skipped);
+    assert_eq!(skipped.len(), 3, "{skipped:?}");
+    assert!(skipped.iter().all(|m| m.contains("'town'.coins >= 3 does not hold (coins is 0)")), "{skipped:?}");
+    // Lists work for any source and target, `self` included.
+    let lamp = w.find("lamp").unwrap();
+    let tap = Tap { x: 0.0, y: 0.0, hit: Some(lamp), under_disabled: vec![], ground: None };
+    w.tick(&InputFrame { taps: vec![tap], ..Default::default() }, &mut NoSystems);
+    assert!(!w.get(lamp).unwrap().enabled);
+    assert_eq!(prop(&w, "town", "note"), PropValue::Str("lamp".into()));
+}

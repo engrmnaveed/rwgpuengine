@@ -315,8 +315,11 @@ impl<'a> SceneLoader<'a> {
         // prefabs get spawned (their copies emit `spawned`).
         let mut changed_names: BTreeSet<String> = BTreeSet::new();
         let mut changed_prefabs: BTreeSet<String> = BTreeSet::new();
-        for c in decoded.iter().filter(|c| c.action.changes_prop()) {
-            match (c.to.as_deref(), &c.from) {
+        for (c, a) in decoded.iter().flat_map(|c| c.actions.iter().map(move |a| (c, a))) {
+            if !a.action.changes_prop() {
+                continue;
+            }
+            match (a.to.as_deref(), &c.from) {
                 (Some("self"), ConnectFrom::Entity(n)) => {
                     changed_names.insert(n.clone());
                 }
@@ -329,11 +332,12 @@ impl<'a> SceneLoader<'a> {
                 _ => {}
             }
         }
+        let is_spawn = |a: &&defs::ActionDef| a.action == ConnectAction::Spawn;
         let spawned: BTreeSet<String> =
-            decoded.iter().filter(|c| c.action == ConnectAction::Spawn).filter_map(|c| c.prefab.clone()).collect();
+            decoded.iter().flat_map(|c| c.actions.iter().filter(is_spawn)).filter_map(|a| a.prefab.clone()).collect();
         // Sources of spawns: they emit `refused` when a placement fails.
         let spawn_sources: Vec<ConnectFrom> =
-            decoded.iter().filter(|c| c.action == ConnectAction::Spawn).map(|c| c.from.clone()).collect();
+            decoded.iter().filter(|c| c.actions.iter().any(|a| is_spawn(&a))).map(|c| c.from.clone()).collect();
         let refuses = |from: &ConnectFrom| spawn_sources.contains(from);
         // Prefabs that `spawn` places (one each, in first-use order).
         let mut templates: Vec<EntityDef> = Vec::new();
@@ -448,72 +452,60 @@ impl<'a> SceneLoader<'a> {
                     .maybe_hint(hint),
                 );
             }
-            // The target.
-            let mut target: Option<EntityDef> = None;
-            if c.action == ConnectAction::Spawn {
-                if t.has("to") {
+            // One action (`action = ...`) or several (`actions = [...]`).
+            let form_ok = match (t.has("action"), t.has("actions")) {
+                (true, true) => {
                     self.diags.push(
-                        Diagnostic::new(&codes::INVALID_VALUE, "`spawn` has no target: it places a new entity")
-                            .at(&src, t.key_span("to", span))
-                            .hint("remove `to`; the new copy goes on the tapped cell or the emitter's cell"),
+                        Diagnostic::new(&codes::INVALID_VALUE, "[[connect]] has both `action` and `actions`")
+                            .at(&src, t.key_span("actions", span))
+                            .hint("use `action` for one action, or put every action in `actions = [{ ... }, ...]`"),
                     );
+                    false
                 }
-                match &c.prefab {
-                    None => self.diags.push(
-                        Diagnostic::new(&codes::MISSING_KEY, "`action = \"spawn\"` needs `prefab`")
-                            .at(&src, t.value_span("action", span))
-                            .hint("add `prefab = \"...\"`: the prefab file (prefabs/<name>.toml) to place"),
-                    ),
-                    Some(p) => {
-                        let at = t.value_span("prefab", span);
-                        if let Some(def) = self.prefab_def(p, &src, at) {
-                            check_entity(&def, &Table::default(), at, &src, &mut self.diags);
-                            self.check_counts(&def, &Table::default(), at, &src);
-                            if def.screen_pos.is_some() {
-                                self.diags.push(
-                                    Diagnostic::new(
-                                        &codes::INVALID_VALUE,
-                                        format!("prefab `{p}` has `screen_pos`, so it cannot be spawned in the world"),
-                                    )
-                                    .at(&src, at),
-                                );
-                            }
-                            if !templates.iter().any(|t| t.prefab.as_deref() == Some(p.as_str())) {
-                                templates.push(def);
-                            }
-                        }
-                    }
-                }
-            } else {
-                if t.has("prefab") {
+                (false, false) => {
                     self.diags.push(
-                        Diagnostic::new(&codes::INVALID_VALUE, "`prefab` only applies to `action = \"spawn\"`")
-                            .at(&src, t.key_span("prefab", span))
-                            .hint("remove `prefab`, or use `action = \"spawn\"`"),
-                    );
-                }
-                match c.to.as_deref() {
-                    None => self.diags.push(
-                        Diagnostic::new(&codes::MISSING_KEY, format!("`action = \"{}\"` needs `to`", c.action.name()))
+                        Diagnostic::new(&codes::MISSING_KEY, "[[connect]] needs `action` (or `actions` for several)")
                             .at(&src, span)
-                            .hint("add `to = \"<entity name>\"`, or `to = \"self\"` for the entity that emitted"),
-                    ),
-                    Some("self") if c.from == ConnectFrom::Ground => self.diags.push(
-                        Diagnostic::new(
-                            &codes::INVALID_VALUE,
-                            "`to = \"self\"` with `from = \"ground\"`: the ground is not an entity",
-                        )
-                        .at(&src, t.value_span("to", span))
-                        .hint("name the entity to change, or use `action = \"spawn\"` to place one on the tapped cell"),
-                    ),
-                    Some("self") => target = source.clone(),
-                    Some(name) => match entities.iter().find(|e| e.name.as_deref() == Some(name)) {
-                        Some(e) => target = Some(e.clone()),
-                        None => self.diags.push(unknown_entity("to", name)),
-                    },
+                            .hint(
+                                "`action = \"disable\"` with `to = \"...\"`, or \
+                                 `actions = [{ action = \"disable\", to = \"...\" }, ...]`",
+                            ),
+                    );
+                    false
+                }
+                (false, true) => {
+                    let mut ok = true;
+                    for key in ["to", "prop", "value", "prefab"].into_iter().filter(|k| t.has(k)) {
+                        ok = false;
+                        self.diags.push(
+                            Diagnostic::new(
+                                &codes::INVALID_VALUE,
+                                format!("with `actions`, `{key}` goes inside the action it belongs to"),
+                            )
+                            .at(&src, t.key_span(key, span))
+                            .hint(format!("move `{key}` into one of the `actions` items")),
+                        );
+                    }
+                    if c.actions.is_empty() {
+                        ok = false;
+                        self.diags.push(
+                            Diagnostic::new(&codes::INVALID_VALUE, "`actions` is empty")
+                                .at(&src, t.value_span("actions", span))
+                                .hint("list at least one `{ action = ... }`, or use `action`"),
+                        );
+                    }
+                    ok
+                }
+                (true, false) => true,
+            };
+            if form_ok {
+                for ((at, aspan), a) in defs::action_tables(t, span).into_iter().zip(&c.actions) {
+                    let target =
+                        self.check_action(a, &c.from, at, aspan, source.as_ref(), &entities, &src, &mut templates);
+                    check_action_logic(a, &c.from, at, aspan, target.as_ref(), &src, &mut self.diags);
                 }
             }
-            check_connect_logic(&c, t, span, target.as_ref(), &entities, &src, &mut self.diags);
+            check_when(&c, t, &entities, &src, &mut self.diags);
             connections.push(c);
         }
 
@@ -605,6 +597,99 @@ impl<'a> SceneLoader<'a> {
             connections,
             templates,
         })
+    }
+
+    /// Checks one action's target, or its prefab for `spawn` (recorded as a
+    /// spawn template). Returns the target's definition.
+    #[allow(clippy::too_many_arguments)]
+    fn check_action(
+        &mut self,
+        a: &defs::ActionDef,
+        from: &ConnectFrom,
+        t: &Table,
+        span: Span,
+        source: Option<&EntityDef>,
+        entities: &[EntityDef],
+        src: &SourceFile,
+        templates: &mut Vec<EntityDef>,
+    ) -> Option<EntityDef> {
+        let mut target: Option<EntityDef> = None;
+        if a.action == ConnectAction::Spawn {
+            if t.has("to") {
+                self.diags.push(
+                    Diagnostic::new(&codes::INVALID_VALUE, "`spawn` has no target: it places a new entity")
+                        .at(src, t.key_span("to", span))
+                        .hint("remove `to`; the new copy goes on the tapped cell or the emitter's cell"),
+                );
+            }
+            match &a.prefab {
+                None => self.diags.push(
+                    Diagnostic::new(&codes::MISSING_KEY, "`action = \"spawn\"` needs `prefab`")
+                        .at(src, t.value_span("action", span))
+                        .hint("add `prefab = \"...\"`: the prefab file (prefabs/<name>.toml) to place"),
+                ),
+                Some(p) => {
+                    let at = t.value_span("prefab", span);
+                    if let Some(def) = self.prefab_def(p, src, at) {
+                        check_entity(&def, &Table::default(), at, src, &mut self.diags);
+                        self.check_counts(&def, &Table::default(), at, src);
+                        if def.screen_pos.is_some() {
+                            self.diags.push(
+                                Diagnostic::new(
+                                    &codes::INVALID_VALUE,
+                                    format!("prefab `{p}` has `screen_pos`, so it cannot be spawned in the world"),
+                                )
+                                .at(src, at),
+                            );
+                        }
+                        if !templates.iter().any(|t| t.prefab.as_deref() == Some(p.as_str())) {
+                            templates.push(def);
+                        }
+                    }
+                }
+            }
+        } else {
+            if t.has("prefab") {
+                self.diags.push(
+                    Diagnostic::new(&codes::INVALID_VALUE, "`prefab` only applies to `action = \"spawn\"`")
+                        .at(src, t.key_span("prefab", span))
+                        .hint("remove `prefab`, or use `action = \"spawn\"`"),
+                );
+            }
+            match a.to.as_deref() {
+                None => self.diags.push(
+                    Diagnostic::new(&codes::MISSING_KEY, format!("`action = \"{}\"` needs `to`", a.action.name()))
+                        .at(src, span)
+                        .hint("add `to = \"<entity name>\"`, or `to = \"self\"` for the entity that emitted"),
+                ),
+                Some("self") if *from == ConnectFrom::Ground => self.diags.push(
+                    Diagnostic::new(
+                        &codes::INVALID_VALUE,
+                        "`to = \"self\"` with `from = \"ground\"`: the ground is not an entity",
+                    )
+                    .at(src, t.value_span("to", span))
+                    .hint("name the entity to change, or use `action = \"spawn\"` to place one on the tapped cell"),
+                ),
+                Some("self") => target = source.cloned(),
+                Some(name) => match entities.iter().find(|e| e.name.as_deref() == Some(name)) {
+                    Some(e) => target = Some(e.clone()),
+                    None => {
+                        let names = entities.iter().filter_map(|e| e.name.as_deref());
+                        let hint =
+                            did_you_mean(name, names).unwrap_or_else(|| format!("give an entity `name = \"{name}\"`"));
+                        self.diags.push(
+                            Diagnostic::new(
+                                &codes::UNKNOWN_ENTITY,
+                                format!("[[connect]] `to` names unknown entity `{name}`"),
+                            )
+                            .at(src, t.value_span("to", span))
+                            .hint(hint),
+                        );
+                    }
+                },
+            }
+        }
+        target
     }
 
     /// Every `counts` entry names an existing prefab (E0201).
@@ -931,20 +1016,20 @@ fn unknown_prop(def: &EntityDef, name: &str, what: &str, src: &SourceFile, at: S
         .hint(hint)
 }
 
-/// Checks on `add`/`set` and `when` that need the scene's entities.
-fn check_connect_logic(
-    c: &defs::ConnectDef,
+/// Checks on one `add`/`set` action that need its target's definition.
+/// `t` is the table holding the action (the [[connect]] or an `actions` item).
+fn check_action_logic(
+    c: &defs::ActionDef,
+    from: &ConnectFrom,
     t: &Table,
     span: Span,
     target: Option<&EntityDef>,
-    entities: &[EntityDef],
     src: &SourceFile,
     diags: &mut Vec<Diagnostic>,
 ) {
-    let by_name = |n: &str| entities.iter().find(|e| e.name.as_deref() == Some(n));
     let action = c.action.name();
     // How the target is named in messages: `hud`, or the prefab for `self`.
-    let to_label = match (c.to.as_deref(), &c.from) {
+    let to_label = match (c.to.as_deref(), from) {
         (Some("self"), ConnectFrom::Prefab(p)) => format!("{p} (self)"),
         (Some("self"), ConnectFrom::Entity(n)) => n.clone(),
         (Some(n), _) => n.to_string(),
@@ -1047,7 +1132,11 @@ fn check_connect_logic(
             }
         }
     }
+}
 
+/// Checks on a [[connect]]'s `when` list (once per connection).
+fn check_when(c: &defs::ConnectDef, t: &Table, entities: &[EntityDef], src: &SourceFile, diags: &mut Vec<Diagnostic>) {
+    let by_name = |n: &str| entities.iter().find(|e| e.name.as_deref() == Some(n));
     for item in t.get("when").and_then(Node::as_array).unwrap_or(&[]) {
         let Some(w) = item.as_table() else { continue };
         let cond = defs::decode_condition(w);

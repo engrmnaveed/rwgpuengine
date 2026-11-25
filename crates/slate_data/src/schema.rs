@@ -537,12 +537,13 @@ pub static LABEL: Spec = Spec {
 pub static CONNECT: Spec = Spec {
     id: "connect",
     title: "[[connect]]",
-    doc: "When `from` emits `signal`, apply `action` to `to`, if every `when` condition holds. Every entity emits \
-          `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` \
-          (or whose `counts` change) emits `changed`; a spawned entity emits `spawned`; when a `spawn` cannot be \
-          placed, the source of its signal emits `refused`. `from = \"ground\"` listens to taps on ground cells \
-          that hit no entity (and to their refused spawns); `from_prefab` listens to every entity made from a \
-          prefab, and `to = \"self\"` then targets the one that emitted.",
+    doc: "When `from` emits `signal`, apply `action` to `to` (or each of `actions`, in order), if every `when` \
+          condition holds. Every entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity \
+          whose prop is changed by `add`/`set` (or whose `counts` change) emits `changed`; a spawned entity emits \
+          `spawned`; when a `spawn` cannot be placed, the source of its signal emits `refused`. \
+          `from = \"ground\"` listens to taps on ground cells that hit no entity (and to their refused spawns); \
+          `from_prefab` listens to every entity made from a prefab, and `to = \"self\"` then targets the one \
+          that emitted.",
     fields: &[
         opt(
             "from",
@@ -559,47 +560,84 @@ pub static CONNECT: Spec = Spec {
              `from_prefab = \"coin\"` instead of one [[connect]] per coin.",
         ),
         req("signal", Ty::Name, "Signal name, e.g. `pressed`, `released`, `tapped`, `changed`, `spawned`, `refused`."),
+        F_CONNECT_TO,
         opt(
-            "to",
-            Ty::Name,
-            None,
-            "Name of the target entity, or `self` for the entity that emitted (with `from_prefab`). Required for \
-             every action except `spawn`.",
-        ),
-        req(
             "action",
             Ty::Enum(CONNECT_ACTIONS),
+            None,
             "enable, disable or toggle the target; `add` a number to / `set` one of its props; or `spawn` a new copy \
-             of `prefab` where the signal happened.",
+             of `prefab` where the signal happened. Use exactly one of `action` and `actions`.",
         ),
-        opt("prop", Ty::Name, None, "With `add`/`set`: the target's prop (declared in its `props`)."),
-        opt(
-            "value",
-            Ty::Scalar,
-            None,
-            "With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), \
-             of the prop's type.",
-        ),
-        opt(
-            "prefab",
-            Ty::Name,
-            None,
-            "With `spawn`: the prefab to place. It goes on the tapped cell (`from = \"ground\"`) or the emitter's \
-             cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain \
-             with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger \
-             (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, \
-             reason `edge`, `terrain` or `occupied`) and the source of the signal (the ground, for ground taps) \
-             emits `refused` on that cell, if a [[connect]] listens.",
-        ),
+        F_CONNECT_PROP,
+        F_CONNECT_VALUE,
+        F_CONNECT_PREFAB,
         opt(
             "when",
             Ty::List(&CONDITION),
             None,
             "Conditions that must all hold when the signal arrives, or the action is skipped (logged as \
-             `skipped`). For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`.",
+             `skipped`). They are checked once, before the first action. For OR, write one `[[connect]]` per \
+             alternative. Item keys: `slate explain condition`.",
+        ),
+        opt(
+            "actions",
+            Ty::List(&ACTION),
+            None,
+            "Several actions for the same signal and `when`, run in order: \
+             `actions = [{ action = \"set\", to = \"town\", prop = \"tool\", value = \"tree\" }, \
+             { action = \"set\", to = \"hint\", prop = \"msg\", value = \"\" }]`. Each item has the keys \
+             `action`, `to`, `prop`, `value` and `prefab` (`slate explain action`), which then cannot be on the \
+             [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run.",
         ),
     ],
 };
+
+pub static ACTION: Spec = Spec {
+    id: "action",
+    title: "connect action",
+    doc: "One item of a `[[connect]]` `actions` list: the same keys as a single-action [[connect]]. Items run in \
+          order after the connection's `when` held (checked once, before the first). A `spawn` that cannot be \
+          placed stops the rest of the list (logged as `skipped`), so \
+          `[{ action = \"spawn\", prefab = \"house\" }, { action = \"add\", to = \"town\", prop = \"coins\", \
+          value = -3 }]` pays only for a house that was placed.",
+    fields: &[
+        req("action", Ty::Enum(CONNECT_ACTIONS), ACTION_DOC),
+        F_CONNECT_TO,
+        F_CONNECT_PROP,
+        F_CONNECT_VALUE,
+        F_CONNECT_PREFAB,
+    ],
+};
+
+const ACTION_DOC: &str = "enable, disable or toggle the target; `add` a number to / `set` one of its props; or \
+                          `spawn` a new copy of `prefab` where the signal happened.";
+const F_CONNECT_TO: Field = opt(
+    "to",
+    Ty::Name,
+    None,
+    "Name of the target entity, or `self` for the entity that emitted (with `from_prefab`). Required for every \
+     action except `spawn`.",
+);
+const F_CONNECT_PROP: Field =
+    opt("prop", Ty::Name, None, "With `add`/`set`: the target's prop (declared in its `props`).");
+const F_CONNECT_VALUE: Field = opt(
+    "value",
+    Ty::Scalar,
+    None,
+    "With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), of the \
+     prop's type.",
+);
+const F_CONNECT_PREFAB: Field = opt(
+    "prefab",
+    Ty::Name,
+    None,
+    "With `spawn`: the prefab to place. It goes on the tapped cell (`from = \"ground\"`) or the emitter's cell, \
+     with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with \
+     `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only \
+     entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, \
+     `terrain` or `occupied`) and the source of the signal (the ground, for ground taps) emits `refused` on that \
+     cell, if a [[connect]] listens.",
+);
 
 pub static CONDITION: Spec = Spec {
     id: "condition",
@@ -762,6 +800,7 @@ pub static ALL_SPECS: &[&Spec] = &[
     &TERRAIN,
     &ENTITY,
     &CONNECT,
+    &ACTION,
     &CONDITION,
     &PREFAB_FILE,
     &TILE,
@@ -1381,7 +1420,7 @@ mod tests {
 
     #[test]
     fn wrong_types_and_missing_keys() {
-        let d = check(&CONNECT, "from = 3\nsignal = \"pressed\"\nto = \"gate\"\n");
+        let d = check(&CONNECT, "from = 3\nto = \"gate\"\naction = \"disable\"\n");
         let codes: Vec<&str> = d.iter().map(|d| d.code).collect();
         assert_eq!(codes, vec!["E0102", "E0104"]);
     }

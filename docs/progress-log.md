@@ -3,6 +3,23 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Several actions per `[[connect]]` (M3.3)
+
+- Built run #8's top request ([ADR 0015](decisions/0015-several-actions-per-connect.md)):
+  `actions = [{ action = ..., to = ..., ... }, ...]` in one `[[connect]]`, sharing its source, signal and
+  `when`.
+  - **`when` is checked once.** Separate connections re-check after earlier ones acted: "pay, then say
+    bought", both on `coins >= 3`, skipped the second when the last coins were spent.
+  - **A refused spawn stops the rest of the list**, so `[spawn, pay]`, the first thing an agent writes, never
+    charges for a house that was not placed.
+  - **Each action still logs its own event**, so expectations keep their meaning.
+- Tiny Town: 27 → 20 connections and 354 → 299 lines, ending in exactly the same state hashes and images.
+  It is the same game, and native = web.
+- A new `refusals` expect guards the one ordering rule this makes visible. A "not enough coins" check must
+  come before a spawn that pays in its list. Two mutation checks (paying before spawning; hints after the
+  spawn) fail it.
+- Wasm 664,154 bytes (+6.6 KB). Old examples unchanged.
+
 ## 2026-11-25 — Cold-agent test #8: a park builder on kit v2, accepted
 
 - The task asked for both v2 features directly:

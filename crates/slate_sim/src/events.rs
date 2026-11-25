@@ -166,9 +166,11 @@ pub const EVENT_DOCS: &[EventDoc] = &[
         kind: EventKind::Skipped,
         subject: "the target (none for `spawn`)",
         other: "the emitter",
-        fields: "signal, action, prop, prefab, cell, when (each condition, held, seen)",
+        fields: "signal, action, prop, prefab, cell, when (each condition, held, seen); stopped_by",
         meaning: "A connection's signal arrived, but a `when` condition did not hold, so nothing was done. The \
-                  message names the first failing condition and what was seen.",
+                  message names the first failing condition and what was seen. One event per action of an \
+                  `actions` list; an action after a `spawn` that could not be placed is skipped too \
+                  (`stopped_by = \"refused spawn\"`).",
     },
     EventDoc {
         kind: EventKind::Spawned,

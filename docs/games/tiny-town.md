@@ -54,6 +54,7 @@ Tap only (touch first, ADR 0010). Buttons are screen entities; the island is gro
 | `from_prefab`, `to = "self"`, `spawned` | paying and clearing for every copy |
 | `counts` (ADR 0014) | the job card: `counts = { houses = "house", ... }`, no counting connections |
 | `refused` + `when` `reason` (ADR 0014) | the hint for refused placements (terrain, occupied) |
+| `actions = [...]` (ADR 0015) | a button sets the tool and clears the hint; a spawn pays in the same list; a clear disables and refunds (20 connections in all) |
 | props, `when`, `label`, `screen_pos` (ADR 0011) | coins, tool, job card, banner, toolbar |
 | `[[expect]] prefab` + `count`, `inspect --place` | three playtests and their tap pixels |
 

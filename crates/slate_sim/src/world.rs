@@ -201,6 +201,15 @@ pub enum Target {
 pub struct Connection {
     pub from: Source,
     pub signal: String,
+    /// Run in order; a refused `spawn` stops the rest.
+    pub actions: Vec<Act>,
+    /// All must hold when the signal arrives (checked once, before the first action).
+    pub when: Vec<Condition>,
+}
+
+/// One action of a connection, with its target resolved.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Act {
     pub to: Target,
     pub action: ConnectAction,
     /// With add/set.
@@ -208,8 +217,6 @@ pub struct Connection {
     pub value: Option<PropValue>,
     /// With spawn.
     pub prefab: Option<String>,
-    /// All must hold when the signal arrives.
-    pub when: Vec<Condition>,
 }
 
 impl Connection {
@@ -249,6 +256,17 @@ pub struct Refusal {
     pub terrain: Option<String>,
     /// "cell (4, 4) is water (build = false)".
     pub why: String,
+}
+
+/// What every action of one connection run shares: the signal, where it
+/// happened, how messages say where it came from, and the `when` results.
+struct ActCtx<'a> {
+    emitter: Option<EntityId>,
+    signal: &'a str,
+    cell: [i32; 2],
+    via: &'a str,
+    when: &'a [Json],
+    held: &'a [&'a str],
 }
 
 /// A `when` condition with its entity resolved (`None` for `reason`).
@@ -348,22 +366,26 @@ impl World {
                     ConnectFrom::Prefab(p) => Source::Prefab(p.clone()),
                     ConnectFrom::Ground => Source::Ground,
                 };
-                let to = match (c.action, c.to.as_deref()) {
-                    (ConnectAction::Spawn, _) => Target::None,
-                    (_, Some("self")) => Target::Emitter,
-                    (_, Some(n)) => Target::Entity(*names.get(n)?),
-                    (_, None) => return None,
-                };
-                Some(Connection {
-                    from,
-                    signal: c.signal.clone(),
-                    to,
-                    action: c.action,
-                    prop: c.prop.clone(),
-                    value: c.value.clone(),
-                    prefab: c.prefab.clone(),
-                    when,
-                })
+                let actions = c
+                    .actions
+                    .iter()
+                    .map(|a| {
+                        let to = match (a.action, a.to.as_deref()) {
+                            (ConnectAction::Spawn, _) => Target::None,
+                            (_, Some("self")) => Target::Emitter,
+                            (_, Some(n)) => Target::Entity(*names.get(n)?),
+                            (_, None) => return None,
+                        };
+                        Some(Act {
+                            to,
+                            action: a.action,
+                            prop: a.prop.clone(),
+                            value: a.value.clone(),
+                            prefab: a.prefab.clone(),
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some(Connection { from, signal: c.signal.clone(), actions, when })
             })
             .collect();
         let templates = scene.templates.clone();
@@ -847,7 +869,8 @@ impl World {
         }
     }
 
-    /// Check a connection's conditions, then apply its action or log why not.
+    /// Check a connection's conditions once, then apply its actions in order
+    /// (or log why not). A refused `spawn` stops the actions after it.
     fn run_connection(
         &mut self,
         c: &Connection,
@@ -856,11 +879,6 @@ impl World {
         cell: [i32; 2],
         reason: Option<&'static str>,
     ) {
-        let to = match c.to {
-            Target::Entity(id) => Some(id),
-            Target::Emitter => emitter,
-            Target::None => None,
-        };
         let results: Vec<(String, bool, String)> = c
             .when
             .iter()
@@ -875,50 +893,89 @@ impl World {
                 Json::object().with("condition", cond.as_str()).with("held", *held).with("seen", seen.as_str())
             })
             .collect();
-        let target = match (to, &c.prefab) {
-            (Some(id), _) => self.describe(id),
-            (None, Some(p)) => format!("spawn '{p}'"),
-            (None, None) => "nothing".into(),
-        };
         let via = match emitter.and_then(|id| self.get(id)) {
             Some(e) => format!("via {}.'{signal}'", e.label()),
             None => format!("via the ground's '{signal}' at {}", fmt_cell(cell)),
         };
-        let mut data = Json::object().with("signal", signal).with("action", c.action.name());
-        if let Some(p) = &c.prop {
+        let failed =
+            results.iter().find(|(_, held, _)| !held).map(|(cond, _, seen)| format!("{cond} does not hold ({seen})"));
+        let held: Vec<&str> = results.iter().map(|(cond, _, _)| cond.as_str()).collect();
+        let ctx = ActCtx { emitter, signal, cell, via: &via, when: &when_json, held: &held };
+        let mut stopped: Option<String> = None;
+        for a in &c.actions {
+            match failed.as_ref().or(stopped.as_ref()) {
+                Some(why) => {
+                    let why = why.clone();
+                    self.skip_action(a, &ctx, &why, stopped.is_some() && failed.is_none());
+                }
+                None => {
+                    if !self.run_action(a, &ctx) {
+                        let p = a.prefab.as_deref().unwrap_or_default();
+                        stopped = Some(format!("the '{p}' spawn before it in this [[connect]] was refused"));
+                    }
+                }
+            }
+        }
+    }
+
+    /// The action's target (`None` for spawn) and how messages name it.
+    fn act_target(&self, a: &Act, emitter: Option<EntityId>) -> (Option<EntityId>, String) {
+        let to = match a.to {
+            Target::Entity(id) => Some(id),
+            Target::Emitter => emitter,
+            Target::None => None,
+        };
+        let label = match (to, &a.prefab) {
+            (Some(id), _) => self.describe(id),
+            (None, Some(p)) => format!("spawn '{p}'"),
+            (None, None) => "nothing".into(),
+        };
+        (to, label)
+    }
+
+    fn act_data(a: &Act, ctx: &ActCtx) -> Json {
+        let mut data = Json::object().with("signal", ctx.signal).with("action", a.action.name());
+        if let Some(p) = &a.prop {
             data.set("prop", p.as_str());
         }
-        if let Some(p) = &c.prefab {
+        if let Some(p) = &a.prefab {
             data.set("prefab", p.as_str());
-            data.set("cell", cell);
+            data.set("cell", ctx.cell);
         }
-        if !results.is_empty() {
-            data.set("when", when_json);
+        if !ctx.when.is_empty() {
+            data.set("when", ctx.when.to_vec());
         }
-        // For spawn the subject is nothing yet; the emitter is the other party.
-        let (subject, other) = match to {
-            Some(id) => (Some(id), emitter),
-            None => (None, emitter),
+        data
+    }
+
+    /// Log a `skipped` event for an action that did not run.
+    fn skip_action(&mut self, a: &Act, ctx: &ActCtx, why: &str, after_refusal: bool) {
+        let (to, target) = self.act_target(a, ctx.emitter);
+        let mut data = Self::act_data(a, ctx);
+        if after_refusal {
+            data.set("stopped_by", "refused spawn");
+        }
+        let msg = if a.action == ConnectAction::Spawn {
+            format!("{target} at {} skipped ({}): {why}", fmt_cell(ctx.cell), ctx.via)
+        } else {
+            format!("{target} {} skipped ({}): {why}", a.action.name(), ctx.via)
         };
-        if let Some((cond, _, seen)) = results.iter().find(|(_, held, _)| !held) {
-            let msg = if c.action == ConnectAction::Spawn {
-                format!("{target} at {} skipped ({via}): {cond} does not hold ({seen})", fmt_cell(cell))
-            } else {
-                format!("{target} {} skipped ({via}): {cond} does not hold ({seen})", c.action.name())
-            };
-            self.log(EventKind::Skipped, subject, other, msg, data);
-            return;
+        // For spawn the subject is nothing yet; the emitter is the other party.
+        self.log(EventKind::Skipped, to, ctx.emitter, msg, data);
+    }
+
+    /// Apply one action. Returns false only for a `spawn` that could not be placed.
+    fn run_action(&mut self, a: &Act, ctx: &ActCtx) -> bool {
+        if a.action == ConnectAction::Spawn {
+            return self.spawn(a.prefab.as_deref().unwrap_or_default(), ctx.cell, ctx.emitter, ctx.via, ctx.held);
         }
-        if c.action == ConnectAction::Spawn {
-            let held: Vec<&str> = results.iter().map(|(cond, _, _)| cond.as_str()).collect();
-            self.spawn(c.prefab.as_deref().unwrap_or_default(), cell, emitter, &via, &held);
-            return;
-        }
-        let Some(to) = to else { return };
+        let (to, target) = self.act_target(a, ctx.emitter);
+        let Some(to) = to else { return true };
+        let mut data = Self::act_data(a, ctx);
         let mut enabled_changed = false;
-        let (change, prop_changed) = match c.action {
-            ConnectAction::Spawn => return,
-            ConnectAction::Add | ConnectAction::Set => match self.change_prop(c, to) {
+        let (change, prop_changed) = match a.action {
+            ConnectAction::Spawn => return true,
+            ConnectAction::Add | ConnectAction::Set => match self.change_prop(a, to) {
                 Some((change, before, value, after)) => {
                     data = data
                         .with("value", prop_json(&value))
@@ -927,12 +984,12 @@ impl World {
                         .with("changed", after != before);
                     (change, after != before)
                 }
-                None => return,
+                None => return true,
             },
             ConnectAction::Enable | ConnectAction::Disable | ConnectAction::Toggle => {
-                let Some(e) = self.entities.get_mut(to as usize) else { return };
+                let Some(e) = self.entities.get_mut(to as usize) else { return true };
                 let before = e.enabled;
-                e.enabled = match c.action {
+                e.enabled = match a.action {
                     ConnectAction::Enable => true,
                     ConnectAction::Disable => false,
                     _ => !before,
@@ -942,19 +999,18 @@ impl World {
                 data = data.with("before", before).with("after", after).with("changed", before != after);
                 let state = |b: bool| if b { "enabled" } else { "disabled" };
                 let change = if before == after {
-                    format!("{}: stays {}", c.action.name(), state(after))
+                    format!("{}: stays {}", a.action.name(), state(after))
                 } else {
-                    format!("{}: {} -> {}", c.action.name(), state(before), state(after))
+                    format!("{}: {} -> {}", a.action.name(), state(before), state(after))
                 };
                 (change, false)
             }
         };
-        let mut msg = format!("{target} {change} ({via})");
-        if !results.is_empty() {
-            let held: Vec<&str> = results.iter().map(|(cond, _, _)| cond.as_str()).collect();
-            msg.push_str(&format!("; when {} held", held.join(", ")));
+        let mut msg = format!("{target} {change} ({})", ctx.via);
+        if !ctx.held.is_empty() {
+            msg.push_str(&format!("; when {} held", ctx.held.join(", ")));
         }
-        self.log(EventKind::Action, Some(to), emitter, msg, data);
+        self.log(EventKind::Action, Some(to), ctx.emitter, msg, data);
         // A prop change makes its owner emit `changed`, if anything listens.
         if prop_changed && self.is_listened(Some(to), "changed") {
             self.emit(to, "changed");
@@ -964,6 +1020,7 @@ impl World {
             let why = format!("{} was {now}", self.describe(to));
             self.refresh_counts(&why);
         }
+        true
     }
 
     /// Store a count (the prop exists: loading declares every `counts` prop).
@@ -1070,14 +1127,14 @@ impl World {
     }
 
     /// Place a new copy of `prefab` at `at`, or log why not. The new entity
-    /// emits `spawned` if a connection listens.
-    fn spawn(&mut self, prefab: &str, at: [i32; 2], emitter: Option<EntityId>, via: &str, held: &[&str]) {
+    /// emits `spawned` if a connection listens. Returns whether it was placed.
+    fn spawn(&mut self, prefab: &str, at: [i32; 2], emitter: Option<EntityId>, via: &str, held: &[&str]) -> bool {
         let when = if held.is_empty() { String::new() } else { format!("; when {} held", held.join(", ")) };
         let Some(template) = self.template(prefab).cloned() else {
             let msg = format!("could not spawn '{prefab}' at {} ({via}): no such prefab", fmt_cell(at));
             let data = Json::object().with("code", "E0201").with("prefab", prefab);
             self.log(EventKind::Error, None, emitter, msg, data);
-            return;
+            return false;
         };
         match self.can_place(prefab, at) {
             Err(r) => {
@@ -1107,6 +1164,7 @@ impl World {
                         reason: Some(r.reason),
                     });
                 }
+                false
             }
             Ok(cells) => {
                 let id = self.entities.len() as EntityId;
@@ -1126,13 +1184,14 @@ impl World {
                 }
                 let why = format!("{who} was spawned");
                 self.refresh_counts(&why);
+                true
             }
         }
     }
 
     /// Apply `add`/`set`. Returns the message part, before, value and after.
     /// Props keep their declared type (validated by `slate check`).
-    fn change_prop(&mut self, c: &Connection, to: EntityId) -> Option<(String, PropValue, PropValue, PropValue)> {
+    fn change_prop(&mut self, c: &Act, to: EntityId) -> Option<(String, PropValue, PropValue, PropValue)> {
         let prop = c.prop.as_deref()?;
         let value = c.value.clone().unwrap_or(PropValue::Int(1));
         let current = self.entities.get_mut(to as usize)?.props.get_mut(prop)?;

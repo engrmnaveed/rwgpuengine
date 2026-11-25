@@ -146,7 +146,7 @@ A thing in the world. Starts from an optional prefab; keys here override it (com
 
 ### `[[connect]]`
 
-When `from` emits `signal`, apply `action` to `to`, if every `when` condition holds. Every entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` (or whose `counts` change) emits `changed`; a spawned entity emits `spawned`; when a `spawn` cannot be placed, the source of its signal emits `refused`. `from = "ground"` listens to taps on ground cells that hit no entity (and to their refused spawns); `from_prefab` listens to every entity made from a prefab, and `to = "self"` then targets the one that emitted.
+When `from` emits `signal`, apply `action` to `to` (or each of `actions`, in order), if every `when` condition holds. Every entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` (or whose `counts` change) emits `changed`; a spawned entity emits `spawned`; when a `spawn` cannot be placed, the source of its signal emits `refused`. `from = "ground"` listens to taps on ground cells that hit no entity (and to their refused spawns); `from_prefab` listens to every entity made from a prefab, and `to = "self"` then targets the one that emitted.
 
 | key | type | default | meaning |
 |---|---|---|---|
@@ -154,11 +154,24 @@ When `from` emits `signal`, apply `action` to `to`, if every `when` condition ho
 | `from_prefab` | name | — | Listen to every entity made from this prefab, placed in the scene or spawned later: `from_prefab = "coin"` instead of one [[connect]] per coin. |
 | `signal` | name | **required** | Signal name, e.g. `pressed`, `released`, `tapped`, `changed`, `spawned`, `refused`. |
 | `to` | name | — | Name of the target entity, or `self` for the entity that emitted (with `from_prefab`). Required for every action except `spawn`. |
-| `action` | enable \| disable \| toggle \| add \| set \| spawn | **required** | enable, disable or toggle the target; `add` a number to / `set` one of its props; or `spawn` a new copy of `prefab` where the signal happened. |
+| `action` | enable \| disable \| toggle \| add \| set \| spawn | — | enable, disable or toggle the target; `add` a number to / `set` one of its props; or `spawn` a new copy of `prefab` where the signal happened. Use exactly one of `action` and `actions`. |
 | `prop` | name | — | With `add`/`set`: the target's prop (declared in its `props`). |
 | `value` | bool \| number \| string | — | With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), of the prop's type. |
 | `prefab` | name | — | With `spawn`: the prefab to place. It goes on the tapped cell (`from = "ground"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`) and the source of the signal (the ground, for ground taps) emits `refused` on that cell, if a [[connect]] listens. |
-| `when` | [{ condition }, ...] | — | Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`. |
+| `when` | [{ condition }, ...] | — | Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). They are checked once, before the first action. For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`. |
+| `actions` | [{ action }, ...] | — | Several actions for the same signal and `when`, run in order: `actions = [{ action = "set", to = "town", prop = "tool", value = "tree" }, { action = "set", to = "hint", prop = "msg", value = "" }]`. Each item has the keys `action`, `to`, `prop`, `value` and `prefab` (`slate explain action`), which then cannot be on the [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run. |
+
+### `connect action`
+
+One item of a `[[connect]]` `actions` list: the same keys as a single-action [[connect]]. Items run in order after the connection's `when` held (checked once, before the first). A `spawn` that cannot be placed stops the rest of the list (logged as `skipped`), so `[{ action = "spawn", prefab = "house" }, { action = "add", to = "town", prop = "coins", value = -3 }]` pays only for a house that was placed.
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `action` | enable \| disable \| toggle \| add \| set \| spawn | **required** | enable, disable or toggle the target; `add` a number to / `set` one of its props; or `spawn` a new copy of `prefab` where the signal happened. |
+| `to` | name | — | Name of the target entity, or `self` for the entity that emitted (with `from_prefab`). Required for every action except `spawn`. |
+| `prop` | name | — | With `add`/`set`: the target's prop (declared in its `props`). |
+| `value` | bool \| number \| string | — | With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), of the prop's type. |
+| `prefab` | name | — | With `spawn`: the prefab to place. It goes on the tapped cell (`from = "ground"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`) and the source of the signal (the ground, for ground taps) emits `refused` on that cell, if a [[connect]] listens. |
 
 ### `when condition`
 
@@ -431,6 +444,12 @@ within the same step. `when` conditions are checked as the signal is dispatched,
 moment (this step's positions and occupancy, plus the actions already applied in this step); if one fails,
 nothing is done and a `skipped` event names the condition and what was seen.
 
+**Several actions.** `actions = [{ action = "set", to = "town", ... }, { ... }]` runs several actions for
+one signal, in order, as one `[[connect]]`: its `when` is checked once, before the first, so an earlier
+action cannot make a later one skip. If a `spawn` in the list cannot be placed, the actions after it do not
+run (each logs `skipped`, `stopped_by = "refused spawn"`), so `[spawn, pay]` pays only for what was placed.
+Every action logs its own `action` (or `skipped`) event, as separate connections would.
+
 **Counts.** `counts = { houses = "house" }` gives an entity an integer prop `houses` that the engine keeps
 equal to the number of enabled `house` entities (placed in the scene or spawned). It is updated in the same
 step as the spawn, `disable`, `enable` or `toggle` that changes it, logged as a `counted` event, and its
@@ -452,7 +471,7 @@ Every event has `frame` (the step that produced it: `[N]` happened in step N, so
 | `trigger` | the trigger | the actor that entered or left | signal, by | The trigger's cell became occupied or empty; it emits `signal`. |
 | `signal` | the emitter | — | signal, connections; reason (for `refused`) | A signal was dispatched to this many `[[connect]]` tables (0 = nothing listens). A `refused` signal carries the spawn's `reason` (edge, terrain or occupied), which `when = [{ reason = ... }]` tests. |
 | `action` | the target | the emitter | signal, action, before, after, changed; prop, value (add/set); when (each condition, held, seen) | A connection's action ran on its target: enable, disable, toggle, or add/set a prop (`before`/`after` are the enabled state or the prop's values). It is logged even when nothing changes (`enable` on an enabled entity: "stays enabled", `changed = false`), so `[[expect]] event = "action"` counts every time the connection fired. |
-| `skipped` | the target (none for `spawn`) | the emitter | signal, action, prop, prefab, cell, when (each condition, held, seen) | A connection's signal arrived, but a `when` condition did not hold, so nothing was done. The message names the first failing condition and what was seen. |
+| `skipped` | the target (none for `spawn`) | the emitter | signal, action, prop, prefab, cell, when (each condition, held, seen); stopped_by | A connection's signal arrived, but a `when` condition did not hold, so nothing was done. The message names the first failing condition and what was seen. One event per action of an `actions` list; an action after a `spawn` that could not be placed is skipped too (`stopped_by = "refused spawn"`). |
 | `spawned` | the new entity | the emitter of the signal (none for a ground tap) | prefab, cell, cells | A `spawn` action placed a new copy of `prefab` with its back corner on `cell`, covering `cells`. It gets the next free id (`#N (prefab)` in messages) and emits `spawned` if a [[connect]] listens (`from_prefab`). |
 | `counted` | the entity whose `counts` prop changed | — | prop, prefab, before, after | A `counts` prop now has a new number of enabled `prefab` copies, because a copy was spawned, disabled or enabled. The message says which; the entity then emits `changed` if a [[connect]] listens (once when several of its counts change together). |
 | `error` | the emitter | — | code, signal | A runtime error, such as more than 1000 signals in one step (E0301). |

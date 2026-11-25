@@ -322,7 +322,7 @@ fn valid_logic_has_no_diagnostics() {
     assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
     let scene = crate::SceneLoader::new(&vfs).load_scene("scenes/main.toml").unwrap();
     let add = &scene.connections[1];
-    assert_eq!(add.value, Some(crate::PropValue::Int(1)), "add defaults to 1");
+    assert_eq!(add.actions[0].value, Some(crate::PropValue::Int(1)), "add defaults to 1");
     assert_eq!(scene.connections[2].when.len(), 2);
 }
 
@@ -691,4 +691,36 @@ fn count_props_are_checked() {
     let changed = "[[entity]]\nname = \"job\"\nprops = { n = 0 }\n\n[[connect]]\nfrom = \"job\"\nsignal = \"changed\"\n\
                    to = \"town\"\naction = \"disable\"";
     assert_eq!(builder_with(changed), vec!["W0203"]);
+}
+
+// ---------------------------------------------------------------------------
+// Several actions per [[connect]] (ADR 0015)
+
+fn grouped(connect: &str) -> Vec<&'static str> {
+    builder_with(&format!(
+        "[[entity]]\nname = \"hint\"\nprops = {{ msg = \"\" }}\n\n[[connect]]\nfrom = \"ground\"\nsignal = \"tapped\"\n{connect}"
+    ))
+}
+
+#[test]
+fn action_lists_are_checked() {
+    let ok = "actions = [\n  { action = \"spawn\", prefab = \"house\" },\n  \
+              { action = \"add\", to = \"town\", prop = \"coins\", value = -3 },\n  \
+              { action = \"set\", to = \"hint\", prop = \"msg\", value = \"\" },\n]";
+    assert_eq!(grouped(ok), Vec::<&str>::new());
+    // Exactly one of `action` and `actions`; nothing else at the top.
+    assert_eq!(grouped(&format!("action = \"spawn\"\nprefab = \"house\"\n{ok}")), vec!["E0105"]);
+    assert_eq!(grouped("when = []"), vec!["E0104"]);
+    assert_eq!(grouped("to = \"town\"\nactions = [{ action = \"disable\", to = \"town\" }]"), vec!["E0105"]);
+    assert_eq!(grouped("actions = []"), vec!["E0105"]);
+    // Each item is checked like a single action, at its own place.
+    assert_eq!(grouped("actions = [{ to = \"town\" }]"), vec!["E0104"]);
+    assert_eq!(grouped("actions = [{ action = \"disable\", to = \"twon\" }]"), vec!["E0202"]);
+    assert_eq!(grouped("actions = [{ action = \"add\", to = \"town\", prop = \"gold\" }]"), vec!["E0206"]);
+    assert_eq!(grouped("actions = [{ action = \"spawn\" }]"), vec!["E0104"]);
+    assert_eq!(grouped("actions = [{ action = \"spawn\", prefab = \"hous\" }]"), vec!["E0201"]);
+    // An item that sets a prop makes its target emit `changed` (no W0203).
+    let changed = "actions = [{ action = \"set\", to = \"hint\", prop = \"msg\", value = \"x\" }]\n\n[[connect]]\n\
+                   from = \"hint\"\nsignal = \"changed\"\nto = \"town\"\naction = \"disable\"";
+    assert_eq!(grouped(changed), Vec::<&str>::new());
 }

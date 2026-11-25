@@ -166,6 +166,13 @@ frame = 60
 entity = "hint"
 text = "No room there!"
 
+# The tree at frame 110 spent the last coin: no "needs 1 coin" hint yet, since
+# that check runs before the payment (the next tap, at 120, earns it).
+[[expect]]
+frame = 120
+entity = "hint"
+text = ""
+
 [[expect]]
 frame = 90
 entity = "hint"

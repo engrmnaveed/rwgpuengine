@@ -74,10 +74,13 @@ Need: the first real game. Q3 is decided: the **isometric builder**, Tiny Town
 - Accepted by [cold-agent run #8](experiments/2026-11-25-cold-agent-8.md): a park builder with three refusal
   messages and a count-driven goal, everything supported, 0 warnings, 6 min 24 s. Its findings are fixed
   (quiet `--place`, prefab names on unnamed copies, two recipe facts).
-- Next (evidence from three builder games): **several actions per `[[connect]]`**. Merging connections that
-  share source, signal and `when` would cut the park from 41 to 27, the farm from 30 to 19, and Tiny Town
-  from 27 to 24. Run #8 ranked it first.
+- **M3.3 — several actions per `[[connect]]`: done 2026-11-25**
+  ([ADR 0015](decisions/0015-several-actions-per-connect.md)). `actions = [...]` shares one source, signal and
+  `when` (checked once); a refused spawn stops the rest, so `[spawn, pay]` is correct. Tiny Town went from 27
+  to 20 connections with the same final state hashes. Evidence: run #8 ranked it first; it would cut the
+  three builder games from 41 / 30 / 27 to 27 / 19 / 24 tables.
 - Candidates, waiting for more evidence:
+  - a cold-agent run on M3.3, to measure tables per game with `actions` (run #8: 41);
   - a "not equal" / `in` condition (run #8 used a flag prop);
   - per-prefab costs with an automatic "can't afford" refusal (runs #7 and #8);
   - `when` on the refused terrain's name (run #8);

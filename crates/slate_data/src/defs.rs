@@ -541,23 +541,39 @@ impl ConnectFrom {
 pub struct ConnectDef {
     pub from: ConnectFrom,
     pub signal: String,
+    /// One (`action = ...`) or several (`actions = [...]`), run in order.
+    pub actions: Vec<ActionDef>,
+    /// All must hold when the signal arrives (checked once, before the first action).
+    pub when: Vec<ConditionDef>,
+}
+
+/// One action of a `[[connect]]`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ActionDef {
+    pub action: ConnectAction,
     /// `None` for `spawn`; `Some("self")` targets the emitter.
     pub to: Option<String>,
-    pub action: ConnectAction,
     /// With add/set: the target's prop.
     pub prop: Option<String>,
     /// With add/set: the value (add defaults to 1).
     pub value: Option<PropValue>,
     /// With spawn: the prefab to place.
     pub prefab: Option<String>,
-    /// All must hold when the signal arrives.
-    pub when: Vec<ConditionDef>,
 }
 
-impl ConnectDef {
+impl ActionDef {
     /// The target entity's name, unless it is `self` or absent.
     pub fn to_name(&self) -> Option<&str> {
         self.to.as_deref().filter(|t| *t != "self")
+    }
+}
+
+/// The tables that hold a `[[connect]]`'s actions, with their spans: the
+/// items of `actions`, or the [[connect]] table itself.
+pub fn action_tables(t: &Table, span: Span) -> Vec<(&Table, Span)> {
+    match t.get("actions").and_then(Node::as_array) {
+        Some(items) => items.iter().filter_map(|n| Some((n.as_table()?, n.span))).collect(),
+        None => vec![(t, span)],
     }
 }
 
@@ -826,6 +842,24 @@ pub(crate) fn scalar(n: &Node) -> Option<PropValue> {
 
 pub(crate) fn decode_connect(t: &Table) -> ConnectDef {
     let c = Fields::new(t, &schema::CONNECT);
+    let when = t
+        .get("when")
+        .and_then(Node::as_array)
+        .map(|items| items.iter().filter_map(|n| n.as_table().map(decode_condition)).collect())
+        .unwrap_or_default();
+    let from = match (c.opt_str("from"), c.opt_str("from_prefab")) {
+        (Some(f), _) if f == "ground" => ConnectFrom::Ground,
+        (Some(f), _) => ConnectFrom::Entity(f),
+        (None, Some(p)) => ConnectFrom::Prefab(p),
+        (None, None) => ConnectFrom::Entity(String::new()),
+    };
+    let actions = action_tables(t, Span::default()).into_iter().map(|(a, _)| decode_action(a)).collect();
+    ConnectDef { from, signal: c.str("signal"), actions, when }
+}
+
+/// One action from a [[connect]] table or an `actions` item (same keys).
+pub(crate) fn decode_action(t: &Table) -> ActionDef {
+    let c = Fields::new(t, &schema::ACTION);
     let action = match c.str("action").as_str() {
         "enable" => ConnectAction::Enable,
         "disable" => ConnectAction::Disable,
@@ -838,27 +872,7 @@ pub(crate) fn decode_connect(t: &Table) -> ConnectDef {
     if action == ConnectAction::Add && value.is_none() {
         value = Some(PropValue::Int(1));
     }
-    let when = t
-        .get("when")
-        .and_then(Node::as_array)
-        .map(|items| items.iter().filter_map(|n| n.as_table().map(decode_condition)).collect())
-        .unwrap_or_default();
-    let from = match (c.opt_str("from"), c.opt_str("from_prefab")) {
-        (Some(f), _) if f == "ground" => ConnectFrom::Ground,
-        (Some(f), _) => ConnectFrom::Entity(f),
-        (None, Some(p)) => ConnectFrom::Prefab(p),
-        (None, None) => ConnectFrom::Entity(String::new()),
-    };
-    ConnectDef {
-        from,
-        signal: c.str("signal"),
-        to: c.opt_str("to"),
-        action,
-        prop: c.opt_str("prop"),
-        value,
-        prefab: c.opt_str("prefab"),
-        when,
-    }
+    ActionDef { action, to: c.opt_str("to"), prop: c.opt_str("prop"), value, prefab: c.opt_str("prefab") }
 }
 
 pub(crate) fn decode_condition(t: &Table) -> ConditionDef {

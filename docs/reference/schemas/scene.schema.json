@@ -413,7 +413,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "description": "When `from` emits `signal`, apply `action` to `to`, if every `when` condition holds. Every entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` (or whose `counts` change) emits `changed`; a spawned entity emits `spawned`; when a `spawn` cannot be placed, the source of its signal emits `refused`. `from = \"ground\"` listens to taps on ground cells that hit no entity (and to their refused spawns); `from_prefab` listens to every entity made from a prefab, and `to = \"self\"` then targets the one that emitted.",
+        "description": "When `from` emits `signal`, apply `action` to `to` (or each of `actions`, in order), if every `when` condition holds. Every entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` (or whose `counts` change) emits `changed`; a spawned entity emits `spawned`; when a `spawn` cannot be placed, the source of its signal emits `refused`. `from = \"ground\"` listens to taps on ground cells that hit no entity (and to their refused spawns); `from_prefab` listens to every entity made from a prefab, and `to = \"self\"` then targets the one that emitted.",
         "properties": {
           "from": {
             "type": "string",
@@ -437,7 +437,7 @@
           },
           "action": {
             "enum": ["enable", "disable", "toggle", "add", "set", "spawn"],
-            "description": "enable, disable or toggle the target; `add` a number to / `set` one of its props; or `spawn` a new copy of `prefab` where the signal happened."
+            "description": "enable, disable or toggle the target; `add` a number to / `set` one of its props; or `spawn` a new copy of `prefab` where the signal happened. Use exactly one of `action` and `actions`."
           },
           "prop": {
             "type": "string",
@@ -496,10 +496,45 @@
               },
               "additionalProperties": false
             },
-            "description": "Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`."
+            "description": "Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). They are checked once, before the first action. For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`."
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One item of a `[[connect]]` `actions` list: the same keys as a single-action [[connect]]. Items run in order after the connection's `when` held (checked once, before the first). A `spawn` that cannot be placed stops the rest of the list (logged as `skipped`), so `[{ action = \"spawn\", prefab = \"house\" }, { action = \"add\", to = \"town\", prop = \"coins\", value = -3 }]` pays only for a house that was placed.",
+              "properties": {
+                "action": {
+                  "enum": ["enable", "disable", "toggle", "add", "set", "spawn"],
+                  "description": "enable, disable or toggle the target; `add` a number to / `set` one of its props; or `spawn` a new copy of `prefab` where the signal happened."
+                },
+                "to": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_/-]+$",
+                  "description": "Name of the target entity, or `self` for the entity that emitted (with `from_prefab`). Required for every action except `spawn`."
+                },
+                "prop": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_/-]+$",
+                  "description": "With `add`/`set`: the target's prop (declared in its `props`)."
+                },
+                "value": {
+                  "type": ["boolean", "number", "string"],
+                  "description": "With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), of the prop's type."
+                },
+                "prefab": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_/-]+$",
+                  "description": "With `spawn`: the prefab to place. It goes on the tapped cell (`from = \"ground\"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`) and the source of the signal (the ground, for ground taps) emits `refused` on that cell, if a [[connect]] listens."
+                }
+              },
+              "required": ["action"],
+              "additionalProperties": false
+            },
+            "description": "Several actions for the same signal and `when`, run in order: `actions = [{ action = \"set\", to = \"town\", prop = \"tool\", value = \"tree\" }, { action = \"set\", to = \"hint\", prop = \"msg\", value = \"\" }]`. Each item has the keys `action`, `to`, `prop`, `value` and `prefab` (`slate explain action`), which then cannot be on the [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run."
           }
         },
-        "required": ["signal", "action"],
+        "required": ["signal"],
         "additionalProperties": false
       },
       "description": "Signal wiring, one `[[connect]]` table each."

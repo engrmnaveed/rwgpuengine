@@ -108,44 +108,44 @@ screen_pos = [478, 420]
 sprite = { color = "#8a6d4b" }
 label = { text = "Clear" }
 
-# ---- choosing a tool
+# ---- choosing a tool (and clearing the hint)
 
 [[connect]]
 from = "btn_house"
 signal = "tapped"
-to = "town"
-action = "set"
-prop = "tool"
-value = "house"
+actions = [
+  { action = "set", to = "town", prop = "tool", value = "house" },
+  { action = "set", to = "hint", prop = "msg", value = "" },
+]
 
 [[connect]]
 from = "btn_tree"
 signal = "tapped"
-to = "town"
-action = "set"
-prop = "tool"
-value = "tree"
+actions = [
+  { action = "set", to = "town", prop = "tool", value = "tree" },
+  { action = "set", to = "hint", prop = "msg", value = "" },
+]
 
 [[connect]]
 from = "btn_well"
 signal = "tapped"
-to = "town"
-action = "set"
-prop = "tool"
-value = "well"
+actions = [
+  { action = "set", to = "town", prop = "tool", value = "well" },
+  { action = "set", to = "hint", prop = "msg", value = "" },
+]
 
 [[connect]]
 from = "btn_clear"
 signal = "tapped"
-to = "town"
-action = "set"
-prop = "tool"
-value = "clear"
+actions = [
+  { action = "set", to = "town", prop = "tool", value = "clear" },
+  { action = "set", to = "hint", prop = "msg", value = "" },
+]
 
-# ---- building: a tap on the ground spawns the chosen prefab there, if the
-# player can pay for it (the spawn itself checks terrain and free cells)
+# ---- a tap on the ground. Connections on one signal run in file order, and
+# each sees what the ones before it changed: clear the hint first, then say
+# "not enough coins" (before anything is paid), then build.
 
-# Every tap on the ground or a button starts with an empty hint.
 [[connect]]
 from = "ground"
 signal = "tapped"
@@ -154,58 +154,8 @@ action = "set"
 prop = "msg"
 value = ""
 
-[[connect]]
-from_prefab = "button"
-signal = "tapped"
-to = "hint"
-action = "set"
-prop = "msg"
-value = ""
-
-[[connect]]
-from = "ground"
-signal = "tapped"
-action = "spawn"
-prefab = "house"
-when = [{ entity = "town", prop = "tool", equals = "house" }, { entity = "town", prop = "coins", at_least = 3 }]
-
-[[connect]]
-from = "ground"
-signal = "tapped"
-action = "spawn"
-prefab = "tree"
-when = [{ entity = "town", prop = "tool", equals = "tree" }, { entity = "town", prop = "coins", at_least = 1 }]
-
-[[connect]]
-from = "ground"
-signal = "tapped"
-action = "spawn"
-prefab = "well"
-when = [{ entity = "town", prop = "tool", equals = "well" }, { entity = "town", prop = "coins", at_least = 2 }]
-
-# ---- why nothing was built. A refused placement: the ground emits `refused`
-# with the reason (the island's edge is all water and sand, so `edge` cannot
-# happen here). Too few coins: the spawn's `when` did not hold, so say it with
-# the opposite condition.
-
-[[connect]]
-from = "ground"
-signal = "refused"
-to = "hint"
-action = "set"
-prop = "msg"
-value = "Build on grass!"
-when = [{ reason = "terrain" }]
-
-[[connect]]
-from = "ground"
-signal = "refused"
-to = "hint"
-action = "set"
-prop = "msg"
-value = "No room there!"
-when = [{ reason = "occupied" }]
-
+# Too few coins: the spawn's `when` will not hold, so say it with the
+# opposite condition.
 [[connect]]
 from = "ground"
 signal = "tapped"
@@ -233,31 +183,56 @@ prop = "msg"
 value = "A well needs 2 coins"
 when = [{ entity = "town", prop = "tool", equals = "well" }, { entity = "town", prop = "coins", at_most = 1 }]
 
-# ---- paying: only for what was really placed (the job card counts by itself)
+# Build the chosen thing there and pay for it. The spawn checks terrain and
+# free cells; if it is refused, the payment after it does not run. (The job
+# card counts by itself.)
+[[connect]]
+from = "ground"
+signal = "tapped"
+when = [{ entity = "town", prop = "tool", equals = "house" }, { entity = "town", prop = "coins", at_least = 3 }]
+actions = [
+  { action = "spawn", prefab = "house" },
+  { action = "add", to = "town", prop = "coins", value = -3 },
+]
 
 [[connect]]
-from_prefab = "house"
-signal = "spawned"
-to = "town"
-action = "add"
-prop = "coins"
-value = -3
+from = "ground"
+signal = "tapped"
+when = [{ entity = "town", prop = "tool", equals = "tree" }, { entity = "town", prop = "coins", at_least = 1 }]
+actions = [
+  { action = "spawn", prefab = "tree" },
+  { action = "add", to = "town", prop = "coins", value = -1 },
+]
 
 [[connect]]
-from_prefab = "tree"
-signal = "spawned"
-to = "town"
-action = "add"
-prop = "coins"
-value = -1
+from = "ground"
+signal = "tapped"
+when = [{ entity = "town", prop = "tool", equals = "well" }, { entity = "town", prop = "coins", at_least = 2 }]
+actions = [
+  { action = "spawn", prefab = "well" },
+  { action = "add", to = "town", prop = "coins", value = -2 },
+]
+
+# ---- a refused placement: the ground emits `refused` with the reason (the
+# island's edge is all water and sand, so `edge` cannot happen here)
 
 [[connect]]
-from_prefab = "well"
-signal = "spawned"
-to = "town"
-action = "add"
-prop = "coins"
-value = -2
+from = "ground"
+signal = "refused"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "Build on grass!"
+when = [{ reason = "terrain" }]
+
+[[connect]]
+from = "ground"
+signal = "refused"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "No room there!"
+when = [{ reason = "occupied" }]
 
 # ---- clearing: with the Clear tool, a tapped building disappears and its
 # coins come back (and the job card counts one less)
@@ -265,50 +240,20 @@ value = -2
 [[connect]]
 from_prefab = "house"
 signal = "tapped"
-to = "self"
-action = "disable"
 when = [{ entity = "town", prop = "tool", equals = "clear" }]
-
-[[connect]]
-from_prefab = "house"
-signal = "tapped"
-to = "town"
-action = "add"
-prop = "coins"
-value = 3
-when = [{ entity = "town", prop = "tool", equals = "clear" }]
+actions = [{ action = "disable", to = "self" }, { action = "add", to = "town", prop = "coins", value = 3 }]
 
 [[connect]]
 from_prefab = "tree"
 signal = "tapped"
-to = "self"
-action = "disable"
 when = [{ entity = "town", prop = "tool", equals = "clear" }]
-
-[[connect]]
-from_prefab = "tree"
-signal = "tapped"
-to = "town"
-action = "add"
-prop = "coins"
-value = 1
-when = [{ entity = "town", prop = "tool", equals = "clear" }]
+actions = [{ action = "disable", to = "self" }, { action = "add", to = "town", prop = "coins", value = 1 }]
 
 [[connect]]
 from_prefab = "well"
 signal = "tapped"
-to = "self"
-action = "disable"
 when = [{ entity = "town", prop = "tool", equals = "clear" }]
-
-[[connect]]
-from_prefab = "well"
-signal = "tapped"
-to = "town"
-action = "add"
-prop = "coins"
-value = 2
-when = [{ entity = "town", prop = "tool", equals = "clear" }]
+actions = [{ action = "disable", to = "self" }, { action = "add", to = "town", prop = "coins", value = 2 }]
 
 # ---- the job: the banner says when the town is ready (and stops saying it
 # if something is cleared again)

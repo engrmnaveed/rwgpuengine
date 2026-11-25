@@ -87,4 +87,6 @@ crates ([ADR 0012](decisions/0012-pushable-entities-hold-plates.md)) are built a
 built ([ADR 0013](decisions/0013-first-reference-game-isometric-builder.md), M3.1), and accepted by cold-agent run #7
 (a farm builder: everything supported, 0 warnings, 8 min 44 s). Builder kit v2 adds the two gaps both games
 showed: a `refused` signal for placements and `counts` props
-([ADR 0014](decisions/0014-refusal-signal-and-count-props.md), M3.2).
+([ADR 0014](decisions/0014-refusal-signal-and-count-props.md), M3.2), accepted by run #8. Several actions per
+`[[connect]]` ([ADR 0015](decisions/0015-several-actions-per-connect.md), M3.3) cuts the wiring that run #8
+found to be the remaining cost.

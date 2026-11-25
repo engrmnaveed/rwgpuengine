@@ -72,6 +72,7 @@ pub fn formats_body(h: &str) -> String {
             &schema::TERRAIN,
             &schema::ENTITY,
             &schema::CONNECT,
+            &schema::ACTION,
             &schema::CONDITION,
         ],
     );
@@ -179,6 +180,12 @@ entity, it emits `changed`. Signals are dispatched first in, first out, each to 
 within the same step. `when` conditions are checked as the signal is dispatched, against the state at that
 moment (this step's positions and occupancy, plus the actions already applied in this step); if one fails,
 nothing is done and a `skipped` event names the condition and what was seen.
+
+**Several actions.** `actions = [{{ action = "set", to = "town", ... }}, {{ ... }}]` runs several actions for
+one signal, in order, as one `[[connect]]`: its `when` is checked once, before the first, so an earlier
+action cannot make a later one skip. If a `spawn` in the list cannot be placed, the actions after it do not
+run (each logs `skipped`, `stopped_by = "refused spawn"`), so `[spawn, pay]` pays only for what was placed.
+Every action logs its own `action` (or `skipped`) event, as separate connections would.
 
 **Counts.** `counts = {{ houses = "house" }}` gives an entity an integer prop `houses` that the engine keeps
 equal to the number of enabled `house` entities (placed in the scene or spawned). It is updated in the same
@@ -367,7 +374,7 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   plus one `[[terrain]]` per character: `char = "~"`, `name = "water"`, `color`, `build = false` where
   nothing may be built. Colors move to the terrains (`alt_color` is the checkerboard).
 - **Build by tapping the ground.** A tap on a ground cell that hits no entity makes the ground emit
-  `tapped`; `spawn` places a prefab there, and the new copy's `spawned` pays for it:
+  `tapped`; `spawn` places a prefab there, and the next action in the list pays for it:
 
   ```toml
   [[entity]]
@@ -376,24 +383,19 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   label = {{ text = "Coins: {{coins}}" }}
   props = {{ coins = 10 }}
 
-  [[connect]]                                  # tap the ground: a house there
+  [[connect]]                                  # tap the ground: a house there, paid for
   from = "ground"
   signal = "tapped"
-  action = "spawn"
-  prefab = "house"                             # prefabs/house.toml: footprint = [2, 2], block, solid
   when = [{{ entity = "town", prop = "coins", at_least = 3 }}]
-
-  [[connect]]                                  # pay only for houses really placed
-  from_prefab = "house"
-  signal = "spawned"
-  to = "town"
-  action = "add"
-  prop = "coins"
-  value = -3
+  actions = [
+    {{ action = "spawn", prefab = "house" }},    # prefabs/house.toml: footprint = [2, 2], block, solid
+    {{ action = "add", to = "town", prop = "coins", value = -3 }},  # runs only if the house was placed
+  ]
   ```
 
   The house's back corner goes on the tapped cell and it grows toward +x and +y. A refused placement (water,
-  a taken cell, the edge) spawns nothing, so nothing is paid; the `blocked` event says which cell failed.
+  a taken cell, the edge) spawns nothing and stops the list, so nothing is paid; the `blocked` event says
+  which cell failed. (Paying on the copy's `spawned` signal, `from_prefab = "house"`, works too.)
   A tap **on** a building hits the building (it emits `tapped`), not the ground, so no placement is tried
   there at all. An `occupied` refusal comes from a footprint that overlaps something (a 2 × 2 house tapped
   next to a wall), or a tap on visible ground of a taken cell (beside a thin post); `--place house@x,y`
@@ -401,10 +403,12 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
 - **Choose what to build (a toolbar).** Screen buttons `set` a prop: `from = "btn_tree" signal = "tapped"
   to = "town" action = "set" prop = "tool" value = "tree"`, and each spawn connection adds
   `{{ entity = "town", prop = "tool", equals = "tree" }}` to its `when`. Show the tool with a label
-  (`"Tool: {{tool}}"`).
-- **Remove what you tap (bulldoze, with a refund).** `from_prefab = "house" signal = "tapped" to = "self"
-  action = "disable"` plus `to = "town" action = "add" prop = "coins" value = 3`, both with
-  `when = [{{ entity = "town", prop = "tool", equals = "clear" }}]`. A disabled copy takes no space, so its
+  (`"Tool: {{tool}}"`). A button that does more (choose the tool *and* clear a hint) is one `[[connect]]`
+  with `actions = [{{ action = "set", to = "town", prop = "tool", value = "tree" }}, {{ action = "set",
+  to = "hint", prop = "msg", value = "" }}]`.
+- **Remove what you tap (bulldoze, with a refund).** `from_prefab = "house" signal = "tapped"` with
+  `when = [{{ entity = "town", prop = "tool", equals = "clear" }}]` and
+  `actions = [{{ action = "disable", to = "self" }}, {{ action = "add", to = "town", prop = "coins", value = 3 }}]`. A disabled copy takes no space, so its
   cells can be built on again (it stays in `inspect`, disabled).
 - **Count what was built, and say why nothing was.** `counts` keeps a prop equal to the enabled copies of a
   prefab (built, or cleared again), with no `[[connect]]` per build or removal; a refused placement makes
@@ -453,8 +457,9 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   Order is safe: the tap's own connections run first, and `refused` is a new signal dispatched after them, so
   the clearing never wipes the reason. "Not enough coins" is not a
   refusal (the spawn's `when` stopped it: `skipped`): give it its own `[[connect]]` on the ground's `tapped`
-  with the opposite condition (`{{ ..., prop = "coins", at_most = 2 }}`, plus the tool's condition). The
-  `when` is checked first, so with too few coins no placement is tried and no `refused` follows, even over
+  with the opposite condition (`{{ ..., prop = "coins", at_most = 2 }}`, plus the tool's condition), placed
+  **before** the spawn's `[[connect]]` in the file: connections on one signal run in file order, and after a
+  spawn that pays in its list the coins are already spent. The spawn's `when` is checked first, so with too few coins no placement is tried and no `refused` follows, even over
   water. A tap **on** a building hits the building, not the ground, so it is never refused either: to say
   "taken" there, add `from_prefab = "house" signal = "tapped" to = "hint" ...` with the build tool's
   condition (one per build tool, since `when` has no "not equal"; or keep a flag prop such as
@@ -606,7 +611,8 @@ and variables (`props` with `[[connect]]` `add`/`set`), conditions (`when` on `[
 connection, OR as several connections), a screen-space HUD (`screen_pos`), objects that hold pressure
 plates (`pushable` crates the player pushes), terrain maps (`[ground] map` + `[[terrain]]`), multi-cell
 objects (`footprint`), tapping the ground, building at runtime (`spawn` a prefab where the player taps,
-with placement rules; `from_prefab` wires every copy), removing what the player taps (`disable` the copy:
+with placement rules; `from_prefab` wires every copy), several actions for one signal (`actions = [...]`),
+removing what the player taps (`disable` the copy:
 it disappears and frees its cells), counting copies of a prefab (`counts`), and saying why a placement was
 refused (the ground emits `refused` with the reason). See the Recipes.
 
