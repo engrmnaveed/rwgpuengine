@@ -1,5 +1,5 @@
 [test]
-doc = "Placements that must be refused (water, beach, taken cells) and a purchase the player cannot afford."
+doc = "Placements that must be refused (water, beach, taken cells) and a purchase the player cannot afford, each with its hint."
 frames = 130
 
 [[input]]
@@ -138,3 +138,51 @@ props = { coins = 0 }
 event = "spawned"
 at_least = 6
 at_most = 6
+
+# The hint says why, every time: the ground's `refused` signal carries the
+# reason; the coins case is the spawn's own `when` turned around.
+[[expect]]
+frame = 10
+entity = "hint"
+text = "Build on grass!"
+
+[[expect]]
+frame = 20
+entity = "hint"
+text = "No room there!"
+
+[[expect]]
+frame = 30
+entity = "hint"
+text = "Build on grass!"
+
+[[expect]]
+frame = 50
+entity = "hint"
+text = ""
+
+[[expect]]
+frame = 60
+entity = "hint"
+text = "No room there!"
+
+[[expect]]
+frame = 90
+entity = "hint"
+text = ""
+
+[[expect]]
+frame = 60
+event = "signal"
+signal = "refused"
+at_least = 5
+at_most = 5
+
+[[expect]]
+entity = "hint"
+text = "A tree needs 1 coin"
+
+# The job card counted the copies by itself.
+[[expect]]
+entity = "job"
+props = { houses = 3, trees = 3, wells = 0 }

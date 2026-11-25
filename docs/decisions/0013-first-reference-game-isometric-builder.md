@@ -39,7 +39,8 @@ Two rules found while building it:
 ## Not built (listed in Limits)
 
 Rotation; dragging (rows, moving buildings); a signal on refused placements (so a game could say "can't build
-there"); terrain that blocks walking; deleting entities; cost tables. Tiny Town's scene has 26 `[[connect]]`
+there"; built in [ADR 0014](0014-refusal-signal-and-count-props.md)); terrain that blocks walking; deleting
+entities; cost tables. Tiny Town's scene has 26 `[[connect]]`
 tables, 9 of them the clear/refund wiring (3 per prefab): that is the evidence to watch for a later
 "per-prefab cost" or grouped-connection feature.
 
@@ -67,4 +68,5 @@ with 0 warnings. That is cold-agent run #7, offered as the next step.
   can now filter by `prefab`; the `[[terrain]]` and condition key tables are in AGENTS.md; the taken-cell and
   removal wording.
 - Its top feature requests match Tiny Town's gaps: a signal on refused placements, and conditions that count
-  copies of a prefab.
+  copies of a prefab. Both are built in [ADR 0014](0014-refusal-signal-and-count-props.md) (`refused`,
+  `counts`).

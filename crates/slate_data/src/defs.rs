@@ -189,7 +189,11 @@ pub struct EntityDef {
     pub label: Option<LabelDef>,
     /// Drawn on the screen at this pixel (top-left) instead of in the world.
     pub screen_pos: Option<[f32; 2]>,
+    /// Declared props, then one integer prop per `counts` entry.
     pub props: Vec<(String, PropValue)>,
+    /// `counts`: (prop, prefab). The engine keeps each prop equal to the
+    /// number of enabled copies of the prefab.
+    pub counts: Vec<(String, String)>,
     /// Warning codes intended for this entity (not reported).
     pub allow: Vec<String>,
     pub origin: Origin,
@@ -198,6 +202,11 @@ pub struct EntityDef {
 impl EntityDef {
     pub fn prop(&self, name: &str) -> Option<&PropValue> {
         self.props.iter().find(|(k, _)| k == name).map(|(_, v)| v)
+    }
+
+    /// The prefab a `counts` prop counts, if `name` is one.
+    pub fn counted(&self, name: &str) -> Option<&str> {
+        self.counts.iter().find(|(k, _)| k == name).map(|(_, p)| p.as_str())
     }
 
     /// The grid cell the entity stands on.
@@ -555,6 +564,7 @@ impl ConnectDef {
 /// One `when` item.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConditionDef {
+    /// Empty for a `reason` condition.
     pub entity: String,
     pub test: CondTest,
 }
@@ -563,7 +573,14 @@ pub struct ConditionDef {
 pub enum CondTest {
     Occupied(bool),
     Enabled(bool),
-    Prop { prop: String, equals: Option<PropValue>, at_least: Option<f64>, at_most: Option<f64> },
+    Prop {
+        prop: String,
+        equals: Option<PropValue>,
+        at_least: Option<f64>,
+        at_most: Option<f64>,
+    },
+    /// A `refused` signal's reason (no entity).
+    Reason(String),
 }
 
 impl ConditionDef {
@@ -575,6 +592,7 @@ impl ConditionDef {
             CondTest::Occupied(false) => format!("'{e}' not occupied"),
             CondTest::Enabled(true) => format!("'{e}' enabled"),
             CondTest::Enabled(false) => format!("'{e}' disabled"),
+            CondTest::Reason(r) => format!("reason '{r}'"),
             CondTest::Prop { prop, equals, at_least, at_most } => {
                 let mut tests = Vec::new();
                 if let Some(v) = equals {
@@ -716,6 +734,10 @@ pub(crate) fn decode_terrain(t: &Table) -> TerrainDef {
 pub(crate) fn decode_entity(t: &Table, pos: [f32; 3], origin: Origin) -> EntityDef {
     let f = Fields::new(t, &schema::ENTITY);
     let comp = |key: &str| f.table(key);
+    let counts: Vec<(String, String)> = f
+        .table("counts")
+        .map(|c| c.entries.iter().filter_map(|e| Some((e.key.clone(), e.value.as_str()?.to_string()))).collect())
+        .unwrap_or_default();
     EntityDef {
         name: f.opt_str("name"),
         prefab: f.opt_str("prefab"),
@@ -772,7 +794,16 @@ pub(crate) fn decode_entity(t: &Table, pos: [f32; 3], origin: Origin) -> EntityD
             }
         }),
         screen_pos: f.opt_vec2("screen_pos"),
-        props: f.table("props").map(decode_props).unwrap_or_default(),
+        props: {
+            let mut props = f.table("props").map(decode_props).unwrap_or_default();
+            // A clash with a declared prop stays visible (two entries) for
+            // `slate check`; the declared one comes first.
+            for (k, _) in &counts {
+                props.push((k.clone(), PropValue::Int(0)));
+            }
+            props
+        },
+        counts,
         allow: f.strs("allow"),
         origin,
     }
@@ -834,6 +865,8 @@ pub(crate) fn decode_condition(t: &Table) -> ConditionDef {
     let c = Fields::new(t, &schema::CONDITION);
     let test = if let Some(b) = t.bool("occupied") {
         CondTest::Occupied(b)
+    } else if let Some(r) = c.opt_str("reason") {
+        CondTest::Reason(r)
     } else if let Some(b) = t.bool("enabled") {
         CondTest::Enabled(b)
     } else {

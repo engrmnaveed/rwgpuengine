@@ -151,7 +151,10 @@ cell.
 the tapped cell for `from = "ground"`, else on the emitter's cell (its back corner there). Every covered cell
 must be inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there,
 solid, an actor or a trigger (data-only entities with just props take no space). Otherwise nothing is placed
-and a `blocked` event (`cause = "spawn"`, reason `edge`, `terrain` or `occupied`) names the cell that failed.
+and a `blocked` event (`cause = "spawn"`, reason `edge`, `terrain` or `occupied`) names the cell that failed;
+then the source of the signal (the ground, for ground taps; else the emitter) emits `refused` on that cell if
+a connection listens, and `when = [{{ reason = "terrain" }}]` picks one reason. A spawn stopped by its own
+`when` is `skipped`, not refused, and emits nothing.
 A new copy gets the next id (`#12 (house)`), has no name, and emits `spawned` if a connection listens.
 `from_prefab = "house"` listens to every copy of a prefab, placed or spawned, and `to = "self"` targets the
 copy that emitted. `slate inspect --place house@3,4` answers "can I build here?" at any frame (with a pixel
@@ -176,6 +179,12 @@ entity, it emits `changed`. Signals are dispatched first in, first out, each to 
 within the same step. `when` conditions are checked as the signal is dispatched, against the state at that
 moment (this step's positions and occupancy, plus the actions already applied in this step); if one fails,
 nothing is done and a `skipped` event names the condition and what was seen.
+
+**Counts.** `counts = {{ houses = "house" }}` gives an entity an integer prop `houses` that the engine keeps
+equal to the number of enabled `house` entities (placed in the scene or spawned). It is updated in the same
+step as the spawn, `disable`, `enable` or `toggle` that changes it, logged as a `counted` event, and its
+owner then emits `changed` (if a connection listens), so labels, `when` and `[[expect]] props` read it like
+any prop. `add`/`set` cannot change it.
 
 **Events.** Every step logs what happened and what was refused, with a sentence and structured fields.
 Read them with `slate inspect --events` or `slate run --events`; `slate explain events` prints this table.
@@ -307,7 +316,9 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
 - **Score or counter.** Keep the number in a prop and `add` to it:
   `props = {{ coins = 0 }}` on a `hud` entity, then
   `[[connect]] from = "coin1" signal = "collected" to = "hud" action = "add" prop = "coins"` (`value`
-  defaults to 1; `value = -1` subtracts). `set` replaces a value (`prop = "mode" value = "won"`).
+  defaults to 1; `value = -1` subtracts). `set` replaces a value (`prop = "mode" value = "won"`). To count
+  things in the world (houses built, coins not yet collected), use `counts` instead: no wiring at all (see
+  "Count what was built").
 - **Score on the screen (HUD).** An entity drawn at a fixed pixel with a backdrop and text:
 
   ```toml
@@ -394,6 +405,54 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   action = "disable"` plus `to = "town" action = "add" prop = "coins" value = 3`, both with
   `when = [{{ entity = "town", prop = "tool", equals = "clear" }}]`. A disabled copy takes no space, so its
   cells can be built on again (it stays in `inspect`, disabled).
+- **Count what was built, and say why nothing was.** `counts` keeps a prop equal to the enabled copies of a
+  prefab (built, or cleared again), with no `[[connect]]` per build or removal; a refused placement makes
+  the ground emit `refused` with its reason:
+
+  ```toml
+  [[entity]]
+  name = "job"
+  screen_pos = [8, 56]
+  label = {{ text = "Houses: {{houses}}/2" }}
+  counts = {{ houses = "house" }}              # enabled `house` copies, kept up to date
+
+  [[entity]]
+  name = "hint"
+  screen_pos = [8, 72]
+  label = {{ text = "{{msg}}" }}
+  props = {{ msg = "" }}
+
+  [[connect]]                                  # every ground tap starts with an empty hint
+  from = "ground"
+  signal = "tapped"
+  to = "hint"
+  action = "set"
+  prop = "msg"
+  value = ""
+
+  [[connect]]                                  # ...then a refused placement explains itself
+  from = "ground"
+  signal = "refused"
+  to = "hint"
+  action = "set"
+  prop = "msg"
+  value = "Build on grass!"
+  when = [{{ reason = "terrain" }}]            # also "occupied" (a cell is taken), "edge"
+
+  [[connect]]                                  # act on the count
+  from = "job"
+  signal = "changed"
+  to = "hint"
+  action = "set"
+  prop = "msg"
+  value = "Town is ready!"
+  when = [{{ entity = "job", prop = "houses", at_least = 2 }}]
+  ```
+
+  Order is safe: the tap's own connections run first, and `refused` is a new signal dispatched after them, so
+  the clearing never wipes the reason. "Not enough coins" is not a
+  refusal (the spawn's `when` stopped it: `skipped`): give it its own `[[connect]]` on the ground's `tapped`
+  with the opposite condition (`{{ ..., prop = "coins", at_most = 2 }}`, plus the tool's condition).
 - **Where can I tap to build?** `slate inspect --place house` lists every cell where a house fits right now,
   each with a `tap` pixel for `[[input]] tap`; `--place house@3,4` says whether it fits there and why not.
   Add `--input tests/x.toml --frame N` to ask after some building. A cell hidden behind a building has no
@@ -404,7 +463,8 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   Prove "could not afford it" with `event = "skipped"` + `prefab = "house"`: a skipped spawn's message names
   the condition that failed. Other tools' taps also skip the house spawn (the tool condition fails), so check
   the count just before and just after the tap (`at_most = N` at the tap's frame, `at_least = N + 1` one frame
-  later), with the House tool selected.
+  later), with the House tool selected. Prove a hint with `[[expect]] entity = "hint"` + `text` a frame after
+  the tap, and a count with `props = {{ houses = 2 }}`.
 
 ## Tips
 
@@ -540,8 +600,9 @@ and variables (`props` with `[[connect]]` `add`/`set`), conditions (`when` on `[
 connection, OR as several connections), a screen-space HUD (`screen_pos`), objects that hold pressure
 plates (`pushable` crates the player pushes), terrain maps (`[ground] map` + `[[terrain]]`), multi-cell
 objects (`footprint`), tapping the ground, building at runtime (`spawn` a prefab where the player taps,
-with placement rules; `from_prefab` wires every copy), and removing what the player taps (`disable` the copy:
-it disappears and frees its cells). See the Recipes.
+with placement rules; `from_prefab` wires every copy), removing what the player taps (`disable` the copy:
+it disappears and frees its cells), counting copies of a prefab (`counts`), and saying why a placement was
+refused (the ground emits `refused` with the reason). See the Recipes.
 
 | not in this version | what you can do instead (and what it costs) |
 |---|---|
@@ -553,7 +614,7 @@ it disappears and frees its cells). See the Recipes.
 | **Image sprites, audio, animation** | Shapes only (`circle`, `rect`, `diamond`), colors, blocks, tiles and text. |
 | **Rotation, scrolling camera** | Footprints are fixed: a 2 x 3 building is always 2 along x and 3 along y (make a second prefab for the turned one). The camera is fixed per scene. |
 | **Dragging** (drag to build a row, drag to move a building) | Taps only: one tap, one `spawn`. Moving a building is clear (disable) and build again. |
-| **Feedback when a placement is refused** (a "can't build there" message or sound) | A refused spawn logs `blocked` but emits no signal, so the game cannot react to it. Show costs and rules up front (button labels); "not enough coins" can be its own `[[connect]]` on the ground's `tapped` with `when = [{ ..., prop = "coins", at_most = 2 }]`. |
+| **A signal when a `when` stops something** ("not enough coins" as an event the game reacts to) | `skipped` is logged but emits nothing. Write the opposite case as its own `[[connect]]` on the same signal (`when = [{ ..., prop = "coins", at_most = 2 }]`). Refused *placements* do emit `refused`. |
 | **Terrain that blocks walking** | `build = false` only stops spawning; movers walk on every terrain. Put solid entities (`cells = [...]`) where they must not walk. |
 | **Deleting entities from the world's list** (removing what the player taps *is* supported, see above) | `disable` is the removal: a disabled copy takes no space, is not drawn and cannot be tapped, but stays in `inspect` (and keeps its id). |
 | **Rust game code in a `slate new` project** | The engine supports Rust systems (`Game` trait), but `slate new` makes data-only projects and the CLI cannot load Rust code yet. Everything above is data. |
@@ -563,7 +624,9 @@ Behaviours worth knowing:
 - Enabling a solid entity on a cell where an actor stands does not push the actor out; it overlaps until the
   actor leaves.
 - `changed` is only emitted when some `[[connect]]` listens to it, and only when the value really changes; the
-  same goes for `spawned`.
+  same goes for `spawned` and `refused`.
+- A `counts` prop counts enabled copies anywhere, including ones on the screen (`screen_pos`); a disabled copy
+  does not count.
 - A tap on bare ground is a miss (`tap_miss`, with the `cell`) unless a `[[connect]] from = "ground"` listens.
 "##;
 
@@ -608,7 +671,7 @@ mod tests {
             .skip(1)
             .map(|b| b[..b.find("```").unwrap()].lines().map(str::trim_start).collect::<Vec<_>>().join("\n"))
             .collect();
-        assert_eq!(snippets.len(), 3, "AND door, HUD and builder");
+        assert_eq!(snippets.len(), 4, "AND door, HUD, builder, counts and hints");
         let base = r##"
 [ground]
 size = [4, 4]

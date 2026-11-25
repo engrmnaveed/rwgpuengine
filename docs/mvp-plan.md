@@ -84,4 +84,6 @@ Data logic v1 (M1.6, [ADR 0011](decisions/0011-game-logic-data-first-rust-escape
 crates ([ADR 0012](decisions/0012-pushable-entities-hold-plates.md)) are built and accepted by cold-agent runs
 #5 and #6. Q3 is decided: the first reference game is the isometric builder Tiny Town, and builder kit v1 is
 built ([ADR 0013](decisions/0013-first-reference-game-isometric-builder.md), M3.1), and accepted by cold-agent run #7
-(a farm builder: everything supported, 0 warnings, 8 min 44 s).
+(a farm builder: everything supported, 0 warnings, 8 min 44 s). Builder kit v2 adds the two gaps both games
+showed: a `refused` signal for placements and `counts` props
+([ADR 0014](decisions/0014-refusal-signal-and-count-props.md), M3.2).

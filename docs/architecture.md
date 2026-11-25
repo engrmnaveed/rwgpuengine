@@ -85,7 +85,8 @@ generates JSON Schemas, the reference docs and `slate explain <component>`; one 
 "Fat" entities (ADR 0006): one `Entity` struct with optional built-in components (`tile`, `block`,
 `sprite`, `label`, `mover`, `patrol`, `wander`, `trigger`), an optional `screen_pos` (HUD entities), a
 `footprint` (cells covered from `pos` toward +x/+y, default 1 × 1) and a `props` map. Props are runtime state with types fixed by their declared starting values: `[[connect]]`
-`add`/`set` change them, `when` conditions and label placeholders read them (ADR 0011). Entity ids are their
+`add`/`set` change them, `when` conditions and label placeholders read them (ADR 0011); `counts` props are
+kept equal to the number of enabled copies of a prefab by the engine (ADR 0014). Entity ids are their
 index in scene order — stable for a given file, usable in scripts and tests. Entities made at runtime by a
 `spawn` action get the next ids in spawn order and no name; there is no deletion (disabled entities keep their
 ids). The world also holds the ground (size, and a terrain per cell when the scene has a `map`) and the spawn
@@ -113,14 +114,17 @@ templates (the prefabs `spawn` actions name, decoded at load time), so placement
    emitter. Each queued signal carries a cell (the tapped cell, or the emitter's), which `spawn` builds on
    after checking placement (inside the ground, buildable terrain, no entity taking up a cell). A prop that
    really changes makes its owner emit `changed`, and a new copy emits `spawned` (queued at the back, same
-   step), if a connection listens.
+   step), if a connection listens. A refused placement makes the signal's source (the ground, or the emitter)
+   emit `refused` with the reason, which `when = [{ reason = ... }]` tests. After every spawn, enable,
+   disable or toggle (and once before dispatch, for custom systems), `counts` props are brought up to date:
+   each change logs `counted` and makes its owner emit `changed` (ADR 0014).
 
 Then `frame += 1`. Frame N is the state after N steps; input scheduled at frame N is applied by step N.
 
 ### The event log
 
 Every step appends structured events — `input tap tap_miss moved blocked trigger signal action skipped
-error custom` — each with a complete sentence and fields. Refusals are first-class: a `blocked` event says
+spawned counted error custom` — each with a complete sentence and fields. Refusals are first-class: a `blocked` event says
 which solid, actor, edge, area or cooldown stopped a move; a `signal` with zero connections says which
 `[[connect]]` to add; a `skipped` event names the `when` condition that failed and what was seen; a
 `tap_miss` names the disabled entity under the finger. `action` events carry prop values before and after.
@@ -173,7 +177,7 @@ Isometric projection: `sx = ox + (x − y)·tw/2`, `sy = oy + (x + y)·th/2 − 
 
 ## The web player
 
-ADR 0008. `slate_web` compiles to a wasm module with zero imports (640,798 bytes after M3.1; budget 700,000). `web/player.js` (no framework,
+ADR 0008. `slate_web` compiles to a wasm module with zero imports (657,498 bytes after M3.2; budget 700,000). `web/player.js` (no framework,
 no build step) loads it, fetches the project as a bundle (`path\0text\0…`), steps at the project's
 tick rate, and paints the CPU-rendered frame with `putImageData`. `slate serve` (std-only HTTP) rebuilds
 the bundle from disk per request; the page polls a content hash and reloads on change, showing

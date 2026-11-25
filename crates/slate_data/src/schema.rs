@@ -49,6 +49,8 @@ pub enum Ty {
     Codes,
     /// Non-empty list of strings (map rows).
     Strs,
+    /// Table of prop name -> prefab name (`counts`).
+    Counts,
     Table(&'static Spec),
     /// Array of tables (`[[name]]` sections).
     Tables(&'static Spec),
@@ -105,13 +107,15 @@ pub const ACTIONS: &[&str] = &["up", "down", "left", "right", "confirm", "cancel
 pub const CONNECT_ACTIONS: &[&str] = &["enable", "disable", "toggle", "add", "set", "spawn"];
 /// Kinds of entries in the event log.
 pub const EVENT_KINDS: &[&str] = &[
-    "input", "tap", "tap_miss", "moved", "blocked", "trigger", "signal", "action", "skipped", "spawned", "error",
-    "custom",
+    "input", "tap", "tap_miss", "moved", "blocked", "trigger", "signal", "action", "skipped", "spawned", "counted",
+    "error", "custom",
 ];
 pub const SPRITE_SHAPES: &[&str] = &["circle", "rect", "diamond"];
 pub const PATROL_MODES: &[&str] = &["loop", "pingpong"];
 /// Why a move was refused (the `reason` of `blocked` events).
 pub const BLOCK_REASONS: &[&str] = &["solid", "actor", "edge", "area", "cooldown", "push", "terrain", "occupied"];
+/// Why a `spawn` could not be placed (the `reason` of `refused` signals).
+pub const REFUSE_REASONS: &[&str] = &["edge", "terrain", "occupied"];
 /// Names that refer to something other than an entity in `[[connect]]`.
 pub const RESERVED_NAMES: &[&str] = &["ground", "self"];
 
@@ -319,6 +323,7 @@ pub static ENTITY: Spec = Spec {
         F_LABEL,
         F_SCREEN_POS,
         F_PROPS,
+        F_COUNTS,
         F_ALLOW,
     ],
 };
@@ -343,6 +348,7 @@ pub static PREFAB_FILE: Spec = Spec {
         F_LABEL,
         F_SCREEN_POS,
         F_PROPS,
+        F_COUNTS,
         F_ALLOW,
     ],
 };
@@ -398,6 +404,15 @@ const F_PROPS: Field = opt(
     "Game data: numbers, text and flags, e.g. `{ score = 0 }`. A prop's type is fixed by its starting value. \
      `[[connect]]` `add`/`set` change props at runtime, `when` conditions and label `{placeholders}` read them, \
      `inspect` shows them and `[[expect]] props` checks them.",
+);
+const F_COUNTS: Field = opt(
+    "counts",
+    Ty::Counts,
+    None,
+    "Props that count enabled copies of a prefab, kept up to date by the engine: `counts = { houses = \"house\" }` \
+     makes `houses` an integer prop equal to the number of enabled `house` entities (placed in the scene or \
+     spawned). It changes when a copy is spawned, disabled or enabled again; the entity then emits `changed`, so \
+     labels, `when` conditions and `[[expect]] props` read it like any prop. `add`/`set` cannot change it.",
 );
 const F_ALLOW: Field = opt(
     "allow",
@@ -524,16 +539,17 @@ pub static CONNECT: Spec = Spec {
     title: "[[connect]]",
     doc: "When `from` emits `signal`, apply `action` to `to`, if every `when` condition holds. Every entity emits \
           `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` \
-          emits `changed`; a spawned entity emits `spawned`. `from = \"ground\"` listens to taps on ground cells \
-          that hit no entity; `from_prefab` listens to every entity made from a prefab, and `to = \"self\"` then \
-          targets the one that emitted.",
+          (or whose `counts` change) emits `changed`; a spawned entity emits `spawned`; when a `spawn` cannot be \
+          placed, the source of its signal emits `refused`. `from = \"ground\"` listens to taps on ground cells \
+          that hit no entity (and to their refused spawns); `from_prefab` listens to every entity made from a \
+          prefab, and `to = \"self\"` then targets the one that emitted.",
     fields: &[
         opt(
             "from",
             Ty::Name,
             None,
-            "Name of the emitting entity, or `ground` for taps on empty ground cells (signal `tapped`). Use \
-             exactly one of `from` and `from_prefab`.",
+            "Name of the emitting entity, or `ground` for taps on empty ground cells (signals `tapped`, and \
+             `refused` when a spawn it started cannot be placed). Use exactly one of `from` and `from_prefab`.",
         ),
         opt(
             "from_prefab",
@@ -542,7 +558,7 @@ pub static CONNECT: Spec = Spec {
             "Listen to every entity made from this prefab, placed in the scene or spawned later: \
              `from_prefab = \"coin\"` instead of one [[connect]] per coin.",
         ),
-        req("signal", Ty::Name, "Signal name, e.g. `pressed`, `released`, `tapped`, `changed`, `spawned`."),
+        req("signal", Ty::Name, "Signal name, e.g. `pressed`, `released`, `tapped`, `changed`, `spawned`, `refused`."),
         opt(
             "to",
             Ty::Name,
@@ -572,7 +588,8 @@ pub static CONNECT: Spec = Spec {
              cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain \
              with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger \
              (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, \
-             reason `edge`, `terrain` or `occupied`).",
+             reason `edge`, `terrain` or `occupied`) and the source of the signal (the ground, for ground taps) \
+             emits `refused` on that cell, if a [[connect]] listens.",
         ),
         opt(
             "when",
@@ -590,9 +607,11 @@ pub static CONDITION: Spec = Spec {
     doc: "One item of a `[[connect]]` `when` list, checked against the current state when the signal arrives. \
           Names an `entity` and exactly one of `occupied`, `enabled` or `prop`: \
           `{ entity = \"plate_b\", occupied = true }`, `{ entity = \"gate\", enabled = false }`, \
-          `{ entity = \"hud\", prop = \"coins\", at_least = 3 }`.",
+          `{ entity = \"hud\", prop = \"coins\", at_least = 3 }` (a `counts` prop counts copies: \
+          `{ entity = \"job\", prop = \"houses\", at_least = 2 }`). On `signal = \"refused\"` only, \
+          `{ reason = \"terrain\" }` (no entity) picks one reason.",
     fields: &[
-        req("entity", Ty::Name, "The entity to look at, by name."),
+        opt("entity", Ty::Name, None, "The entity to look at, by name. Required, except in a `reason` condition."),
         opt(
             "occupied",
             Ty::Bool,
@@ -605,6 +624,13 @@ pub static CONDITION: Spec = Spec {
         opt("equals", Ty::Scalar, None, "With `prop`: the prop has exactly this value."),
         opt("at_least", ANY_NUM, None, "With `prop`: the number prop is ≥ this."),
         opt("at_most", ANY_NUM, None, "With `prop`: the number prop is ≤ this."),
+        opt(
+            "reason",
+            Ty::Enum(REFUSE_REASONS),
+            None,
+            "Only with `signal = \"refused\"`, and alone: the spawn was refused for this reason (outside the ground, \
+             terrain with `build = false`, or a taken cell).",
+        ),
     ],
 };
 
@@ -796,6 +822,7 @@ impl Ty {
             Ty::Scalar => "a boolean, number or string".into(),
             Ty::Codes => "a list of warning codes like [\"W0201\"]".into(),
             Ty::Strs => "a list of strings like [\"ggw\", \"gww\"]".into(),
+            Ty::Counts => "a table of prop names to prefab names like { houses = \"house\" }".into(),
             Ty::Table(spec) => format!("a table ({})", spec.title),
             Ty::Tables(spec) => format!("an array of tables ({})", spec.title),
             Ty::List(spec) => format!("a list of inline tables like [{{ ... }}] ({})", spec.title),
@@ -823,6 +850,7 @@ impl Ty {
             Ty::Scalar => "bool \\| number \\| string".into(),
             Ty::Codes => "[\"W....\", ...]".into(),
             Ty::Strs => "[\"...\", ...]".into(),
+            Ty::Counts => "table: prop = \"prefab\"".into(),
             Ty::Table(spec) => format!("table: {}", spec.id),
             Ty::Tables(spec) => format!("[[{}]]", spec.title.trim_matches(['[', ']'])),
             Ty::List(spec) => format!("[{{ {} }}, ...]", spec.id),
@@ -1026,6 +1054,16 @@ impl Checker<'_> {
                     ok
                 }
                 _ => wrong_type(self),
+            },
+            Ty::Counts => match node.as_table() {
+                None => wrong_type(self),
+                Some(t) => {
+                    let mut ok = true;
+                    for e in &t.entries {
+                        ok &= self.value(&e.value, &Ty::Name, &format!("{label}.{}", e.key));
+                    }
+                    ok
+                }
             },
             Ty::Props => match node.as_table() {
                 None => wrong_type(self),
@@ -1262,6 +1300,9 @@ fn ty_schema(ty: &Ty) -> Json {
             .with("type", "array")
             .with("items", Json::object().with("type", "string"))
             .with("minItems", 1),
+        Ty::Counts => Json::object()
+            .with("type", "object")
+            .with("additionalProperties", Json::object().with("type", "string").with("pattern", "^[A-Za-z0-9_/-]+$")),
         Ty::Props => Json::object().with("type", "object").with(
             "additionalProperties",
             Json::object()

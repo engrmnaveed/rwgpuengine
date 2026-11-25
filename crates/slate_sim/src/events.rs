@@ -31,13 +31,15 @@ pub enum EventKind {
     Skipped,
     /// A `spawn` action placed a new entity.
     Spawned,
+    /// A `counts` prop changed (copies were spawned, disabled or enabled).
+    Counted,
     Error,
     /// Logged by Rust game code.
     Custom,
 }
 
 impl EventKind {
-    pub const ALL: [EventKind; 12] = [
+    pub const ALL: [EventKind; 13] = [
         EventKind::Input,
         EventKind::Tap,
         EventKind::TapMiss,
@@ -48,6 +50,7 @@ impl EventKind {
         EventKind::Action,
         EventKind::Skipped,
         EventKind::Spawned,
+        EventKind::Counted,
         EventKind::Error,
         EventKind::Custom,
     ];
@@ -64,6 +67,7 @@ impl EventKind {
             EventKind::Action => "action",
             EventKind::Skipped => "skipped",
             EventKind::Spawned => "spawned",
+            EventKind::Counted => "counted",
             EventKind::Error => "error",
             EventKind::Custom => "custom",
         }
@@ -128,7 +132,9 @@ pub const EVENT_DOCS: &[EventDoc] = &[
         meaning: "A move or a placement was refused. For moves, `reason`: solid, actor, edge, area, cooldown, or \
                   push (the pushable in the way could not move: `push_blocked` says why). For a `spawn` \
                   (`cause = \"spawn\"`): edge (a cell outside the ground), terrain (a cell whose terrain has \
-                  `build = false`) or occupied (an enabled entity covers a cell); `cell` is the cell that failed.",
+                  `build = false`) or occupied (an enabled entity covers a cell); `cell` is the cell that failed. \
+                  When a [[connect]] listens, the source of the spawn's signal (the ground, for ground taps) then \
+                  emits `refused` on `at` (`signal = \"refused\"` here).",
     },
     EventDoc {
         kind: EventKind::Trigger,
@@ -141,8 +147,10 @@ pub const EVENT_DOCS: &[EventDoc] = &[
         kind: EventKind::Signal,
         subject: "the emitter",
         other: "—",
-        fields: "signal, connections",
-        meaning: "A signal was dispatched to this many `[[connect]]` tables (0 = nothing listens).",
+        fields: "signal, connections; reason (for `refused`)",
+        meaning: "A signal was dispatched to this many `[[connect]]` tables (0 = nothing listens). A `refused` \
+                  signal carries the spawn's `reason` (edge, terrain or occupied), which `when = [{ reason = ... }]` \
+                  tests.",
     },
     EventDoc {
         kind: EventKind::Action,
@@ -170,6 +178,15 @@ pub const EVENT_DOCS: &[EventDoc] = &[
         meaning: "A `spawn` action placed a new copy of `prefab` with its back corner on `cell`, covering `cells`. \
                   It gets the next free id (`#N (prefab)` in messages) and emits `spawned` if a [[connect]] \
                   listens (`from_prefab`).",
+    },
+    EventDoc {
+        kind: EventKind::Counted,
+        subject: "the entity whose `counts` prop changed",
+        other: "—",
+        fields: "prop, prefab, before, after",
+        meaning: "A `counts` prop now has a new number of enabled `prefab` copies, because a copy was spawned, \
+                  disabled or enabled. The message says which; the entity then emits `changed` if a [[connect]] listens (once when several \
+                  of its counts change together).",
     },
     EventDoc {
         kind: EventKind::Error,

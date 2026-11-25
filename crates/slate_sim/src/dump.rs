@@ -114,6 +114,13 @@ pub fn entity_json(world: &World, e: &Entity) -> Json {
         props.set(k, prop_json(v));
     }
     j.set("props", props);
+    if !e.counts.is_empty() {
+        let mut counts = Json::object();
+        for (k, p) in &e.counts {
+            counts.set(k, p.as_str());
+        }
+        j.set("counts", counts);
+    }
     if !e.allow.is_empty() {
         j.set("allow", Json::Arr(e.allow.iter().map(Json::from).collect()));
     }

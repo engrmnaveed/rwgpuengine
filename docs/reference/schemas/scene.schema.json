@@ -388,6 +388,14 @@
             },
             "description": "Game data: numbers, text and flags, e.g. `{ score = 0 }`. A prop's type is fixed by its starting value. `[[connect]]` `add`/`set` change props at runtime, `when` conditions and label `{placeholders}` read them, `inspect` shows them and `[[expect]] props` checks them."
           },
+          "counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_/-]+$"
+            },
+            "description": "Props that count enabled copies of a prefab, kept up to date by the engine: `counts = { houses = \"house\" }` makes `houses` an integer prop equal to the number of enabled `house` entities (placed in the scene or spawned). It changes when a copy is spawned, disabled or enabled again; the entity then emits `changed`, so labels, `when` conditions and `[[expect]] props` read it like any prop. `add`/`set` cannot change it."
+          },
           "allow": {
             "type": "array",
             "items": {
@@ -405,12 +413,12 @@
       "type": "array",
       "items": {
         "type": "object",
-        "description": "When `from` emits `signal`, apply `action` to `to`, if every `when` condition holds. Every entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` emits `changed`; a spawned entity emits `spawned`. `from = \"ground\"` listens to taps on ground cells that hit no entity; `from_prefab` listens to every entity made from a prefab, and `to = \"self\"` then targets the one that emitted.",
+        "description": "When `from` emits `signal`, apply `action` to `to`, if every `when` condition holds. Every entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` (or whose `counts` change) emits `changed`; a spawned entity emits `spawned`; when a `spawn` cannot be placed, the source of its signal emits `refused`. `from = \"ground\"` listens to taps on ground cells that hit no entity (and to their refused spawns); `from_prefab` listens to every entity made from a prefab, and `to = \"self\"` then targets the one that emitted.",
         "properties": {
           "from": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_/-]+$",
-            "description": "Name of the emitting entity, or `ground` for taps on empty ground cells (signal `tapped`). Use exactly one of `from` and `from_prefab`."
+            "description": "Name of the emitting entity, or `ground` for taps on empty ground cells (signals `tapped`, and `refused` when a spawn it started cannot be placed). Use exactly one of `from` and `from_prefab`."
           },
           "from_prefab": {
             "type": "string",
@@ -420,7 +428,7 @@
           "signal": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_/-]+$",
-            "description": "Signal name, e.g. `pressed`, `released`, `tapped`, `changed`, `spawned`."
+            "description": "Signal name, e.g. `pressed`, `released`, `tapped`, `changed`, `spawned`, `refused`."
           },
           "to": {
             "type": "string",
@@ -443,18 +451,18 @@
           "prefab": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_/-]+$",
-            "description": "With `spawn`: the prefab to place. It goes on the tapped cell (`from = \"ground\"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`)."
+            "description": "With `spawn`: the prefab to place. It goes on the tapped cell (`from = \"ground\"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`) and the source of the signal (the ground, for ground taps) emits `refused` on that cell, if a [[connect]] listens."
           },
           "when": {
             "type": "array",
             "items": {
               "type": "object",
-              "description": "One item of a `[[connect]]` `when` list, checked against the current state when the signal arrives. Names an `entity` and exactly one of `occupied`, `enabled` or `prop`: `{ entity = \"plate_b\", occupied = true }`, `{ entity = \"gate\", enabled = false }`, `{ entity = \"hud\", prop = \"coins\", at_least = 3 }`.",
+              "description": "One item of a `[[connect]]` `when` list, checked against the current state when the signal arrives. Names an `entity` and exactly one of `occupied`, `enabled` or `prop`: `{ entity = \"plate_b\", occupied = true }`, `{ entity = \"gate\", enabled = false }`, `{ entity = \"hud\", prop = \"coins\", at_least = 3 }` (a `counts` prop counts copies: `{ entity = \"job\", prop = \"houses\", at_least = 2 }`). On `signal = \"refused\"` only, `{ reason = \"terrain\" }` (no entity) picks one reason.",
               "properties": {
                 "entity": {
                   "type": "string",
                   "pattern": "^[A-Za-z0-9_/-]+$",
-                  "description": "The entity to look at, by name."
+                  "description": "The entity to look at, by name. Required, except in a `reason` condition."
                 },
                 "occupied": {
                   "type": "boolean",
@@ -480,9 +488,12 @@
                 "at_most": {
                   "type": "number",
                   "description": "With `prop`: the number prop is ≤ this."
+                },
+                "reason": {
+                  "enum": ["edge", "terrain", "occupied"],
+                  "description": "Only with `signal = \"refused\"`, and alone: the spawn was refused for this reason (outside the ground, terrain with `build = false`, or a taken cell)."
                 }
               },
-              "required": ["entity"],
               "additionalProperties": false
             },
             "description": "Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`."

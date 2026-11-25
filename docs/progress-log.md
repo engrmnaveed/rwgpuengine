@@ -3,6 +3,27 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Builder kit v2: `refused` and `counts` (M3.2)
+
+- Built the two gaps that Tiny Town and run #7 both showed
+  ([ADR 0014](decisions/0014-refusal-signal-and-count-props.md)):
+  - **`refused`**: a placement that fails makes the signal's source emit `refused` (the ground, for ground
+    taps). `when = [{ reason = "terrain" }]` picks one reason (`edge`, `terrain`, `occupied`).
+  - **`counts`**: `counts = { houses = "house" }` is an integer prop the engine keeps equal to the number of
+    enabled copies. It updates in the step that changes it, logs `counted` and emits `changed`.
+- Chose a count *prop* over the requested count *condition* on KPIs. A condition alone has nothing to
+  re-check on after a removal, and file order would decide what it sees. It also cannot be shown in a label.
+  A prop fixes both and adds no new condition kind.
+- A `when` failure ("not enough coins") is still `skipped`, not `refused`. In a toolbar game every other
+  tool's spawn is skipped on each tap, so a signal there would fire constantly.
+- Tiny Town:
+  - the job card is `counts` (6 counting connections → 0);
+  - a hint line says "Build on grass!", "No room there!" or "A house needs 3 coins";
+  - 23 expects in `refusals` (up from 14);
+  - two mutation checks fail exactly the expectations that cover them.
+- Old examples keep their exact hashes. Tiny Town native = web on all three playtests. Wasm 657,498 bytes
+  (+15.7 KB). `get_mut` instead of `BTreeMap::insert` saved 3.2 KB of map code.
+
 ## 2026-11-25 — Cold-agent test #7: a farm builder, accepted
 
 - A new builder task (pond and path terrain, a 3 × 2 barn, crops, fences, seeds on screen, remove with refund,

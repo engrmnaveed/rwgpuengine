@@ -906,3 +906,230 @@ fn spawning_is_deterministic_and_hashed() {
     assert_ne!(idle, w2.state_hash(), "a spawned entity changes the hash");
     assert_ne!(before, idle);
 }
+
+// ---------------------------------------------------------------------------
+// Builder kit v2 (ADR 0014): refusal signals and count props
+
+const FEEDBACK: &str = r##"
+[ground]
+map = ["ggggg", "ggggw", "ggggg"]
+
+[[terrain]]
+char = "g"
+name = "grass"
+
+[[terrain]]
+char = "w"
+name = "water"
+build = false
+
+[[entity]]
+name = "hint"
+props = { msg = "" }
+
+[[entity]]
+name = "job"
+counts = { houses = "house", flowers = "flower" }
+props = { ready = false }
+
+[[entity]]
+prefab = "flower"
+cells = [[2, 2], [3, 2]]
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+to = "hint"
+action = "set"
+prop = "msg"
+value = ""
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "house"
+when = [{ entity = "job", prop = "houses", at_most = 1 }]
+
+[[connect]]
+from = "ground"
+signal = "refused"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "no room"
+when = [{ reason = "occupied" }]
+
+[[connect]]
+from = "ground"
+signal = "refused"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "not on water"
+when = [{ reason = "terrain" }]
+
+[[connect]]
+from = "ground"
+signal = "refused"
+to = "hint"
+action = "set"
+prop = "msg"
+value = "off the edge"
+when = [{ reason = "edge" }]
+
+[[connect]]
+from = "job"
+signal = "changed"
+to = "job"
+action = "set"
+prop = "ready"
+value = true
+when = [{ entity = "job", prop = "houses", at_least = 2 }]
+
+[[connect]]
+from_prefab = "flower"
+signal = "tapped"
+to = "self"
+action = "toggle"
+"##;
+
+fn feedback() -> World {
+    let mut vfs = Vfs::new();
+    vfs.insert("scenes/main.toml", FEEDBACK);
+    vfs.insert("prefabs/house.toml", "footprint = [2, 2]\nblock = {}\nsolid = true\n");
+    vfs.insert("prefabs/flower.toml", "sprite = {}\n");
+    let mut loader = SceneLoader::new(&vfs);
+    let def = loader.load_scene("scenes/main.toml").unwrap_or_else(|| panic!("{:#?}", loader.diags));
+    World::new(&def, 1)
+}
+
+fn prop(w: &World, name: &str, prop: &str) -> PropValue {
+    w.by_name(name).and_then(|e| e.props.get(prop)).cloned().unwrap_or(PropValue::Int(-1))
+}
+
+fn this_frame(w: &World, kind: EventKind) -> Vec<String> {
+    let f = w.frame - 1;
+    w.events.all().iter().filter(|e| e.frame == f && e.kind == kind).map(|e| e.message.clone()).collect()
+}
+
+#[test]
+fn refused_spawns_emit_refused_with_their_reason() {
+    let mut w = feedback();
+    let msg = |w: &World| prop(w, "hint", "msg");
+    // Reaches the water at (4, 1).
+    w.tick(&ground_tap([3, 0]), &mut NoSystems);
+    assert_eq!(msg(&w), PropValue::Str("not on water".into()));
+    let blocked = last(&w, EventKind::Blocked);
+    assert!(blocked.ends_with("; the ground emits 'refused'"), "{blocked}");
+    let signal = this_frame(&w, EventKind::Signal);
+    assert!(
+        signal.iter().any(|m| m == "the ground emitted 'refused' (reason 'terrain') to 3 connection(s)"),
+        "{signal:?}"
+    );
+    let skipped = this_frame(&w, EventKind::Skipped);
+    assert_eq!(skipped.len(), 2, "{skipped:?}");
+    assert!(skipped[0].contains("reason 'occupied' does not hold (the reason is 'terrain')"), "{skipped:?}");
+    // Off the right edge at (5, 2).
+    w.tick(&ground_tap([4, 2]), &mut NoSystems);
+    assert_eq!(msg(&w), PropValue::Str("off the edge".into()));
+    // A flower is in the way.
+    w.tick(&ground_tap([1, 1]), &mut NoSystems);
+    assert_eq!(msg(&w), PropValue::Str("no room".into()));
+    // A house that fits clears the hint, and nothing is refused.
+    w.tick(&ground_tap([0, 0]), &mut NoSystems);
+    assert_eq!(msg(&w), PropValue::Str(String::new()));
+    assert!(this_frame(&w, EventKind::Blocked).is_empty());
+    // A `when` that stops the spawn is not a refusal: a third house is skipped.
+    w.tick(&ground_tap([2, 0]), &mut NoSystems);
+    w.tick(&ground_tap([0, 2]), &mut NoSystems);
+    assert_eq!(prop(&w, "job", "houses"), PropValue::Int(2));
+    let skipped = this_frame(&w, EventKind::Skipped);
+    assert!(skipped.iter().any(|m| m.contains("spawn 'house' at (0, 2) skipped")), "{skipped:?}");
+    assert!(!this_frame(&w, EventKind::Signal).iter().any(|m| m.contains("'refused'")));
+}
+
+#[test]
+fn an_entity_that_starts_a_spawn_emits_refused() {
+    let scene = r##"
+[ground]
+size = [3, 3]
+
+[[entity]]
+name = "planter"
+pos = [1, 1]
+sprite = {}
+props = { tries = 0 }
+
+[[connect]]
+from = "planter"
+signal = "tapped"
+action = "spawn"
+prefab = "tree"
+
+[[connect]]
+from = "planter"
+signal = "refused"
+to = "self"
+action = "add"
+prop = "tries"
+"##;
+    let mut vfs = Vfs::new();
+    vfs.insert("scenes/main.toml", scene);
+    vfs.insert("prefabs/tree.toml", "sprite = {}\n");
+    let mut loader = SceneLoader::new(&vfs);
+    let def = loader.load_scene("scenes/main.toml").unwrap_or_else(|| panic!("{:#?}", loader.diags));
+    let mut w = World::new(&def, 1);
+    let tap = Tap { x: 0.0, y: 0.0, hit: Some(0), under_disabled: vec![], ground: None };
+    w.tick(&InputFrame { taps: vec![tap], ..Default::default() }, &mut NoSystems);
+    // The planter stands on its own cell, so the tree has no room.
+    assert_eq!(prop(&w, "planter", "tries"), PropValue::Int(1));
+    assert!(
+        last(&w, EventKind::Blocked).ends_with("; 'planter' (#0) emits 'refused'"),
+        "{}",
+        last(&w, EventKind::Blocked)
+    );
+}
+
+#[test]
+fn count_props_follow_spawns_and_enabling() {
+    let mut w = feedback();
+    // Scene copies are counted from frame 0, without events.
+    assert_eq!((prop(&w, "job", "houses"), prop(&w, "job", "flowers")), (PropValue::Int(0), PropValue::Int(2)));
+    w.tick(&InputFrame::default(), &mut NoSystems);
+    assert!(w.events.all().iter().all(|e| e.kind != EventKind::Counted));
+    // A spawn counts in the same step and the owner emits `changed`.
+    w.tick(&ground_tap([0, 0]), &mut NoSystems);
+    assert_eq!(prop(&w, "job", "houses"), PropValue::Int(1));
+    assert_eq!(
+        last(&w, EventKind::Counted),
+        "job.houses: 0 -> 1 (enabled 'house' copies; #4 (house) was spawned); it emits 'changed'"
+    );
+    assert_eq!(prop(&w, "job", "ready"), PropValue::Bool(false));
+    w.tick(&ground_tap([2, 0]), &mut NoSystems);
+    assert_eq!(prop(&w, "job", "ready"), PropValue::Bool(true), "the condition on the count held");
+    // Disabling and enabling a copy count down and up again.
+    let flower = 2;
+    let tap_flower = || InputFrame {
+        taps: vec![Tap { x: 0.0, y: 0.0, hit: Some(flower), under_disabled: vec![], ground: None }],
+        ..Default::default()
+    };
+    w.tick(&tap_flower(), &mut NoSystems);
+    assert_eq!(prop(&w, "job", "flowers"), PropValue::Int(1));
+    assert!(last(&w, EventKind::Counted).contains("#2 (flower) was disabled"), "{}", last(&w, EventKind::Counted));
+    w.entities[flower as usize].enabled = true; // as Rust game code might
+    w.tick(&InputFrame::default(), &mut NoSystems);
+    assert_eq!(prop(&w, "job", "flowers"), PropValue::Int(2), "changes made outside connections are counted too");
+}
+
+#[test]
+fn refusals_and_counts_are_deterministic() {
+    let run = || {
+        let mut w = feedback();
+        for c in [[3, 0], [0, 0], [1, 1], [2, 0], [4, 2]] {
+            w.tick(&ground_tap(c), &mut NoSystems);
+        }
+        (w.state_hash(), w.events.all().len())
+    };
+    assert_eq!(run(), run());
+}

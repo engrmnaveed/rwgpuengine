@@ -19,7 +19,7 @@ a coin budget: counting, adding and spending on a tablet.
 
 | where | what |
 |---|---|
-| top left | coins left and the chosen tool: `Coins: 12` / `Tool: house` |
+| top left | coins left and the chosen tool: `Coins: 12` / `Tool: house`; under it, the hint: why the last tap built nothing |
 | top right | the job card: `Houses 0/2`, `Trees 0/3`, `Wells 0/1` |
 | middle | a 10 × 8 island: grass (buildable), sand beach and a river (not buildable), two boulders |
 | above the toolbar | the banner: "Build 2 houses, 3 trees and a well", then "Tiny Town is ready!" |
@@ -31,7 +31,8 @@ a coin budget: counting, adding and spending on a tablet.
 2. Tap a ground cell to build the chosen thing there. A house grows from the tapped cell toward the viewer
    (+x and +y); trees and wells take one cell.
 3. A building appears only if every cell it needs is grass, inside the island and empty, and the player has
-   enough coins. Otherwise nothing happens and nothing is paid.
+   enough coins. Otherwise nothing is built and nothing is paid, and the hint says why: "Build on grass!",
+   "No room there!" or "A house needs 3 coins". The next tap on the ground or a button clears it.
 4. Building costs coins and counts on the job card. With Clear, tapping a building removes it, returns its
    coins and uncounts it.
 5. When the job card is complete, the banner says the town is ready. Clearing something afterwards takes that
@@ -50,18 +51,20 @@ Tap only (touch first, ADR 0010). Buttons are screen entities; the island is gro
 | `[ground] map` + `[[terrain]]` with `build` | the island map and its three terrains |
 | ground taps (`from = "ground"`) and `spawn` with placement rules | one spawn connection per tool, gated by tool and coins |
 | `footprint`, multi-cell drawing and blocking | the 2 × 2 house prefab |
-| `from_prefab`, `to = "self"`, `spawned` | paying, counting and clearing for every copy |
+| `from_prefab`, `to = "self"`, `spawned` | paying and clearing for every copy |
+| `counts` (ADR 0014) | the job card: `counts = { houses = "house", ... }`, no counting connections |
+| `refused` + `when` `reason` (ADR 0014) | the hint for refused placements (terrain, occupied) |
 | props, `when`, `label`, `screen_pos` (ADR 0011) | coins, tool, job card, banner, toolbar |
 | `[[expect]] prefab` + `count`, `inspect --place` | three playtests and their tap pixels |
 
 ## Playtests (all must pass in CI)
 
 - `build_town`: the full job for 11 coins; the banner says ready; nothing refused; reference image.
-- `refusals`: water, beach, a reach into the river, a boulder and a taken cell are refused; the last tap with
-  0 coins buys nothing.
+- `refusals`: water, beach, a reach into the river, a boulder and a taken cell are refused, each with its hint;
+  the last tap with 0 coins buys nothing and says why; the job card counted by itself.
 - `clear`: a house is built, cleared (coins back) and built again on the same spot; reference image.
 
 ## Out of scope for v1 (candidates if the game needs them)
 
-A "can't build there" message (needs a refusal signal), sounds, dragging to build rows, rotating buildings,
+Sounds, dragging to build rows, rotating buildings,
 more islands or levels, people walking around the town, image sprites.

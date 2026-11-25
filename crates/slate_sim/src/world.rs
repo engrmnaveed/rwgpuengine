@@ -80,6 +80,8 @@ pub struct Entity {
     /// Drawn on the screen at this pixel (top-left) instead of in the world.
     pub screen_pos: Option<[f32; 2]>,
     pub props: BTreeMap<String, PropValue>,
+    /// `counts`: (prop, prefab), kept equal to the enabled copies.
+    pub counts: Vec<(String, String)>,
     /// Warning codes intended for this entity (not reported).
     pub allow: Vec<String>,
 }
@@ -229,6 +231,8 @@ struct Pending {
     emitter: Option<EntityId>,
     signal: String,
     cell: [i32; 2],
+    /// For `refused`: why the spawn could not be placed.
+    reason: Option<&'static str>,
 }
 
 /// Why a spawn could not be placed.
@@ -246,10 +250,10 @@ pub struct Refusal {
     pub why: String,
 }
 
-/// A `when` condition with its entity resolved.
+/// A `when` condition with its entity resolved (`None` for `reason`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Condition {
-    pub entity: EntityId,
+    pub entity: Option<EntityId>,
     pub def: ConditionDef,
 }
 
@@ -281,6 +285,8 @@ pub struct World {
     pub templates: Vec<EntityDef>,
     pending: VecDeque<Pending>,
     names: BTreeMap<String, EntityId>,
+    /// Entities with `counts` props (derived; not hashed).
+    counters: Vec<EntityId>,
 }
 
 /// A runtime entity from its definition.
@@ -304,6 +310,7 @@ fn make_entity(id: EntityId, def: &EntityDef) -> Entity {
         label: def.label.clone(),
         screen_pos: def.screen_pos,
         props: def.props.iter().cloned().collect(),
+        counts: def.counts.clone(),
         allow: def.allow.clone(),
     }
 }
@@ -327,7 +334,13 @@ impl World {
                 let when = c
                     .when
                     .iter()
-                    .map(|w| Some(Condition { entity: *names.get(&w.entity)?, def: w.clone() }))
+                    .map(|w| {
+                        let entity = match w.test {
+                            CondTest::Reason(_) => None,
+                            _ => Some(*names.get(&w.entity)?),
+                        };
+                        Some(Condition { entity, def: w.clone() })
+                    })
                     .collect::<Option<Vec<_>>>()?;
                 let from = match &c.from {
                     ConnectFrom::Entity(n) => Source::Entity(*names.get(n)?),
@@ -365,7 +378,13 @@ impl World {
             templates,
             pending: VecDeque::new(),
             names,
+            counters: Vec::new(),
         };
+        world.counters = world.ids_with(|e| !e.counts.is_empty());
+        // Count props start at the scene's numbers, without events.
+        for (id, prop, _, _, n) in world.count_changes() {
+            world.set_count(id, &prop, n);
+        }
         // Initial trigger occupancy, without emitting: a plate that starts
         // occupied does not fire at frame 0.
         for id in world.ids_with(|e| e.trigger.is_some()) {
@@ -417,7 +436,7 @@ impl World {
     /// Queue a signal; it is dispatched at the end of the current step.
     pub fn emit(&mut self, from: EntityId, signal: &str) {
         let cell = self.get(from).map_or([0, 0], Entity::cell);
-        self.pending.push_back(Pending { emitter: Some(from), signal: signal.to_string(), cell });
+        self.pending.push_back(Pending { emitter: Some(from), signal: signal.to_string(), cell, reason: None });
     }
 
     /// Is any connection listening to `signal` from `emitter` (`None` = the ground)?
@@ -467,7 +486,7 @@ impl World {
                     }
                     msg.push_str("; the ground emits 'tapped'");
                     self.log(EventKind::Tap, None, None, msg, data.with("cell", cell).with("signal", "tapped"));
-                    self.pending.push_back(Pending { emitter: None, signal: "tapped".into(), cell });
+                    self.pending.push_back(Pending { emitter: None, signal: "tapped".into(), cell, reason: None });
                 }
                 None => {
                     let mut msg = format!("tap at {at} hit nothing enabled");
@@ -701,13 +720,21 @@ impl World {
     }
 
     /// Evaluate a condition now: whether it holds, and what was seen.
-    pub fn check_condition(&self, c: &Condition) -> (bool, String) {
-        let Some(e) = self.get(c.entity) else {
+    /// `reason` is the refusal reason when the signal is `refused`.
+    pub fn check_condition(&self, c: &Condition, reason: Option<&str>) -> (bool, String) {
+        if let CondTest::Reason(want) = &c.def.test {
+            return match reason {
+                Some(r) => (r == want, format!("the reason is '{r}'")),
+                None => (false, "the signal is not a refusal".into()),
+            };
+        }
+        let Some((id, e)) = c.entity.and_then(|id| Some((id, self.get(id)?))) else {
             return (false, "entity missing".into());
         };
         match &c.def.test {
+            CondTest::Reason(_) => (false, String::new()),
             CondTest::Occupied(want) => {
-                let occ = self.occupants_of(c.entity);
+                let occ = self.occupants_of(id);
                 let seen = match occ.first() {
                     Some(&o) => format!("{} is on {}", self.describe(o), fmt_cell(e.cell())),
                     None => format!("nobody is on {}", fmt_cell(e.cell())),
@@ -769,8 +796,10 @@ impl World {
     }
 
     fn dispatch_signals(&mut self) {
+        // Custom systems may have enabled or disabled copies.
+        self.refresh_counts("");
         let mut dispatched = 0;
-        while let Some(Pending { emitter, signal, cell }) = self.pending.pop_front() {
+        while let Some(Pending { emitter, signal, cell, reason }) = self.pending.pop_front() {
             dispatched += 1;
             if dispatched > SIGNAL_LIMIT {
                 let msg = format!(
@@ -803,18 +832,29 @@ impl World {
                     "{source} emitted '{signal}' but nothing is connected to it (add [[connect]] {hint} signal = \"{signal}\")"
                 )
             } else {
-                format!("{source} emitted '{signal}' to {} connection(s)", targets.len())
+                let why = reason.map_or(String::new(), |r| format!(" (reason '{r}')"));
+                format!("{source} emitted '{signal}'{why} to {} connection(s)", targets.len())
             };
-            let data = Json::object().with("signal", signal.as_str()).with("connections", targets.len());
+            let mut data = Json::object().with("signal", signal.as_str()).with("connections", targets.len());
+            if let Some(r) = reason {
+                data.set("reason", r);
+            }
             self.log(EventKind::Signal, emitter, None, msg, data);
             for c in targets {
-                self.run_connection(&c, emitter, &signal, cell);
+                self.run_connection(&c, emitter, &signal, cell, reason);
             }
         }
     }
 
     /// Check a connection's conditions, then apply its action or log why not.
-    fn run_connection(&mut self, c: &Connection, emitter: Option<EntityId>, signal: &str, cell: [i32; 2]) {
+    fn run_connection(
+        &mut self,
+        c: &Connection,
+        emitter: Option<EntityId>,
+        signal: &str,
+        cell: [i32; 2],
+        reason: Option<&'static str>,
+    ) {
         let to = match c.to {
             Target::Entity(id) => Some(id),
             Target::Emitter => emitter,
@@ -824,7 +864,7 @@ impl World {
             .when
             .iter()
             .map(|w| {
-                let (held, seen) = self.check_condition(w);
+                let (held, seen) = self.check_condition(w, reason);
                 (w.def.describe(), held, seen)
             })
             .collect();
@@ -874,6 +914,7 @@ impl World {
             return;
         }
         let Some(to) = to else { return };
+        let mut enabled_changed = false;
         let (change, prop_changed) = match c.action {
             ConnectAction::Spawn => return,
             ConnectAction::Add | ConnectAction::Set => match self.change_prop(c, to) {
@@ -896,6 +937,7 @@ impl World {
                     _ => !before,
                 };
                 let after = e.enabled;
+                enabled_changed = before != after;
                 data = data.with("before", before).with("after", after).with("changed", before != after);
                 let state = |b: bool| if b { "enabled" } else { "disabled" };
                 let change = if before == after {
@@ -915,6 +957,69 @@ impl World {
         // A prop change makes its owner emit `changed`, if anything listens.
         if prop_changed && self.is_listened(Some(to), "changed") {
             self.emit(to, "changed");
+        }
+        if enabled_changed {
+            let now = if self.get(to).is_some_and(|e| e.enabled) { "enabled" } else { "disabled" };
+            let why = format!("{} was {now}", self.describe(to));
+            self.refresh_counts(&why);
+        }
+    }
+
+    /// Store a count (the prop exists: loading declares every `counts` prop).
+    fn set_count(&mut self, id: EntityId, prop: &str, n: i64) {
+        if let Some(v) = self.entities[id as usize].props.get_mut(prop) {
+            *v = PropValue::Int(n);
+        }
+    }
+
+    /// Count props whose value is out of date: (owner, prop, prefab, before, now).
+    fn count_changes(&self) -> Vec<(EntityId, String, String, Option<i64>, i64)> {
+        let mut out = Vec::new();
+        for &id in &self.counters {
+            let e = &self.entities[id as usize];
+            for (prop, prefab) in &e.counts {
+                let n = self.entities.iter().filter(|x| x.enabled && x.prefab.as_deref() == Some(prefab)).count();
+                let before = match e.props.get(prop) {
+                    Some(PropValue::Int(v)) => Some(*v),
+                    _ => None,
+                };
+                if before != Some(n as i64) {
+                    out.push((id, prop.clone(), prefab.clone(), before, n as i64));
+                }
+            }
+        }
+        out
+    }
+
+    /// Bring `counts` props up to date: log `counted` for each change and
+    /// make its owner emit `changed` (once), if anything listens.
+    fn refresh_counts(&mut self, why: &str) {
+        if self.counters.is_empty() {
+            return;
+        }
+        let mut emitted: Vec<EntityId> = Vec::new();
+        for (id, prop, prefab, before, n) in self.count_changes() {
+            self.set_count(id, &prop, n);
+            let who = self.get(id).map_or_else(|| format!("#{id}"), Entity::label);
+            let was = before.map_or("unset".to_string(), |b| b.to_string());
+            let mut msg = format!("{who}.{prop}: {was} -> {n} (enabled '{prefab}' copies");
+            if !why.is_empty() {
+                msg.push_str(&format!("; {why}"));
+            }
+            msg.push(')');
+            let listened = !emitted.contains(&id) && self.is_listened(Some(id), "changed");
+            if listened {
+                msg.push_str("; it emits 'changed'");
+            }
+            let mut data = Json::object().with("prop", prop.as_str()).with("prefab", prefab.as_str()).with("after", n);
+            if let Some(b) = before {
+                data.set("before", b);
+            }
+            self.log(EventKind::Counted, Some(id), None, msg, data);
+            if listened {
+                emitted.push(id);
+                self.emit(id, "changed");
+            }
         }
     }
 
@@ -985,7 +1090,22 @@ impl World {
                 if let Some(t) = &r.terrain {
                     data.set("terrain", t.as_str());
                 }
+                // The source of the signal says so, if anything listens.
+                let listened = self.is_listened(emitter, "refused");
+                let mut msg = msg;
+                if listened {
+                    msg.push_str(&format!("; {} emits 'refused'", self.source_name(emitter)));
+                    data.set("signal", "refused");
+                }
                 self.log(EventKind::Blocked, None, r.by, msg, data);
+                if listened {
+                    self.pending.push_back(Pending {
+                        emitter,
+                        signal: "refused".into(),
+                        cell: at,
+                        reason: Some(r.reason),
+                    });
+                }
             }
             Ok(cells) => {
                 let id = self.entities.len() as EntityId;
@@ -997,9 +1117,14 @@ impl World {
                 let cells_json: Vec<Json> = cells.iter().map(|c| Json::from(*c)).collect();
                 let data = Json::object().with("prefab", prefab).with("cell", at).with("cells", cells_json);
                 self.log(EventKind::Spawned, Some(id), emitter, msg, data);
+                if !self.entities[id as usize].counts.is_empty() {
+                    self.counters.push(id);
+                }
                 if self.is_listened(Some(id), "spawned") {
                     self.emit(id, "spawned");
                 }
+                let why = format!("{who} was spawned");
+                self.refresh_counts(&why);
             }
         }
     }

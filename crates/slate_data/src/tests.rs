@@ -618,3 +618,77 @@ fn event_expectations_can_filter_by_prefab() {
     assert_eq!(codes(&vfs("event = \"spawned\"\nprefab = \"house\"\ncount = 1")), vec!["E0105"]);
     assert_eq!(codes(&vfs("event = \"spawned\"\nprefab = \"house\"\npos = [1, 1]")), vec!["E0105"]);
 }
+
+// ---------------------------------------------------------------------------
+// Builder kit v2 (ADR 0014): refusal signals and count props
+
+const SPAWN_HOUSE: &str =
+    "[[connect]]\nfrom = \"ground\"\nsignal = \"tapped\"\naction = \"spawn\"\nprefab = \"house\"\n";
+
+fn hint_on_refused(when: &str) -> String {
+    format!(
+        "{SPAWN_HOUSE}\n[[entity]]\nname = \"hint\"\nprops = {{ msg = \"\" }}\n\n[[connect]]\nfrom = \"ground\"\n\
+         signal = \"refused\"\nto = \"hint\"\naction = \"set\"\nprop = \"msg\"\nvalue = \"no\"\n{when}"
+    )
+}
+
+#[test]
+fn refused_signals_and_reason_conditions_are_checked() {
+    // The ground emits `refused` once something spawns from its taps.
+    assert_eq!(builder_with(&hint_on_refused("")), Vec::<&str>::new());
+    assert_eq!(builder_with(&hint_on_refused("when = [{ reason = \"terrain\" }]")), Vec::<&str>::new());
+    // ...and not before.
+    let no_spawn = hint_on_refused("").replace(SPAWN_HOUSE, "");
+    assert_eq!(builder_with(&no_spawn), vec!["W0203"]);
+    // An unknown reason, a reason with an entity, a reason on another signal.
+    assert_eq!(builder_with(&hint_on_refused("when = [{ reason = \"water\" }]")), vec!["E0105"]);
+    assert_eq!(
+        builder_with(&hint_on_refused("when = [{ reason = \"edge\", entity = \"town\", enabled = true }]")),
+        vec!["E0105"]
+    );
+    let on_tapped =
+        hint_on_refused("when = [{ reason = \"edge\" }]").replace("signal = \"refused\"", "signal = \"tapped\"");
+    assert_eq!(builder_with(&on_tapped), vec!["E0105"]);
+    // Other conditions still need an entity.
+    assert_eq!(builder_with(&hint_on_refused("when = [{ enabled = true }]")), vec!["E0104"]);
+    // An entity that starts spawns emits `refused` too; one that does not, never.
+    let from_town = |spawns: bool| {
+        let spawn = if spawns {
+            "[[connect]]\nfrom = \"town\"\nsignal = \"tapped\"\naction = \"spawn\"\nprefab = \"house\"\n"
+        } else {
+            ""
+        };
+        builder_with(&format!(
+            "{spawn}\n[[connect]]\nfrom = \"town\"\nsignal = \"refused\"\nto = \"town\"\naction = \"set\"\n\
+             prop = \"coins\"\nvalue = 0"
+        ))
+    };
+    assert_eq!(from_town(true), Vec::<&str>::new());
+    assert_eq!(from_town(false), vec!["W0203"]);
+}
+
+#[test]
+fn count_props_are_checked() {
+    let job =
+        |counts: &str, extra: &str| builder_with(&format!("[[entity]]\nname = \"job\"\ncounts = {counts}\n{extra}"));
+    // A count is an integer prop: labels, conditions and `changed` read it.
+    let reads = "label = { text = \"Houses {houses}\" }\nscreen_pos = [0, 0]\n\n[[connect]]\nfrom = \"job\"\n\
+                 signal = \"changed\"\nto = \"town\"\naction = \"set\"\nprop = \"coins\"\nvalue = 9\n\
+                 when = [{ entity = \"job\", prop = \"houses\", at_least = 2 }]";
+    assert_eq!(job("{ houses = \"house\" }", reads), Vec::<&str>::new());
+    // Unknown prefab, a value that is not a name, a clash with props.
+    assert_eq!(job("{ houses = \"hous\" }", ""), vec!["E0201"]);
+    assert_eq!(job("{ houses = 3 }", ""), vec!["E0102"]);
+    assert_eq!(job("{ houses = \"house\" }", "props = { houses = 0 }"), vec!["E0105"]);
+    // The engine owns it: add/set are refused.
+    let add = "\n[[connect]]\nfrom = \"town\"\nsignal = \"tapped\"\nto = \"job\"\naction = \"add\"\nprop = \"houses\"";
+    assert_eq!(job("{ houses = \"house\" }", add), vec!["E0105"]);
+    // It is an integer: equals must be a number.
+    let text = "\n[[connect]]\nfrom = \"job\"\nsignal = \"changed\"\nto = \"town\"\naction = \"disable\"\n\
+                when = [{ entity = \"job\", prop = \"houses\", equals = \"two\" }]";
+    assert_eq!(job("{ houses = \"house\" }", text), vec!["E0207"]);
+    // Without counts (or a connection changing its props), `job` never emits `changed`.
+    let changed = "[[entity]]\nname = \"job\"\nprops = { n = 0 }\n\n[[connect]]\nfrom = \"job\"\nsignal = \"changed\"\n\
+                   to = \"town\"\naction = \"disable\"";
+    assert_eq!(builder_with(changed), vec!["W0203"]);
+}

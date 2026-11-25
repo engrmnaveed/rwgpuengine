@@ -282,6 +282,7 @@ impl<'a> SceneLoader<'a> {
                     let def = defs::decode_entity(&merged, [c[0] as f32, c[1] as f32, z], origin);
                     if i == 0 {
                         check_entity(&def, t, node.span, &src, &mut self.diags);
+                        self.check_counts(&def, t, node.span, &src);
                     }
                     entities.push(def);
                 }
@@ -289,6 +290,7 @@ impl<'a> SceneLoader<'a> {
                 let pos = Fields::new(t, &schema::ENTITY).opt_pos("pos").unwrap_or([0.0, 0.0, 0.0]);
                 let def = defs::decode_entity(&merged, pos, origin);
                 check_entity(&def, t, node.span, &src, &mut self.diags);
+                self.check_counts(&def, t, node.span, &src);
                 if let Some(name) = &def.name {
                     if let Some(&first_line) = names.get(name) {
                         self.diags.push(
@@ -329,6 +331,10 @@ impl<'a> SceneLoader<'a> {
         }
         let spawned: BTreeSet<String> =
             decoded.iter().filter(|c| c.action == ConnectAction::Spawn).filter_map(|c| c.prefab.clone()).collect();
+        // Sources of spawns: they emit `refused` when a placement fails.
+        let spawn_sources: Vec<ConnectFrom> =
+            decoded.iter().filter(|c| c.action == ConnectAction::Spawn).map(|c| c.from.clone()).collect();
+        let refuses = |from: &ConnectFrom| spawn_sources.contains(from);
         // Prefabs that `spawn` places (one each, in first-use order).
         let mut templates: Vec<EntityDef> = Vec::new();
         let mut connections = Vec::new();
@@ -373,12 +379,21 @@ impl<'a> SceneLoader<'a> {
             };
             // Signals the source can emit (W0203).
             let emits: Option<Vec<String>> = match &c.from {
-                ConnectFrom::Ground => Some(vec!["tapped".to_string()]),
+                ConnectFrom::Ground => {
+                    let mut v = vec!["tapped".to_string()];
+                    if refuses(&c.from) {
+                        v.push("refused".into());
+                    }
+                    Some(v)
+                }
                 ConnectFrom::Entity(n) => source.as_ref().map(|e| {
                     let mut v = vec!["tapped".to_string()];
                     v.extend(e.trigger.iter().flat_map(|tr| [tr.on_enter.clone(), tr.on_exit.clone()]));
-                    if changed_names.contains(n) {
+                    if changed_names.contains(n) || !e.counts.is_empty() {
                         v.push("changed".into());
+                    }
+                    if refuses(&c.from) {
+                        v.push("refused".into());
                     }
                     v
                 }),
@@ -388,11 +403,18 @@ impl<'a> SceneLoader<'a> {
                     let named_copy_changes = entities.iter().any(|x| {
                         x.prefab.as_deref() == Some(p) && x.name.as_ref().is_some_and(|n| changed_names.contains(n))
                     });
-                    if changed_prefabs.contains(p) || named_copy_changes {
+                    if changed_prefabs.contains(p) || named_copy_changes || !e.counts.is_empty() {
                         v.push("changed".into());
                     }
                     if spawned.contains(p) {
                         v.push("spawned".into());
+                    }
+                    let named_copy_refuses = entities.iter().any(|x| {
+                        x.prefab.as_deref() == Some(p)
+                            && x.name.as_ref().is_some_and(|n| refuses(&ConnectFrom::Entity(n.clone())))
+                    });
+                    if refuses(&c.from) || named_copy_refuses {
+                        v.push("refused".into());
                     }
                     v
                 }),
@@ -408,9 +430,13 @@ impl<'a> SceneLoader<'a> {
                 let hint =
                     did_you_mean(&c.signal, emits.iter().map(String::as_str)).or_else(|| match c.signal.as_str() {
                         "changed" => Some(format!(
-                            "{who} emits `changed` only when a [[connect]] `add`s to or `set`s one of its props"
+                            "{who} emits `changed` only when a [[connect]] `add`s to or `set`s one of its props, \
+                             or one of its `counts` changes"
                         )),
                         "spawned" => Some(format!("{who} emits `spawned` only for copies made by a `spawn` action")),
+                        "refused" => Some(format!(
+                            "{who} emits `refused` only when a `spawn` that one of its signals starts cannot be placed"
+                        )),
                         _ => None,
                     });
                 self.diags.push(
@@ -442,6 +468,7 @@ impl<'a> SceneLoader<'a> {
                         let at = t.value_span("prefab", span);
                         if let Some(def) = self.prefab_def(p, &src, at) {
                             check_entity(&def, &Table::default(), at, &src, &mut self.diags);
+                            self.check_counts(&def, &Table::default(), at, &src);
                             if def.screen_pos.is_some() {
                                 self.diags.push(
                                     Diagnostic::new(
@@ -578,6 +605,24 @@ impl<'a> SceneLoader<'a> {
             connections,
             templates,
         })
+    }
+
+    /// Every `counts` entry names an existing prefab (E0201).
+    fn check_counts(&mut self, def: &EntityDef, t: &Table, span: Span, src: &SourceFile) {
+        for (prop, prefab) in &def.counts {
+            if self.prefab_exists(prefab) {
+                continue;
+            }
+            let at = t.table("counts").map_or(span, |c| c.value_span(prop, t.value_span("counts", span)));
+            let names = self.prefab_names();
+            let hint = did_you_mean(prefab, names.iter().map(String::as_str))
+                .unwrap_or_else(|| format!("create prefabs/{prefab}.toml"));
+            self.diags.push(
+                Diagnostic::new(&codes::UNKNOWN_PREFAB, format!("`counts.{prop}` counts unknown prefab `{prefab}`"))
+                    .at(src, at)
+                    .hint(hint),
+            );
+        }
     }
 
     /// A prefab decoded as an entity at [0, 0, 0], reporting E0201 at `at`
@@ -751,6 +796,17 @@ fn check_entity(def: &EntityDef, t: &Table, span: Span, src: &SourceFile, diags:
                 .hint("choose another name"),
         );
     }
+    for (k, prefab) in &def.counts {
+        if def.props.iter().filter(|(p, _)| p == k).count() > 1 {
+            diags.push(
+                Diagnostic::new(&codes::INVALID_VALUE, format!("{who} declares `{k}` in both `props` and `counts`"))
+                    .at(src, t.key_span("counts", span))
+                    .hint(format!(
+                        "remove `{k}` from `props`: `counts` makes it an integer prop (enabled `{prefab}` copies)"
+                    )),
+            );
+        }
+    }
     if def.footprint != [1, 1] {
         let fixed: Vec<&str> = [
             ("mover", def.mover.is_some()),
@@ -902,7 +958,23 @@ fn check_connect_logic(
                     .hint(format!("add `prop = \"...\"`: a prop declared in `{to_label}`'s props")),
             ),
             Some(prop) => {
-                if let Some(target) = target {
+                if let Some(target) = target
+                    && let Some(prefab) = target.counted(prop)
+                {
+                    diags.push(
+                        Diagnostic::new(
+                            &codes::INVALID_VALUE,
+                            format!(
+                                "`{action}` cannot change `{to_label}`.{prop}: it is a `counts` prop (the number of \
+                                     enabled `{prefab}` copies), kept up to date by the engine"
+                            ),
+                        )
+                        .at(src, t.value_span("prop", span))
+                        .hint(format!(
+                            "remove this [[connect]]; spawning, disabling or enabling a `{prefab}` changes it"
+                        )),
+                    );
+                } else if let Some(target) = target {
                     match target.prop(prop) {
                         None => diags.push(unknown_prop(
                             target,
@@ -979,6 +1051,44 @@ fn check_connect_logic(
     for item in t.get("when").and_then(Node::as_array).unwrap_or(&[]) {
         let Some(w) = item.as_table() else { continue };
         let cond = defs::decode_condition(w);
+        if w.has("reason") {
+            let others: Vec<&str> = ["entity", "occupied", "enabled", "prop", "equals", "at_least", "at_most"]
+                .into_iter()
+                .filter(|k| w.has(k))
+                .collect();
+            if !others.is_empty() {
+                diags.push(
+                    Diagnostic::new(
+                        &codes::INVALID_VALUE,
+                        format!("a `reason` condition stands alone (found `{}` too)", others.join("`, `")),
+                    )
+                    .at(src, item.span)
+                    .hint("write it as its own item: when = [{ reason = \"terrain\" }, { entity = ... }]"),
+                );
+            }
+            if c.signal != "refused" {
+                diags.push(
+                    Diagnostic::new(
+                        &codes::INVALID_VALUE,
+                        format!(
+                            "`reason` only applies with `signal = \"refused\"`; this [[connect]] listens to `{}`",
+                            c.signal
+                        ),
+                    )
+                    .at(src, w.key_span("reason", item.span))
+                    .hint("listen to `refused` (emitted when a spawn cannot be placed), or remove `reason`"),
+                );
+            }
+            continue;
+        }
+        if cond.entity.is_empty() {
+            diags.push(
+                Diagnostic::new(&codes::MISSING_KEY, "a `when` condition needs `entity`")
+                    .at(src, item.span)
+                    .hint("`{ entity = \"<name>\", ... }`; only a `reason` condition (on `refused`) has no entity"),
+            );
+            continue;
+        }
         let Some(target) = by_name(&cond.entity) else {
             if !cond.entity.is_empty() {
                 let names = entities.iter().filter_map(|e| e.name.as_deref());

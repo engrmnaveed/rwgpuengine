@@ -239,6 +239,14 @@
       },
       "description": "Game data: numbers, text and flags, e.g. `{ score = 0 }`. A prop's type is fixed by its starting value. `[[connect]]` `add`/`set` change props at runtime, `when` conditions and label `{placeholders}` read them, `inspect` shows them and `[[expect]] props` checks them."
     },
+    "counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_/-]+$"
+      },
+      "description": "Props that count enabled copies of a prefab, kept up to date by the engine: `counts = { houses = \"house\" }` makes `houses` an integer prop equal to the number of enabled `house` entities (placed in the scene or spawned). It changes when a copy is spawned, disabled or enabled again; the entity then emits `changed`, so labels, `when` conditions and `[[expect]] props` read it like any prop. `add`/`set` cannot change it."
+    },
     "allow": {
       "type": "array",
       "items": {

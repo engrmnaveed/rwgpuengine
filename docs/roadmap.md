@@ -66,11 +66,15 @@ Need: the first real game. Q3 is decided: the **isometric builder**, Tiny Town
 - Accepted by [cold-agent run #7](experiments/2026-11-25-cold-agent-7.md): a farm builder, every requirement
   supported, 0 warnings, 8 min 44 s. Its findings are fixed (`slate test <file>` false pass, prefab filter on
   event expectations, two missing format tables).
-- Next (evidence from Tiny Town **and** run #7):
-  - a signal on refused placements (a "can't build there" message);
-  - `when` conditions that count copies of a prefab, which replace hand-kept counters.
+- **M3.2 — builder kit v2: done 2026-11-25** ([ADR 0014](decisions/0014-refusal-signal-and-count-props.md)),
+  from the evidence of Tiny Town **and** run #7:
+  - refused spawns make their source emit `refused`; `when = [{ reason = "terrain" }]` picks one reason;
+  - `counts = { houses = "house" }` props count enabled copies and emit `changed`, replacing hand-kept
+    counters (Tiny Town: 6 counting connections → 0; a hint line now says why nothing was built).
 - Candidates, waiting for more evidence:
-  - per-prefab costs or grouped connections (Tiny Town needs 26 connections, 9 of them for clear/refund);
+  - a cold-agent run on v2 (a builder task with "can't build there" feedback and a count-driven goal);
+  - per-prefab costs or grouped connections (Tiny Town has 27 connections; clear/refund is 6 of them);
+  - a placement anchor (centre a multi-cell building on the tap; run #7);
   - drag input (ADR 0010);
   - terrain that blocks walking;
   - rotation;

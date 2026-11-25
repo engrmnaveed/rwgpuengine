@@ -72,7 +72,7 @@ page matches `slate run`. Edit any file in the project and the page reloads it.
 | `crates/slate_web` | wasm build with a small C ABI; `web/` holds the page and JS glue |
 | `examples/iso_garden` | reference example: plate opens gate, goal raises flag; 2 playtests |
 | `examples/coin_vault` | reference example for data logic: coin counter on a HUD, vault opens at 3, AND lock held by a pushed crate; 4 playtests |
-| `examples/tiny_town` | **reference game 1** ([spec](docs/games/tiny-town.md)): an isometric builder — terrain map, tap to build 2 × 2 houses, trees and a well within a coin budget, clear with refund; 3 playtests |
+| `examples/tiny_town` | **reference game 1** ([spec](docs/games/tiny-town.md)): an isometric builder — terrain map, tap to build 2 × 2 houses, trees and a well within a coin budget, clear with refund, a job card that counts copies, hints that say why nothing was built; 3 playtests |
 | `xtask` | `cargo xtask ci | web | smoke | budgets | docs` |
 | `docs/` | vision, architecture, decisions (ADRs), MVP plan, roadmap, open questions, reference |
 

@@ -521,6 +521,11 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
             let list: Vec<String> = props.iter().map(|(k, v)| format!("{k} = {}", v.to_compact())).collect();
             o.line(format!("      props {{ {} }}", list.join(", ")));
         }
+        if let Some(Json::Obj(counts)) = e.get("counts") {
+            let list: Vec<String> =
+                counts.iter().map(|(k, v)| format!("{k} = enabled `{}`", v.as_str().unwrap_or(""))).collect();
+            o.line(format!("      counts {{ {} }}", list.join(", ")));
+        }
     }
     if let Some(place) = data.get("place") {
         let msg = place.get("message").and_then(Json::as_str).unwrap_or("");
