@@ -14,6 +14,14 @@ findings that are not code (experiment results, surprises, things to remember).
   out `engine16x` and is noted for the owner.
 - Hosting (Q10) now reads: under the 16xbrains account, authors "The 16xbrains developers".
 - Not done: the rename itself; it waits for the owner's pick.
+- **Second round, same day.** The owner dropped the `16x` suffix for this project, asked for a name after the
+  technology (Rust and wgpu) in the form `<alias>engine`, and set hosting to the owner's own GitHub account.
+  New [shortlist](proposals/name.md): **`rwgpuengine`** recommended (command `rwgpu`), then `oxigpuengine`,
+  `ferrogpuengine`, `rsgpuengine`.
+  - Checked: 33 names of that form on crates.io (also as `<alias>_engine`) and npm; all free but `rustengine`.
+  - Ruled out by what was found: `wgpuengine` (an existing C++ WebGPU engine has the name), `rgpuengine`
+    (`rgpu` is a known remote-GPU project), every name that spells "Rust" (the trademark texts differ on
+    product names), and aliases already taken as crates (`rwg`, `ferro`, `oxide`, `oxi`, `ferris`).
 
 ## 2026-11-25 — The owner's decisions and a course correction: 3D on the GPU
 

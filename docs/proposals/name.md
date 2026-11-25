@@ -1,69 +1,72 @@
 # Proposal: the engine's name (open question Q1) — not decided
 
-> Status: **shortlist for the owner**, checked on 2026-11-25. The owner decided to rename and asked that the
-> name may carry the 16xbrains family branding, like `diskuse16x` and `macdisplay16x`.
-
-## What the family pattern is
-
-`<what it is about>16x`: one plain lowercase word or compound, then `16x`. The existing tool is a Rust project
-published on crates.io under exactly that name. The suffix form is also the only one Rust allows: a crate name
-and a Rust identifier cannot start with a digit, so `16x…` is not possible.
+> Status: **second shortlist for the owner**, checked on 2026-11-25. The owner decided to rename. A first
+> shortlist used the `<word>16x` family suffix (`game16x` and others); the owner then asked to **drop the
+> `16x` suffix** and to name the engine after **the technology it is built on, Rust and wgpu**, in the form
+> **`<alias>engine`**. The first shortlist is at the end, for the record.
 
 ## What was checked
 
 | check | result |
 |---|---|
-| 42 candidate names of the form `<word>16x` on crates.io, each also with `_core` | all free |
-| the same 42 on npm (a web player may be published there) | all free |
-| the ten finalists as a GitHub repository name and as a GitHub account name | none in use |
-| web search for the finalists as exact strings | no pages found |
-| is "16x" used by someone else near this field? | **Yes: "16x Prompt"**, a desktop app for writing prompts for AI coding assistants, at `prompt.16x.engineer` |
-
-Because every candidate is free, availability does not choose between them. Meaning, daily use and
-neighbours do.
+| 33 names of the form `<alias>engine` on crates.io, each also as `<alias>_engine` | all free except `rustengine` |
+| the same 33 on npm | all free |
+| each alias alone on crates.io (a short command or crate may use it) | 21 free; 12 taken: `rwg`, `wgpu`, `wg`, `ferro`, `ferris`, `ferrous`, `oxgpu`, `oxide`, `oxi`, `patina`, `corten`, `hematite` |
+| the eight strongest as GitHub repository names | one is in use: **`wgpuEngine`**, a C++ WebGPU 3D engine with 90 stars |
+| the four short aliases as GitHub repository names and on the web | `rgpu` is an existing project (remote GPUs for PyTorch, 80 stars); `rwgpu` is two repositories with no stars; `ferrogpu` and `oxigpu`: nothing |
+| may a product name say "Rust"? | Sources differ. The Rust Foundation's policy page allows "Rust" in crate and repository names that refer to use with the language; another policy text prefers `-rs` and does not generally permit "Rust" inside a product name. The shortlist therefore hints at Rust and does not spell it. |
 
 ## Shortlist
 
-The command is typed in every step of the agent's loop, so each row shows how it reads there.
+All four are free on crates.io (also with `_engine` and `_core`), on npm and as GitHub repository names. The
+alias in each is also free as a crate, so it can be the short command that is typed in every step.
 
-| name | reads as | for | against |
-|---|---|---|---|
-| **`game16x`** (recommended) | `game16x new town` · `game16x check` · `game16x test` | Follows the family pattern exactly. Seven characters. Covers every kind of game in the direction (strategy, city builders, car-building, simulation, children's). Commands read as sentences. | A plain word; it is distinctive only through the suffix. |
-| `forge16x` | `forge16x new town` | More of a product name; a verb that suits making things. | "Forge" is crowded in software and in game technology (a rendering framework, a modding platform, a build tool all use it). |
-| `diorama16x` | `diorama16x new town` | Says what the art direction is: small 3D worlds built from simple shapes. Nothing else in game technology uses the word. | Ten characters before the suffix is typed. Fits a town better than a car-building game. |
-| `sim16x` | `sim16x run` | Six characters. Names the engine's strongest part, the deterministic simulation, and fits strategy, city and simulation games. | A children's fun game is not a "sim". |
-| `play16x` | `play16x run` | Friendly; fits children's games and strategy alike. | Sounds like a media player, or like playback at 16× speed. |
-| `world16x` | `world16x inspect` | The queryable world is the engine's centre. | The vaguest of the six. |
+| name | says | command | for | against |
+|---|---|---|---|---|
+| **`rwgpuengine`** (recommended) | **R**ust + **wgpu** + engine | `rwgpu new town` · `rwgpu check` | The only one that names both technologies plainly, which is what the owner asked for. Eleven characters. | Hard to say aloud ("R-W-G-P-U engine"). It ties the name to one library: if the renderer ever moves off wgpu, the name is wrong. |
+| `oxigpuengine` | **oxi**dation (how Rust tools hint at Rust: oxipng, oxc) + GPU + engine | `oxigpu new town` | Easy to say ("oxi-GPU"). Nothing else uses `oxigpu`. Survives a change of GPU library. | Says "GPU", not "wgpu". A reader must know the hint. |
+| `ferrogpuengine` | **ferro**, iron (the Rust community's own word: ferrous, Ferrocene) + GPU + engine | `ferrogpu new town` | The most name-like of the four. Nothing else uses `ferrogpu`. Survives a change of GPU library. | Fourteen characters. Says "GPU", not "wgpu". |
+| `rsgpuengine` | **rs**, the Rust file ending + GPU + engine | `rsgpu new town` | Plain and short. | Reads as a string of letters; the least memorable. |
 
-Not on the list, on purpose:
-- **`engine16x`**: the most literal name, but one letter away from the other vendor's "16x.engineer". In the
-  field of AI coding tools the two would be mixed up.
-- **`gamekit16x`**, **`gamemaker16x`**: "GameKit" and "GameMaker" are existing products' names.
-- **`anvil16x`**, **`atlas16x`**, **`tessera16x`**, **`lattice16x`**: each bare word is already a game engine,
-  game or game tool.
+Left off, on purpose:
+
+| name | why |
+|---|---|
+| `wgpuengine` | Already the name of another engine (`wgpuEngine`, C++, 90 stars). It also reads as "the wgpu project's own engine". |
+| `rgpuengine` | `rgpu` already means "remote GPU" in a known project. |
+| `rustwgpuengine`, `rustgpuengine`, `rustwgengine` | They spell "Rust" inside a product name (see the last row of the checks). `rust-gpu` is also an existing project, for writing shaders in Rust. |
+| `rustengine`, `rustyengine` | `rustengine` is taken on crates.io, and "Rusty Engine" (`rusty_engine`) is an existing Rust game engine for learners. |
+| `rwgengine`, `ferroengine`, `oxideengine`, `oxiengine`, `ferrisengine` | The alias alone is taken on crates.io (`rwg`, `ferro`, `oxide`, `oxi`, `ferris`), so the short command and the crate would belong to different projects. |
+| `wgpursengine` | `wgpu-rs` was the wgpu library's own repository name. |
 
 ## Recommendation
 
-**`game16x`.** It is the one that fits the family, covers all the kinds of game the owner listed, and makes
-the commands read naturally. `forge16x` is the pick if a more product-like name matters more than the
-family pattern.
+**`rwgpuengine`**, with `rwgpu` as the command. It is the direct answer to "name it after Rust and wgpu":
+nothing has to be explained, and both the full name and the alias are free.
 
-A note for the owner, not a recommendation: "16x Prompt" at `16x.engineer` belongs to someone else and sits
-close to this field (tools for AI coding). 16xbrains already ships under `16x`, so this is the owner's call;
-keeping "16xbrains" visible next to the name (repository owner, README, crate authors) makes the difference
-clear.
+Its two costs are real and the owner should weigh them: it is awkward to say, and it names a dependency. If
+either matters more than naming wgpu outright, **`oxigpuengine`** is the pick: it still says "Rust, on the
+GPU", it can be spoken, and it does not depend on which GPU library is underneath.
 
 ## What the rename touches (after the owner picks)
 
-| thing | today | then (with `game16x` as the example) |
+| thing | today | then (with `rwgpuengine` as the example) |
 |---|---|---|
-| command | `slate` | `game16x` |
-| crates | `slate_core`, `slate_data`, … | `game16x_core`, `game16x_data`, … |
-| project file | `slate.toml` | to decide at the rename: `game16x.toml`, or the neutral `game.toml` |
-| web ABI | `slate_step`, … | `game16x_step`, … |
-| output envelope | `"slate": "0.1.0"` | `"game16x": "…"` (a format version bump) |
-| repository | — | `16xbrains/game16x`, if the `16xbrains` account on GitHub is the owner's; it exists and has no public repositories |
-| authors and copyright | — | "The 16xbrains developers" in crate metadata and the Apache-2.0 notice |
+| command | `slate` | `rwgpu` |
+| crates | `slate_core`, `slate_data`, … | `rwgpuengine` (the command and the entry point), `rwgpuengine_core`, `rwgpuengine_data`, … |
+| project file | `slate.toml` | to decide at the rename: `rwgpu.toml`, or the neutral `game.toml` |
+| web ABI | `slate_step`, … | `rwgpu_step`, … |
+| output envelope | `"slate": "0.1.0"` | `"rwgpu": "…"` (a format version bump) |
+| repository | — | on the owner's own GitHub account, where the owner's other open-source projects are |
+| authors and copyright | — | set at the open-source readiness step; the owner has said the 16xbrains developers co-author it |
 
 It is one mechanical commit, proven by unchanged state and image hashes, and it is best done before the 3D
 work adds new crates.
+
+## For the record: the first shortlist (`<word>16x`)
+
+Checked the same day: 42 names of the form `<word>16x` were all free on crates.io (also with `_core`) and
+npm, and the ten strongest were unused on GitHub. `game16x` was recommended, then `forge16x`, `diorama16x`,
+`sim16x`, `play16x` and `world16x`. One finding from that round still matters if the `16x` mark is used
+elsewhere: another vendor ships "16x Prompt", a tool for AI coding assistants, at `16x.engineer`. The owner
+dropped the suffix for this project.
