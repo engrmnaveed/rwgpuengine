@@ -3,6 +3,25 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Data logic v1 built (M1.6)
+
+- Built ADR 0011's set: `[[connect]]` `add`/`set` on props (the owner emits `changed`), `when` conditions
+  (`occupied`, `enabled`, prop `equals`/`at_least`/`at_most`; all must hold), a `label` component drawn
+  with an owned 5×8 pixel font with `{prop}` placeholders, and `screen_pos` for HUD entities. New:
+  `skipped` events, `[[expect]] text`, codes E0206 unknown-prop, E0207 prop-type, W0207 unsupported-char,
+  W0305 label-cut.
+- `examples/coin_vault` is the reference example: three coins counted on a HUD, a vault that opens at 3
+  (any order), an AND lock (statue on one plate, player on the other), a status banner set by `set`. 4
+  playtests, two of them negative; a mutation check (door at 2 coins, AND removed) fails exactly the
+  playtests that should fail.
+- Determinism: native and web agree on coin_vault (state `41f58b0904b83261`, image `f15c777308fdf361`);
+  iso_garden's hashes and reference image are unchanged.
+- Budgets: wasm 504,174 → 580,108 bytes (+15%, limit 700,000; mostly the static checks, which run in the
+  browser too), CLI 1.63 → 1.71 MB, still 16 runtime crates and 0 proc macros, smoke 418 ms, rebuild 458 ms.
+- Found while building: screen entities were ordered by part before entity, so every HUD label covered
+  every later HUD sprite; fixed (file order). The recipe TOML snippets are now tested.
+- Not done: the acceptance run (cold agent #5 on run #3's task: ≤ 5 min, nothing approximated, 0 warnings).
+
 ## 2026-11-25 — Q14 decided on KPIs: data logic first, Rust as the escape hatch
 
 - Owner's rule: choose on KPIs only (performance and flexibility trade-off). Measured edit loops: data edit →

@@ -1,0 +1,55 @@
+# With only two coins the vault stays shut: the door's connection is skipped
+# on every count change, and walking into the door is refused.
+[test]
+scene = "scenes/vault.toml"
+frames = 120
+
+[[input]]
+frame = 0
+hold = "right"       # coin1
+for = 16
+
+[[input]]
+frame = 20
+hold = "down"
+for = 24
+
+[[input]]
+frame = 50
+hold = "left"        # coin2
+for = 8
+
+[[input]]
+frame = 60
+hold = "up"          # (1, 2)
+for = 8
+
+[[input]]
+frame = 70
+hold = "right"       # (2, 2), (3, 2), (4, 2), then the closed door
+for = 32
+
+[[expect]]
+entity = "hud"
+props = { coins = 2 }
+text = "Coins: 2/3"
+
+[[expect]]
+entity = "door"
+enabled = true
+
+[[expect]]
+event = "skipped"
+entity = "door"
+at_least = 2
+at_most = 2
+
+[[expect]]
+event = "blocked"
+entity = "player"
+other = "door"
+reason = "solid"
+
+[[expect]]
+entity = "banner"
+text = "Collect 3 coins"

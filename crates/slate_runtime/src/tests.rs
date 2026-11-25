@@ -5,9 +5,13 @@ use slate_data::{Action, InputDef, InputKind, Vfs};
 use crate::playtest::run_playtest;
 use crate::session::{DataOnly, InspectOptions, LiveInput, Script, Session, SessionConfig};
 
+fn example(name: &str) -> Vfs {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples").join(name);
+    Vfs::from_dir(&root).unwrap_or_else(|e| panic!("examples/{name}: {e}"))
+}
+
 fn garden() -> Vfs {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/iso_garden");
-    Vfs::from_dir(&root).expect("examples/iso_garden")
+    example("iso_garden")
 }
 
 #[test]
@@ -34,6 +38,18 @@ fn example_playtests_pass() {
         assert!(run.failures.is_empty(), "{path}: {:#?}", run.failures);
         assert!(run.expects_checked >= 3, "{path}");
     }
+}
+
+#[test]
+fn coin_vault_playtests_pass_and_check_clean() {
+    let vfs = example("coin_vault");
+    let report = slate_data::check_project(&vfs);
+    assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
+    for path in &report.playtests {
+        let run = run_playtest(&vfs, path, Box::new(DataOnly)).unwrap_or_else(|d| panic!("{path}: {d:#?}"));
+        assert!(run.failures.is_empty(), "{path}: {:#?}", run.failures);
+    }
+    assert_eq!(report.playtests.len(), 4);
 }
 
 #[test]

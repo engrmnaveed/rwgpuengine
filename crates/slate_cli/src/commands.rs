@@ -447,7 +447,7 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
         let known = schema::COMPONENT_SPECS.iter().map(|s| s.id).chain(["props"]);
         if !known.clone().any(|k| k == c) {
             let hint = did_you_mean(c, known)
-                .unwrap_or_else(|| "components: tile, block, sprite, mover, patrol, wander, trigger".into());
+                .unwrap_or_else(|| "components: tile, block, sprite, mover, patrol, wander, trigger, label".into());
             return Outcome::usage(args::bad_arg(format!("unknown component `{c}`"), Some(hint)));
         }
     }
@@ -471,7 +471,7 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
         let name = e.get("name").and_then(Json::as_str).map(str::to_string);
         let id = e.get("id").and_then(Json::as_i64).unwrap_or(0);
         let label = name.unwrap_or_else(|| format!("#{id}"));
-        let comps: Vec<&str> = ["tile", "block", "sprite", "mover", "patrol", "wander", "trigger"]
+        let comps: Vec<&str> = ["tile", "block", "sprite", "label", "mover", "patrol", "wander", "trigger"]
             .into_iter()
             .filter(|c| e.get(c).is_some())
             .collect();
@@ -495,6 +495,16 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
             && !t.is_empty()
         {
             o.line(format!("      trigger occupied by {}", Json::Arr(t.to_vec()).to_compact()));
+        }
+        if let Some(shown) = e.pointer("label/shown").and_then(Json::as_str) {
+            let at = e.get("screen_pos").map(|p| format!(" at screen {}", p.to_compact())).unwrap_or_default();
+            o.line(format!("      text {shown:?}{at}"));
+        }
+        if let Some(Json::Obj(props)) = e.get("props")
+            && !props.is_empty()
+        {
+            let list: Vec<String> = props.iter().map(|(k, v)| format!("{k} = {}", v.to_compact())).collect();
+            o.line(format!("      props {{ {} }}", list.join(", ")));
         }
     }
     if let Some(events) = data.get("events").and_then(Json::as_array) {

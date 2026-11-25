@@ -16,7 +16,7 @@ pub mod world;
 
 pub use events::{EVENT_DOCS, Event, EventDoc, EventKind, EventLog, events_markdown};
 pub use input::{ActionSet, InputFrame, Tap};
-pub use world::{Connection, Entity, EntityId, NoSystems, Systems, World};
+pub use world::{Condition, Connection, Entity, EntityId, NoSystems, Systems, World};
 
 /// Rebuild probe for `cargo xtask budgets`: changing this env var makes
 /// cargo recompile this crate (and its dependents) exactly as an edit would,

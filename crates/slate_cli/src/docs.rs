@@ -130,15 +130,24 @@ entity where an actor stands does not push the actor out.
 when its cell goes from empty to occupied by an enabled actor and `on_exit` (default `released`) when it
 empties. Occupancy is re-checked every step, so enabling or disabling an actor that stands on the cell
 counts too (the signal comes in the next step's trigger phase). A trigger that is already occupied at
-frame 0 does **not** emit: start the connected door in the state you want (e.g. `enabled = false`).
+frame 0 does **not** emit: start the connected door in the state you want (e.g. `enabled = false`), or use
+a `when` condition, which looks at the current state rather than at signals.
+
+**Props and conditions.** `[[connect]]` `add` and `set` change a prop of `to` (a prop's type is fixed by its
+declared starting value). When the value really changes and some `[[connect]]` listens to `changed` from that
+entity, it emits `changed`. Signals are dispatched first in, first out, each to its connections in file order,
+within the same step. `when` conditions are checked as the signal is dispatched, against the state at that
+moment (this step's positions and occupancy, plus the actions already applied in this step); if one fails,
+nothing is done and a `skipped` event names the condition and what was seen.
 
 **Events.** Every step logs what happened and what was refused, with a sentence and structured fields.
 Read them with `slate inspect --events` or `slate run --events`; `slate explain events` prints this table.
 
 {event_table}
 
-**Drawing.** Ground first, then tiles, then blocks and sprites back to front by `x + y`, then height, then
-part (block before sprite), then file order (later entities on top).
+**Drawing.** Ground first, then tiles, then blocks, sprites and labels back to front by `x + y`, then
+height, then part (block, sprite, label), then file order (later entities on top). Screen entities
+(`screen_pos`) are drawn after the whole world, in file order, and ignore the camera.
 Blocks shade their left and right faces automatically. A sprite's bottom edge stands on its cell's center.
 "#
     )
@@ -226,21 +235,58 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   with `solid = true`. Wire `from = "plate" signal = "pressed" to = "door" action = "disable"`. To close
   it again when the plate is left, add a second `[[connect]]` with `signal = "released"`, `action = "enable"`.
   A door that re-closes while an actor stands in its cell does not push it out; the actor can walk on.
-- **Door that needs two plates held (AND).** Two solid door leaves on the same cell (`allow = ["W0201"]`),
-  each disabled by its own plate's `pressed` and re-enabled by its `released`.
+- **Door that needs two plates held (AND).** Each plate's `pressed` opens the door only if the other plate
+  is occupied, and either plate's `released` closes it:
+
+  ```toml
+  [[connect]]
+  from = "plate_a"
+  signal = "pressed"
+  to = "door"
+  action = "disable"
+  when = [{{ entity = "plate_b", occupied = true }}]   # and the mirror image for plate_b
+
+  [[connect]]
+  from = "plate_a"
+  signal = "released"
+  to = "door"
+  action = "enable"                                    # and the same for plate_b
+  ```
+
+  OR is several `[[connect]]` tables to the same target; NOT is `occupied = false` or `enabled = false`.
 - **Collectible (counts once).** Put the sprite and the trigger on the **same** entity and connect its signal
   to itself: `trigger = {{ on_enter = "collected", only = "player" }}` +
   `[[connect]] from = "coin1" signal = "collected" to = "coin1" action = "disable"`. Disabling it also
   disables the trigger, so walking over the spot again does nothing. (A separate trigger left enabled would
   fire again.)
+- **Score or counter.** Keep the number in a prop and `add` to it:
+  `props = {{ coins = 0 }}` on a `hud` entity, then
+  `[[connect]] from = "coin1" signal = "collected" to = "hud" action = "add" prop = "coins"` (`value`
+  defaults to 1; `value = -1` subtracts). `set` replaces a value (`prop = "mode" value = "won"`).
+- **Score on the screen (HUD).** An entity drawn at a fixed pixel with a backdrop and text:
+
+  ```toml
+  [[entity]]
+  name = "hud"
+  screen_pos = [8, 8]                                    # top-left pixel, ignores the camera
+  sprite = {{ shape = "rect", color = "#000000aa", size = [65, 14] }}
+  label = {{ text = "Coins: {{coins}}/3", offset = [3, 3] }} # {{coins}} shows the prop
+  props = {{ coins = 0 }}
+  ```
+
+  Text is 6 px per character and 8 px tall at `scale = 1` (`slate explain label`). `slate shot --report` warns
+  (W0305) if text runs off the frame or something covers it.
+- **Do something when a count is reached.** The prop's owner emits `changed` whenever a prop changes; act on it
+  with a condition: `[[connect]] from = "hud" signal = "changed" to = "vault" action = "disable"` +
+  `when = [{{ entity = "hud", prop = "coins", at_least = 3 }}]`.
 - **Stationary actor** (a weight on a plate, a hidden logic piece): `patrol = {{ path = [[x, y]] }}` with
   `pos = [x, y]`. It never moves and logs nothing, but it is an actor, so it holds a plate. A plate that is
   occupied from frame 0 does not emit `pressed`, so start its door already open (`enabled = false`), or
   enable the weight later with a `[[connect]]`.
-- **Counting in any order** (no counters exist, see Limits): keep each bit of the count in a stationary
-  actor that is enabled/disabled (`toggle`) by the events being counted, and put a trigger under it: the
-  trigger emits `on_enter`/`on_exit` one step later as the bit flips, and those signals drive the display.
-  It works, but it costs entities, connections and a one-step delay; say it is an approximation.
+- **Prove a score or a text**: `[[expect]] entity = "hud"` with `props = {{ coins = 3 }}` and/or
+  `text = "Coins: 3/3"` (the label as shown). `slate inspect --entity hud` prints both.
+- **Prove a condition stopped something**: `[[expect]] event = "skipped"`, `entity = "door"` (the target),
+  `at_least = 1`; the event's message names the condition that failed.
 - **Prove something is blocked** (a negative test): `[[expect]] event = "blocked"`, `entity = "player"`,
   `reason = "solid"` (reasons: `solid`, `actor`, `edge`, `area`, `cooldown`). Blocked *by whom*: add
   `other = "guard"`. With `event`, `entity` is the event's subject and `other` its other party;
@@ -271,7 +317,8 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   behind blocks in front of it, or when something is off-screen (W0301/W0303). `slate shot --input
   tests/X.toml --frame N --report` lists what is drawn where.
 - If something did not happen, the event log says why: a `blocked` event, a `signal` with no connections,
-  or a tap that hit a disabled entity. `slate explain` with no topic lists everything it can explain.
+  a `skipped` connection whose `when` condition failed, or a tap that hit a disabled entity. `slate explain`
+  with no topic lists everything it can explain.
 
 "##
     );
@@ -379,23 +426,27 @@ reference = "tests/refs/level2.png"
 pub const LIMITS_MD: &str = r##"Check this list before designing around a feature: if a requirement needs one of these, say so,
 then build the closest honest approximation.
 
+Supported (no workaround needed): text and numbers on screen (`label`, with `{prop}` placeholders), counters
+and variables (`props` with `[[connect]]` `add`/`set`), conditions (`when` on `[[connect]]`: AND within one
+connection, OR as several connections), and a screen-space HUD (`screen_pos`). See the Recipes.
+
 | not in this version | what you can do instead (and what it costs) |
 |---|---|
-| **Text and numbers on screen** (labels, scores, timers) | Nothing renders text. A small fixed range of values can be shown with layered sprites switched by `[[connect]]` (e.g. a 7-segment digit made of `rect` sprites): many entities and connections, and `allow = ["W0302"]` on hidden layers. Say it is an approximation. |
-| **Counters, variables, arithmetic** | `props` are read-only at runtime from data files; no action adds or compares. Count with entity states: one sprite per item if order does not matter for the display, or the "Counting in any order" recipe (stationary actors as bits, read by triggers). Playtests check entity states, not a number. |
-| **Conditions on connections** (AND, "only if") | A `[[connect]]` always fires. AND for passage: put two solid door leaves on the same cell, each disabled by its own plate (`allow = ["W0201"]`); the cell opens only while both are held. OR: several `[[connect]]` to the same target. |
-| **Holding a plate with an object** (pushable blocks, weights) | Only actors (`mover`, `patrol`, `wander`) set off triggers. Use a patrol as the "weight": a pacing one, or a stationary one (`patrol = { path = [[x, y]] }` on its own cell). |
+| **Expressions and arithmetic beyond add/set** (multiply, one prop from another, random numbers in data) | `add` a constant and `set` a constant; compare props with constants in `when`. For a few fixed outcomes, write one `[[connect]]` per case with `when` conditions. |
+| **Timers and delays** | No timer component. A patrol stepping on and off a trigger fires on a fixed period (`step_frames`); use its `pressed` signal as the tick. |
+| **Holding a plate with an object** (pushable blocks, weights) | Only actors (`mover`, `patrol`, `wander`) set off triggers. Use a patrol as the "weight": a pacing one, or a stationary one (`patrol = { path = [[x, y]] }` on its own cell) that a `[[connect]]` enables. |
 | **Several independently controlled characters** | Every enabled `mover` responds to the same input, so they move together. Use one mover; other characters are patrols or wanderers. |
-| **A screen-space HUD layer** | Everything is in the world. A `sprite` `offset` can place a sprite anywhere on screen relative to its cell, which works because the camera never moves. |
-| **Image sprites, audio, animation** | Shapes only (`circle`, `rect`, `diamond`), colors, blocks and tiles. |
+| **Text beyond printable ASCII** (accents, other scripts, emoji), fonts and text styles | One built-in pixel font: printable ASCII, a color and an integer `scale`. Other characters draw as a box (W0207). |
+| **Image sprites, audio, animation** | Shapes only (`circle`, `rect`, `diamond`), colors, blocks, tiles and text. |
 | **Multi-cell objects, rotation, scrolling camera** | One cell per entity (use `cells` for rows of copies); the camera is fixed per scene. |
-| **Rust game code in a `slate new` project** | The engine supports Rust systems (`Game` trait), but `slate new` makes data-only projects and the CLI cannot load Rust code yet. Treat props as read-only. |
-| **Tapping bare ground** | A tap on the floor hits nothing; taps only reach entities. |
+| **Rust game code in a `slate new` project** | The engine supports Rust systems (`Game` trait), but `slate new` makes data-only projects and the CLI cannot load Rust code yet. Everything above is data. |
+| **Tapping bare ground** | A tap on the floor hits nothing; taps only reach entities (screen entities included, so HUD buttons work). |
 
 Behaviours worth knowing:
 - Draw-order ties (same cell and height) go to file order: later entities are drawn on top.
 - Enabling a solid entity on a cell where an actor stands does not push the actor out; it overlaps until the
   actor leaves.
+- `changed` is only emitted when some `[[connect]]` listens to it, and only when the value really changes.
 "##;
 
 #[cfg(test)]
@@ -421,7 +472,66 @@ mod tests {
         assert!(run.failures.is_empty(), "{:#?}", run.failures);
         assert_eq!(run.shots.len(), 1);
         let md = project_agents_md("t");
-        assert!(md.contains("## Limits in this version") && md.contains("Text and numbers on screen"));
+        assert!(md.contains("## Limits in this version") && md.contains("Supported (no workaround needed)"));
+        assert!(md.contains("when = [{ entity = \"plate_b\", occupied = true }]"), "braces survive format!");
+        assert!(md.contains("label = { text = \"Coins: {coins}/3\", offset = [3, 3] }"));
         assert!(md.contains("name = \"Level 2\"") && md.contains("hold = \"right\""));
+    }
+
+    /// The TOML snippets in the Recipes are real: together with the entities they
+    /// refer to, they pass `slate check` with no diagnostics, and the HUD reads
+    /// right with no frame-report warnings.
+    #[test]
+    fn recipe_snippets_check_clean() {
+        let md = project_agents_md("t");
+        let recipes = &md[md.find("## Recipes").unwrap()..md.find("## Tips").unwrap()];
+        let snippets: Vec<String> = recipes
+            .split("```toml\n")
+            .skip(1)
+            .map(|b| b[..b.find("```").unwrap()].lines().map(str::trim_start).collect::<Vec<_>>().join("\n"))
+            .collect();
+        assert_eq!(snippets.len(), 2, "AND door and HUD");
+        let base = r##"
+[ground]
+size = [4, 4]
+
+[[entity]]
+name = "player"
+pos = [0, 0]
+sprite = {}
+mover = {}
+
+[[entity]]
+name = "plate_a"
+pos = [1, 1]
+tile = {}
+trigger = {}
+
+[[entity]]
+name = "plate_b"
+pos = [2, 2]
+tile = {}
+trigger = {}
+
+[[entity]]
+name = "door"
+pos = [3, 0]
+block = {}
+solid = true
+"##;
+        let scene = format!("{base}\n{}\n", snippets.join("\n"));
+        let mut vfs = Vfs::new();
+        vfs.insert("slate.toml", "[project]\nname = \"t\"\n");
+        vfs.insert("scenes/main.toml", scene.as_str());
+        vfs.insert(
+            "tests/hud.toml",
+            "[test]\nframes = 1\n[[expect]]\nentity = \"hud\"\ntext = \"Coins: 0/3\"\n[[shot]]\nreference = \"x.png\"\n",
+        );
+        let report = check_project(&vfs);
+        assert!(report.diagnostics.is_empty(), "{scene}\n{:#?}", report.diagnostics);
+        let run = run_playtest(&vfs, "tests/hud.toml", Box::new(DataOnly)).unwrap();
+        assert!(run.failures.is_empty(), "{:#?}", run.failures);
+        let warnings: Vec<&str> = run.shots[0].report.issues.iter().map(|d| d.code).collect();
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 }

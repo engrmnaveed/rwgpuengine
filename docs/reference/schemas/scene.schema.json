@@ -280,12 +280,53 @@
             },
             "additionalProperties": false
           },
+          "label": {
+            "type": "object",
+            "description": "Text drawn with the built-in pixel font (scores, names).",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "The text, with `{prop}` placeholders."
+              },
+              "color": {
+                "type": "string",
+                "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+                "description": "Text color. Default: \"#ffffff\"."
+              },
+              "scale": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8,
+                "description": "Pixel size of the font: 2 doubles it. Default: 1."
+              },
+              "offset": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "Shift in pixels [right, down]. Default: [0, 0]."
+              }
+            },
+            "required": ["text"],
+            "additionalProperties": false
+          },
+          "screen_pos": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "Draw this entity on the screen instead of in the world (a HUD): `[x, y]` is the top-left pixel of its sprite and label. Screen entities are drawn above the world, ignore the camera, can be tapped, and can only have `sprite` and `label`."
+          },
           "props": {
             "type": "object",
             "additionalProperties": {
               "type": ["boolean", "integer", "number", "string"]
             },
-            "description": "Free-form game data shown by `inspect` and checked by `[[expect]] props`. Nothing in data files changes props at runtime (Rust game code can)."
+            "description": "Game data: numbers, text and flags, e.g. `{ score = 0 }`. A prop's type is fixed by its starting value. `[[connect]]` `add`/`set` change props at runtime, `when` conditions and label `{placeholders}` read them, `inspect` shows them and `[[expect]] props` checks them."
           },
           "allow": {
             "type": "array",
@@ -304,7 +345,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "description": "When entity `from` emits `signal`, apply `action` to entity `to`. Every entity emits `tapped` when tapped.",
+        "description": "When entity `from` emits `signal`, apply `action` to entity `to`, if every `when` condition holds. Every entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` emits `changed`.",
         "properties": {
           "from": {
             "type": "string",
@@ -314,7 +355,7 @@
           "signal": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_/-]+$",
-            "description": "Signal name, e.g. `pressed`, `released`, `tapped`."
+            "description": "Signal name, e.g. `pressed`, `released`, `tapped`, `changed`."
           },
           "to": {
             "type": "string",
@@ -322,8 +363,59 @@
             "description": "Name of the target entity."
           },
           "action": {
-            "enum": ["enable", "disable", "toggle"],
-            "description": "enable, disable or toggle the target."
+            "enum": ["enable", "disable", "toggle", "add", "set"],
+            "description": "enable, disable or toggle the target; or `add` a number to / `set` one of its props."
+          },
+          "prop": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_/-]+$",
+            "description": "With `add`/`set`: the target's prop (declared in its `props`)."
+          },
+          "value": {
+            "type": ["boolean", "number", "string"],
+            "description": "With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), of the prop's type."
+          },
+          "when": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One item of a `[[connect]]` `when` list, checked against the current state when the signal arrives. Names an `entity` and exactly one of `occupied`, `enabled` or `prop`: `{ entity = \"plate_b\", occupied = true }`, `{ entity = \"gate\", enabled = false }`, `{ entity = \"hud\", prop = \"coins\", at_least = 3 }`.",
+              "properties": {
+                "entity": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_/-]+$",
+                  "description": "The entity to look at, by name."
+                },
+                "occupied": {
+                  "type": "boolean",
+                  "description": "true: an enabled actor stands on the entity's cell right now (for a trigger: one its `only` accepts). false: nobody does."
+                },
+                "enabled": {
+                  "type": "boolean",
+                  "description": "The entity's enabled state."
+                },
+                "prop": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_/-]+$",
+                  "description": "One of the entity's props, compared with `equals`, `at_least` and/or `at_most`."
+                },
+                "equals": {
+                  "type": ["boolean", "number", "string"],
+                  "description": "With `prop`: the prop has exactly this value."
+                },
+                "at_least": {
+                  "type": "number",
+                  "description": "With `prop`: the number prop is ≥ this."
+                },
+                "at_most": {
+                  "type": "number",
+                  "description": "With `prop`: the number prop is ≤ this."
+                }
+              },
+              "required": ["entity"],
+              "additionalProperties": false
+            },
+            "description": "Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`."
           }
         },
         "required": ["from", "signal", "to", "action"],

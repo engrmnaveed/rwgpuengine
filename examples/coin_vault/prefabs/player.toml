@@ -1,0 +1,3 @@
+doc = "The player: a yellow token moved one cell per arrow key / swipe."
+sprite = { shape = "circle", color = "#ffcc33", size = [22, 30] }
+mover = { step_frames = 8 }

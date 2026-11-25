@@ -80,7 +80,10 @@ fn ci() -> Result {
     step("generated docs are current");
     docs(true)?;
     step("example playtests");
-    run("cargo", &["run", "--quiet", "--bin", "slate", "--", "test", "examples/iso_garden"])?;
+    for example in ["examples/iso_garden", "examples/coin_vault"] {
+        run("cargo", &["run", "--quiet", "--bin", "slate", "--", "check", example])?;
+        run("cargo", &["run", "--quiet", "--bin", "slate", "--", "test", example])?;
+    }
     step("budgets (builds web + release, runs smoke)");
     budgets()?;
     eprintln!("\nci: all green");

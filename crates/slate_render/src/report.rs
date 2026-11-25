@@ -3,8 +3,9 @@
 //! For each entity: what was drawn, where (screen rectangle), how many
 //! pixels and how many are still visible, and what covers it. Issues are
 //! diagnostics with stable codes: off-screen (W0301), mostly hidden sprites
-//! (W0302) and partly off-screen entities (W0303). An agent can check
-//! "is the player visible?" without looking at the PNG.
+//! (W0302), partly off-screen entities (W0303), hidden trigger tiles (W0304)
+//! and cut-off or covered text (W0305). An agent can check "is the player
+//! visible?" or "does the score read 3?" without looking at the PNG.
 
 use std::collections::BTreeMap;
 
@@ -39,6 +40,17 @@ pub struct EntityReport {
     pub clipped: bool,
     /// Entities drawn over this one, with pixel counts, largest first.
     pub covered_by: Vec<(EntityId, u32)>,
+    /// Label text as shown, if the entity has a label.
+    pub text: Option<String>,
+}
+
+/// Pixel accounting for one entity's label.
+#[derive(Default)]
+struct LabelPx {
+    bounds: Rect,
+    drawn: u32,
+    /// Lit pixels later covered by other entities.
+    covered: u32,
 }
 
 impl EntityReport {
@@ -67,6 +79,8 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
     let mut ground_cells = 0;
     let mut sprite_px: BTreeMap<EntityId, (u32, u32)> = BTreeMap::new();
     let mut trigger_tile_px: BTreeMap<EntityId, (u32, u32)> = BTreeMap::new();
+    let mut label_px: BTreeMap<EntityId, LabelPx> = BTreeMap::new();
+    let mut body: BTreeMap<EntityId, Rect> = BTreeMap::new();
 
     for (idx, item) in list.items.iter().enumerate() {
         if !item.enabled {
@@ -89,6 +103,7 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
                 offscreen: false,
                 clipped: false,
                 covered_by: Vec::new(),
+                text: world.get(id).and_then(|e| e.label_text()),
             }
         });
         if !entry.parts.contains(&item.part.name()) {
@@ -109,6 +124,16 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
             let p = sprite_px.entry(id).or_insert((0, 0));
             p.0 += s.drawn;
             p.1 += s.visible;
+        }
+        if item.part == Part::Label {
+            let l = label_px.entry(id).or_default();
+            l.bounds = l.bounds.union(&item.shape.bbox());
+            l.drawn += s.drawn;
+            l.covered +=
+                s.covered_by.iter().filter(|(o, _)| list.items[**o].entity != Some(id)).map(|(_, n)| *n).sum::<u32>();
+        } else {
+            let b = body.entry(id).or_insert(Rect::EMPTY);
+            *b = b.union(&item.shape.bbox());
         }
         for (&other_idx, &n) in &s.covered_by {
             if let Some(other) = list.items[other_idx].entity
@@ -139,7 +164,7 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
                 )
                 .hint("move it or the camera ([camera] center in the scene)"),
             );
-        } else if r.clipped {
+        } else if body.get(&id).is_some_and(|b| !b.is_empty() && b.intersect(&screen).area() < b.area()) {
             own.push(Diagnostic::new(
                 &codes::CLIPPED,
                 format!(
@@ -194,6 +219,34 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
                 ),
             ));
         }
+        if let Some(l) = label_px.get(&id)
+            && !r.offscreen
+        {
+            let text = r.text.clone().unwrap_or_default();
+            let [lx, ly, lw, lh] = l.bounds.xywh();
+            let mut why = Vec::new();
+            if l.bounds.intersect(&screen).area() < l.bounds.area() {
+                why.push(format!(
+                    "its text box [{lx}, {ly}, {lw}, {lh}] runs past the edge of the {}x{} frame",
+                    frame.width, frame.height
+                ));
+            }
+            if l.covered > 0 {
+                let by: Vec<String> = r
+                    .covered_by
+                    .iter()
+                    .take(3)
+                    .map(|(o, _)| world.get(*o).map_or_else(|| format!("#{o}"), |e| e.label()))
+                    .collect();
+                why.push(format!("{} of its {} text pixels are covered by {}", l.covered, l.drawn, by.join(", ")));
+            }
+            if !why.is_empty() {
+                own.push(
+                    Diagnostic::new(&codes::LABEL_CUT, format!("label of {} ({text:?}): {}", r.label, why.join("; ")))
+                        .hint("move it (`screen_pos` or label `offset`), shorten the text, or lower `scale`"),
+                );
+            }
+        }
         // Warnings the entity declares as intended (`allow = [...]`) are not reported.
         let entity = world.get(id);
         issues.extend(own.into_iter().filter(|d| !entity.is_some_and(|e| e.allows(d.code))));
@@ -238,6 +291,7 @@ impl FrameReport {
                     .with("offscreen", r.offscreen)
                     .with("clipped", r.clipped)
                     .with("covered_by", cov)
+                    .with("text", r.text.clone())
             })
             .collect();
         Json::object()
@@ -271,6 +325,9 @@ impl FrameReport {
                 r.cell[1],
                 (r.visible_ratio() * 100.0).round() as i64
             );
+            if let Some(t) = &r.text {
+                line.push_str(&format!("  text {t:?}"));
+            }
             if let Some((o, n)) = r.covered_by.first() {
                 line.push_str(&format!("  (covered most by #{o}: {n} px)"));
             }

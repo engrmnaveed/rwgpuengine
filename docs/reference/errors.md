@@ -20,17 +20,21 @@ Codes are stable: never renumbered or reused. `E` codes are errors (the command 
 | [E0203](#e0203) | `duplicate-name` | Duplicate entity name |
 | [E0204](#e0204) | `unknown-scene` | Scene file not found |
 | [E0205](#e0205) | `name-with-cells` | `name` cannot be used with `cells` |
+| [E0206](#e0206) | `unknown-prop` | Unknown prop |
+| [E0207](#e0207) | `prop-type` | Value does not fit the prop's type |
 | [W0201](#w0201) | `solid-overlap` | Two solid entities share a cell |
 | [W0202](#w0202) | `outside-ground` | Entity is outside the ground |
 | [W0203](#w0203) | `signal-never-emitted` | Connected signal is never emitted |
 | [W0204](#w0204) | `input-after-end` | Input is scheduled after the last frame |
 | [W0205](#w0205) | `engine-mismatch` | Project targets a different engine version |
 | [W0206](#w0206) | `actor-in-solid` | Actor starts inside a solid entity |
+| [W0207](#w0207) | `unsupported-char` | Label text has characters the font cannot draw |
 | [E0301](#e0301) | `signal-limit` | Too many signals in one frame |
 | [W0301](#w0301) | `offscreen` | Entity is drawn entirely off-screen |
 | [W0302](#w0302) | `occluded` | Sprite is mostly hidden |
 | [W0303](#w0303) | `clipped` | Entity is partly off-screen |
 | [W0304](#w0304) | `hidden-trigger` | Trigger tile is less than 75% visible |
+| [W0305](#w0305) | `label-cut` | Label text is cut off or covered |
 | [E0401](#e0401) | `expect-failed` | Playtest expectation failed |
 | [E0402](#e0402) | `image-mismatch` | Screenshot differs from reference image |
 | [E0403](#e0403) | `reference-missing` | Reference image not found |
@@ -148,8 +152,9 @@ Fix: create the prefab file, or use the suggested name.
 
 **Unknown entity name** (`unknown-entity`, error)
 
-A `[[connect]]` or a playtest `[[expect]]` names an entity that the scene does
-not define. Only entities with a `name` can be referenced.
+A `[[connect]]` (including its `when` conditions) or a playtest `[[expect]]`
+names an entity that the scene does not define. Only entities with a `name` can
+be referenced.
 
 Fix: add `name = "..."` to the entity, or use the suggested name.
 
@@ -181,6 +186,29 @@ unique, so a multi-cell entry cannot have a `name`.
 Fix: remove `name`, or split the entry into separate `[[entity]]` tables with
 `pos`.
 
+## E0206
+
+**Unknown prop** (`unknown-prop`, error)
+
+A `[[connect]]` (`prop`, or a `when` condition) or a label placeholder (`{score}`)
+names a prop the entity does not have. Props only exist if they are declared in
+the entity's (or its prefab's) `props` table, so typos are caught before running.
+
+Fix: declare it with a starting value, e.g. `props = { score = 0 }` on that
+entity, or use the suggested name.
+
+## E0207
+
+**Value does not fit the prop's type** (`prop-type`, error)
+
+A prop keeps the type of its declared starting value. `add` needs a number prop,
+`set` and `equals` need a value of the prop's type (an integer prop takes
+integers; a number prop takes integers or decimals), and `at_least`/`at_most`
+need a number prop.
+
+Fix: change the value, or declare the prop with the type you mean (`0` for a
+count, `0.0` for a decimal, `""` for text, `false` for a flag).
+
 ## W0201
 
 **Two solid entities share a cell** (`solid-overlap`, warning)
@@ -207,8 +235,9 @@ Fix: move it inside 0..size, or grow the ground.
 
 A `[[connect]]` listens for a signal its `from` entity can never emit. Every
 entity emits `tapped`; an entity with a `trigger` emits its `on_enter` and
-`on_exit` signals (default `pressed` and `released`). Rust game code may emit
-other signals, in which case this warning can be ignored.
+`on_exit` signals (default `pressed` and `released`); an entity whose props are
+changed by a `[[connect]]` `add` or `set` emits `changed`. Rust game code may
+emit other signals, in which case this warning can be ignored.
 
 Fix: add the component that emits the signal, or fix the signal name.
 
@@ -240,6 +269,16 @@ means a typo in `pos` (a player spawned inside a wall).
 
 Fix: move one of them. If it is deliberate (a hidden stationary actor used as a
 logic piece inside a wall), add `allow = ["W0206"]` to the actor.
+
+## W0207
+
+**Label text has characters the font cannot draw** (`unsupported-char`, warning)
+
+Labels use slate's built-in pixel font, which has the printable ASCII characters
+(letters a-z and A-Z, digits, punctuation and space) and line breaks. Other
+characters (accents, other scripts, emoji) are drawn as a hollow box.
+
+Fix: use ASCII text. Fonts for other scripts are not in this version.
 
 ## E0301
 
@@ -289,6 +328,18 @@ a tall block in front of it (larger x + y) covers it. Entities standing on the t
 count. Players cannot see where to step.
 
 Fix: move the block in front of it (in front = larger x + y), lower it, or move the trigger.
+
+## W0305
+
+**Label text is cut off or covered** (`label-cut`, warning)
+
+Part of a label's text is outside the frame, or other things are drawn over some
+of its letters, so players may misread it (a score of 10 that shows as 1).
+Screen labels (`screen_pos`) are drawn above the world; only later screen
+entities can cover them.
+
+Fix: move the label (`screen_pos`, or `offset`), make the text shorter, or use a
+smaller `scale`. The frame report (`slate shot --report`) shows its rectangle.
 
 ## E0401
 

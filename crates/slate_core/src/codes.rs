@@ -117,8 +117,9 @@ Fix: the message names what is allowed.";
 Fix: create the prefab file, or use the suggested name.";
 
     UNKNOWN_ENTITY = "E0202", "unknown-entity", Error, "Unknown entity name",
-"A `[[connect]]` or a playtest `[[expect]]` names an entity that the scene does
-not define. Only entities with a `name` can be referenced.
+"A `[[connect]]` (including its `when` conditions) or a playtest `[[expect]]`
+names an entity that the scene does not define. Only entities with a `name` can
+be referenced.
 
 Fix: add `name = \"...\"` to the entity, or use the suggested name.";
 
@@ -141,6 +142,23 @@ unique, so a multi-cell entry cannot have a `name`.
 Fix: remove `name`, or split the entry into separate `[[entity]]` tables with
 `pos`.";
 
+    UNKNOWN_PROP = "E0206", "unknown-prop", Error, "Unknown prop",
+"A `[[connect]]` (`prop`, or a `when` condition) or a label placeholder (`{score}`)
+names a prop the entity does not have. Props only exist if they are declared in
+the entity's (or its prefab's) `props` table, so typos are caught before running.
+
+Fix: declare it with a starting value, e.g. `props = { score = 0 }` on that
+entity, or use the suggested name.";
+
+    PROP_TYPE = "E0207", "prop-type", Error, "Value does not fit the prop's type",
+"A prop keeps the type of its declared starting value. `add` needs a number prop,
+`set` and `equals` need a value of the prop's type (an integer prop takes
+integers; a number prop takes integers or decimals), and `at_least`/`at_most`
+need a number prop.
+
+Fix: change the value, or declare the prop with the type you mean (`0` for a
+count, `0.0` for a decimal, `\"\"` for text, `false` for a flag).";
+
     SOLID_OVERLAP = "W0201", "solid-overlap", Warning, "Two solid entities share a cell",
 "Two enabled solid entities start on the same grid cell. This is usually a
 copy-paste mistake and makes the cell impossible to enter.
@@ -158,8 +176,9 @@ Fix: move it inside 0..size, or grow the ground.";
     SIGNAL_NEVER_EMITTED = "W0203", "signal-never-emitted", Warning, "Connected signal is never emitted",
 "A `[[connect]]` listens for a signal its `from` entity can never emit. Every
 entity emits `tapped`; an entity with a `trigger` emits its `on_enter` and
-`on_exit` signals (default `pressed` and `released`). Rust game code may emit
-other signals, in which case this warning can be ignored.
+`on_exit` signals (default `pressed` and `released`); an entity whose props are
+changed by a `[[connect]]` `add` or `set` emits `changed`. Rust game code may
+emit other signals, in which case this warning can be ignored.
 
 Fix: add the component that emits the signal, or fix the signal name.";
 
@@ -182,6 +201,13 @@ means a typo in `pos` (a player spawned inside a wall).
 
 Fix: move one of them. If it is deliberate (a hidden stationary actor used as a
 logic piece inside a wall), add `allow = [\"W0206\"]` to the actor.";
+
+    UNSUPPORTED_CHAR = "W0207", "unsupported-char", Warning, "Label text has characters the font cannot draw",
+"Labels use slate's built-in pixel font, which has the printable ASCII characters
+(letters a-z and A-Z, digits, punctuation and space) and line breaks. Other
+characters (accents, other scripts, emoji) are drawn as a hollow box.
+
+Fix: use ASCII text. Fonts for other scripts are not in this version.";
 
     // ---- x03xx: runtime and frame report ------------------------------------
     SIGNAL_LIMIT = "E0301", "signal-limit", Error, "Too many signals in one frame",
@@ -217,6 +243,15 @@ a tall block in front of it (larger x + y) covers it. Entities standing on the t
 count. Players cannot see where to step.
 
 Fix: move the block in front of it (in front = larger x + y), lower it, or move the trigger.";
+
+    LABEL_CUT = "W0305", "label-cut", Warning, "Label text is cut off or covered",
+"Part of a label's text is outside the frame, or other things are drawn over some
+of its letters, so players may misread it (a score of 10 that shows as 1).
+Screen labels (`screen_pos`) are drawn above the world; only later screen
+entities can cover them.
+
+Fix: move the label (`screen_pos`, or `offset`), make the text shorter, or use a
+smaller `scale`. The frame report (`slate shot --report`) shows its rectangle.";
 
     // ---- x04xx: playtests -----------------------------------------------------
     EXPECT_FAILED = "E0401", "expect-failed", Error, "Playtest expectation failed",

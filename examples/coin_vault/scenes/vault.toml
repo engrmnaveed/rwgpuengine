@@ -1,0 +1,197 @@
+# Collect the three coins: the vault door opens at 3. Inside, the treasure
+# chest opens only while BOTH plates are held: the statue stands on plate_a,
+# the player steps on plate_b. Stepping off (or tapping the statue away)
+# closes it again.
+#
+# Grid: +x runs down-right on screen, +y down-left. Ground 8x6. The vault
+# wall is x = 5 with its door at (5, 2); the vault is x = 6..7.
+
+[scene]
+name = "Coin vault"
+doc = "Counters, conditions, text and a HUD, all in data."
+
+[ground]
+size = [8, 6]
+color = "#6fa86a"
+alt_color = "#64995f"
+
+[[entity]]
+name = "player"
+prefab = "player"
+pos = [0, 0]
+
+# ---- coins: each adds 1 to hud.coins and disables itself (counts once)
+
+[[entity]]
+name = "coin1"
+prefab = "coin"
+pos = [2, 0]
+
+[[entity]]
+name = "coin2"
+prefab = "coin"
+pos = [1, 3]
+
+[[entity]]
+name = "coin3"
+prefab = "coin"
+pos = [3, 5]
+
+# ---- the vault
+
+[[entity]]
+prefab = "wall"
+cells = [[5, 0], [5, 1], [5, 3], [5, 4], [5, 5]]
+
+[[entity]]
+name = "door"
+pos = [5, 2]
+block = { color = "#b5523b", height = 1.2 }
+solid = true
+
+[[entity]]
+name = "plate_a"
+prefab = "plate"
+pos = [6, 0]
+
+[[entity]]
+name = "statue"
+pos = [6, 0]
+sprite = { shape = "diamond", color = "#aab2bd", size = [24, 34] }
+patrol = { path = [[6, 0]] }              # a stationary actor: it holds plate_a
+
+[[entity]]
+name = "plate_b"
+prefab = "plate"
+pos = [7, 4]
+
+[[entity]]
+name = "chest"
+pos = [6, 5]
+enabled = false
+sprite = { shape = "rect", color = "#e0a030", size = [26, 18] }
+
+# ---- HUD: drawn at fixed screen pixels, above the world
+
+[[entity]]
+name = "hud"
+screen_pos = [12, 12]
+sprite = { shape = "rect", color = "#000000aa", size = [126, 24] }
+label = { text = "Coins: {coins}/3", scale = 2, offset = [4, 4] }
+props = { coins = 0 }
+
+[[entity]]
+name = "banner"
+screen_pos = [12, 440]
+label = { text = "{msg}", color = "#f2e9a0", scale = 2 }
+props = { msg = "Collect 3 coins" }
+
+# ---- wiring
+
+[[connect]]
+from = "coin1"
+signal = "collected"
+to = "hud"
+action = "add"
+prop = "coins"
+
+[[connect]]
+from = "coin2"
+signal = "collected"
+to = "hud"
+action = "add"
+prop = "coins"
+
+[[connect]]
+from = "coin3"
+signal = "collected"
+to = "hud"
+action = "add"
+prop = "coins"
+
+[[connect]]
+from = "coin1"
+signal = "collected"
+to = "coin1"
+action = "disable"
+
+[[connect]]
+from = "coin2"
+signal = "collected"
+to = "coin2"
+action = "disable"
+
+[[connect]]
+from = "coin3"
+signal = "collected"
+to = "coin3"
+action = "disable"
+
+# The vault opens when the count reaches 3, whatever the order.
+[[connect]]
+from = "hud"
+signal = "changed"
+to = "door"
+action = "disable"
+when = [{ entity = "hud", prop = "coins", at_least = 3 }]
+
+[[connect]]
+from = "hud"
+signal = "changed"
+to = "banner"
+action = "set"
+prop = "msg"
+value = "The vault is open!"
+when = [{ entity = "hud", prop = "coins", at_least = 3 }]
+
+# AND: each plate opens the chest only if the other one is held too.
+[[connect]]
+from = "plate_b"
+signal = "pressed"
+to = "chest"
+action = "enable"
+when = [{ entity = "plate_a", occupied = true }]
+
+[[connect]]
+from = "plate_a"
+signal = "pressed"
+to = "chest"
+action = "enable"
+when = [{ entity = "plate_b", occupied = true }]
+
+[[connect]]
+from = "plate_a"
+signal = "released"
+to = "chest"
+action = "disable"
+
+[[connect]]
+from = "plate_b"
+signal = "released"
+to = "chest"
+action = "disable"
+
+[[connect]]
+from = "plate_b"
+signal = "pressed"
+to = "banner"
+action = "set"
+prop = "msg"
+value = "Treasure found!"
+when = [{ entity = "plate_a", occupied = true }]
+
+[[connect]]
+from = "plate_b"
+signal = "pressed"
+to = "banner"
+action = "set"
+prop = "msg"
+value = "The statue must hold its plate"
+when = [{ entity = "plate_a", occupied = false }]
+
+# Tapping the statue takes it off plate_a.
+[[connect]]
+from = "statue"
+signal = "tapped"
+to = "statue"
+action = "disable"

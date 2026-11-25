@@ -198,3 +198,130 @@ fn allowed_warnings_are_not_reported() {
     assert!(issues(&scene("")).contains(&"W0302"));
     assert!(!issues(&scene("allow = [\"W0302\"]")).contains(&"W0302"));
 }
+
+// ---------------------------------------------------------------------------
+// Labels and screen entities (ADR 0011)
+
+fn render(text: &str) -> (World, crate::DrawList, crate::Frame, crate::FrameReport) {
+    let (world, view, def) = setup(text);
+    let list = build(&world, &view, def.ground.as_ref(), false);
+    let (frame, stats) = rasterize(&list);
+    let report = build_report(&world, &list, &frame, &stats);
+    (world, list, frame, report)
+}
+
+const HUD: &str = r##"
+[ground]
+size = [4, 4]
+
+[[entity]]
+name = "tower"
+pos = [3, 0]
+block = { height = 2 }
+
+[[entity]]
+name = "hud"
+screen_pos = [10, 6]
+sprite = { shape = "rect", color = "#000000", size = [60, 14] }
+label = { text = "Coins {n}", color = "#ffff00", offset = [3, 3] }
+props = { n = 7 }
+
+[[entity]]
+name = "tag"
+pos = [1, 1]
+label = { text = "Hi", scale = 2 }
+"##;
+
+#[test]
+fn screen_labels_draw_on_top_at_their_pixel() {
+    let (world, list, frame, report) = render(HUD);
+    let hud = world.find("hud").unwrap();
+    // Text box: "Coins 7" = 7 chars -> 41 x 8 px, top-left at (13, 9).
+    let text_rect = list
+        .items
+        .iter()
+        .filter(|i| i.entity == Some(hud) && i.part == crate::Part::Label)
+        .fold(crate::Rect::EMPTY, |a, i| a.union(&i.shape.bbox()));
+    assert_eq!(text_rect.xywh(), [13, 9, 41, 8], "glyph cells are 5 x 8, descender row included");
+    // 'C' top-left pixel (col 1, row 0) is lit yellow over the black backdrop.
+    assert_eq!(frame.pixel(14, 9).to_hex(), "#ffff00");
+    assert_eq!(frame.pixel(13, 9).to_hex(), "#000000");
+    // Screen items come after every world item, so nothing covers them.
+    let first_hud = list.items.iter().position(|i| i.entity == Some(hud)).unwrap();
+    assert!(list.items[first_hud..].iter().all(|i| i.entity == Some(hud)));
+    let r = report.entities.iter().find(|r| r.id == hud).unwrap();
+    assert_eq!(r.text.as_deref(), Some("Coins 7"));
+    assert!(report.issues.is_empty(), "{:#?}", report.issues);
+    // Taps on the HUD hit it, even over the world.
+    assert_eq!(pick(&list, 12.0, 8.0).hit, Some(hud));
+}
+
+#[test]
+fn world_labels_stand_on_their_cell_and_scale() {
+    let (world, list, _, _) = render(HUD);
+    let tag = world.find("tag").unwrap();
+    let r = list.bounds_of(tag);
+    // "Hi" at scale 2: (2 * 6 - 1) * 2 = 22 wide, 8 * 2 = 16 tall.
+    assert_eq!((r.x1 - r.x0, r.y1 - r.y0), (22, 16));
+    // Centered on the cell's standing point; the box bottom (row 8 * 2) is on it.
+    let p = setup(HUD).1.project_px(1.0, 1.0, 0.0);
+    assert_eq!(r.x0, p[0] - 11);
+    assert_eq!(r.y0, p[1] - 16);
+}
+
+#[test]
+fn cut_off_or_covered_labels_are_reported() {
+    // The backdrop fits (250..310); the text (290..331) does not: only W0305.
+    let off =
+        HUD.replace("screen_pos = [10, 6]", "screen_pos = [250, 6]").replace("offset = [3, 3]", "offset = [40, 3]");
+    let (_, _, _, report) = render(&off);
+    let w: Vec<_> = report.issues.iter().filter(|d| d.code == "W0305").collect();
+    assert_eq!(w.len(), 1, "{:#?}", w);
+    assert!(w[0].message.contains("\"Coins 7\"") && w[0].message.contains("runs past the edge"), "{}", w[0].message);
+    assert!(!report.issues.iter().any(|d| d.code == "W0303"), "{:#?}", report.issues);
+
+    // A later screen entity drawn over the text.
+    let covered = format!(
+        "{HUD}\n[[entity]]\nname = \"blot\"\nscreen_pos = [12, 8]\nsprite = {{ shape = \"rect\", size = [20, 10] }}\n"
+    );
+    let (_, _, _, report) = render(&covered);
+    let w: Vec<_> = report.issues.iter().filter(|d| d.code == "W0305").collect();
+    assert!(w.len() == 1 && w[0].message.contains("covered by blot"), "{:#?}", report.issues);
+    let allowed = covered.replace("props = { n = 7 }", "props = { n = 7 }\nallow = [\"W0305\"]");
+    assert!(!render(&allowed).3.issues.iter().any(|d| d.code == "W0305"));
+}
+
+#[test]
+fn labels_follow_their_props() {
+    let (mut world, view, def) = setup(HUD);
+    let hud = world.find("hud").unwrap();
+    let before = rasterize(&build(&world, &view, def.ground.as_ref(), false)).0.image_hash();
+    world.get_mut(hud).unwrap().props.insert("n".into(), slate_data::PropValue::Int(12));
+    let list = build(&world, &view, def.ground.as_ref(), false);
+    let (frame, stats) = rasterize(&list);
+    assert_ne!(frame.image_hash(), before);
+    let report = build_report(&world, &list, &frame, &stats);
+    assert_eq!(report.entities.iter().find(|r| r.id == hud).unwrap().text.as_deref(), Some("Coins 12"));
+}
+
+/// Writes every glyph to target/font-sheet.png (scale 4) for eyeballing.
+/// Run with `cargo test -p slate_render font_sheet -- --ignored`.
+#[test]
+#[ignore]
+fn font_sheet() {
+    let mut text = String::new();
+    for (i, c) in (' '..='~').enumerate() {
+        text.push(c);
+        if i % 16 == 15 {
+            text.push('\n');
+        }
+    }
+    let escaped =
+        text.replace('\\', "\\\\").replace('"', "\\\"").replace('{', "{{").replace('}', "}}").replace('\n', "\\n");
+    let scene =
+        format!("[[entity]]\nname = \"sheet\"\nscreen_pos = [8, 8]\nlabel = {{ text = \"{escaped}\", scale = 3 }}\n");
+    let (_, _, frame, _) = render(&scene);
+    let png = crate::image::encode_png(frame.width, frame.height, &frame.rgba).unwrap();
+    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/font-sheet.png");
+    std::fs::write(&out, png).unwrap();
+}

@@ -13,8 +13,8 @@ use slate_core::diag::{self, Diagnostic, SourceFile, Span};
 use slate_core::hash::Hasher64;
 use slate_core::text::did_you_mean;
 
-use crate::defs::{self, Origin, PlaytestDef, ProjectDef, SceneDef};
-use crate::node::{Table, parse_toml};
+use crate::defs::{self, CondTest, ConnectAction, EntityDef, LabelPart, Origin, PlaytestDef, ProjectDef, SceneDef};
+use crate::node::{Node, Table, parse_toml};
 use crate::schema::{self, Checker, Fields};
 
 /// The project marker file, like Cargo.toml for cargo.
@@ -276,11 +276,16 @@ impl<'a> SceneLoader<'a> {
                 for (i, c) in defs::cells_of(cells_node).into_iter().enumerate() {
                     let span = cells_node.as_array().and_then(|a| a.get(i)).map_or(cells_node.span, |n| n.span);
                     let origin = Origin { span, line: src.locate(span.start).0, ..origin.clone() };
-                    entities.push(defs::decode_entity(&merged, [c[0] as f32, c[1] as f32, z], origin));
+                    let def = defs::decode_entity(&merged, [c[0] as f32, c[1] as f32, z], origin);
+                    if i == 0 {
+                        check_entity(&def, t, node.span, &src, &mut self.diags);
+                    }
+                    entities.push(def);
                 }
             } else {
                 let pos = Fields::new(t, &schema::ENTITY).opt_pos("pos").unwrap_or([0.0, 0.0, 0.0]);
                 let def = defs::decode_entity(&merged, pos, origin);
+                check_entity(&def, t, node.span, &src, &mut self.diags);
                 if let Some(name) = &def.name {
                     if let Some(&first_line) = names.get(name) {
                         self.diags.push(
@@ -298,9 +303,17 @@ impl<'a> SceneLoader<'a> {
         }
 
         // Connections.
+        let connect_nodes: Vec<(&Node, &Table)> =
+            root.array("connect").unwrap_or(&[]).iter().filter_map(|n| Some((n, n.as_table()?))).collect();
+        // Entities whose props a connection changes: they emit `changed`.
+        let changed_by_connect: BTreeSet<String> = connect_nodes
+            .iter()
+            .map(|(_, t)| defs::decode_connect(t))
+            .filter(|c| c.action.changes_prop())
+            .map(|c| c.to)
+            .collect();
         let mut connections = Vec::new();
-        for node in root.array("connect").unwrap_or(&[]) {
-            let Some(t) = node.as_table() else { continue };
+        for &(node, t) in &connect_nodes {
             let c = defs::decode_connect(t);
             for (key, name) in [("from", &c.from), ("to", &c.to)] {
                 if !name.is_empty() && !names.contains_key(name) {
@@ -319,18 +332,28 @@ impl<'a> SceneLoader<'a> {
             if let Some(from) = entities.iter().find(|e| e.name.as_deref() == Some(c.from.as_str())) {
                 let emits: Vec<String> = std::iter::once("tapped".to_string())
                     .chain(from.trigger.iter().flat_map(|tr| [tr.on_enter.clone(), tr.on_exit.clone()]))
+                    .chain(changed_by_connect.contains(&c.from).then(|| "changed".to_string()))
                     .collect();
                 if !emits.contains(&c.signal) {
+                    let hint = did_you_mean(&c.signal, emits.iter().map(String::as_str)).or_else(|| {
+                        (c.signal == "changed").then(|| {
+                            format!(
+                                "`{}` emits `changed` only when a [[connect]] `add`s to or `set`s one of its props",
+                                c.from
+                            )
+                        })
+                    });
                     self.diags.push(
                         Diagnostic::new(
                             &codes::SIGNAL_NEVER_EMITTED,
                             format!("`{}` never emits `{}` (it emits: {})", c.from, c.signal, emits.join(", ")),
                         )
                         .at(&src, t.value_span("signal", node.span))
-                        .maybe_hint(did_you_mean(&c.signal, emits.iter().map(String::as_str))),
+                        .maybe_hint(hint),
                     );
                 }
             }
+            check_connect_logic(&c, t, node.span, &entities, &src, &mut self.diags);
             connections.push(c);
         }
 
@@ -380,6 +403,7 @@ impl<'a> SceneLoader<'a> {
                 );
             }
             if let Some(g) = &ground
+                && e.screen_pos.is_none()
                 && (cell[0] < 0 || cell[1] < 0 || cell[0] >= g.size[0] || cell[1] >= g.size[1])
                 && !allows(e, codes::OUTSIDE_GROUND.code)
             {
@@ -415,6 +439,275 @@ impl<'a> SceneLoader<'a> {
             entities,
             connections,
         })
+    }
+}
+
+/// Checks on one entity that need its merged definition: label templates and
+/// screen entities.
+fn check_entity(def: &EntityDef, t: &Table, span: Span, src: &SourceFile, diags: &mut Vec<Diagnostic>) {
+    let who = def.name.as_deref().map_or("this entity".to_string(), |n| format!("`{n}`"));
+    if let Some(label) = &def.label {
+        let at = t.table("label").map_or(span, |l| l.value_span("text", t.value_span("label", span)));
+        match defs::parse_label(&label.text) {
+            Err(why) => diags.push(
+                Diagnostic::new(&codes::INVALID_VALUE, format!("label text {:?}: {why}", label.text)).at(src, at),
+            ),
+            Ok(parts) => {
+                for part in parts {
+                    if let LabelPart::Prop(name) = part
+                        && def.prop(&name).is_none()
+                    {
+                        diags.push(unknown_prop(def, &name, &format!("label placeholder `{{{name}}}`"), src, at));
+                    }
+                }
+            }
+        }
+        let odd: Vec<String> = {
+            let mut v: Vec<char> = label.text.chars().filter(|c| !defs::font::supports(*c)).collect();
+            v.sort_unstable();
+            v.dedup();
+            v.into_iter().map(|c| format!("{c:?}")).collect()
+        };
+        if !odd.is_empty() && !def.allow.iter().any(|a| a.eq_ignore_ascii_case(codes::UNSUPPORTED_CHAR.code)) {
+            diags.push(
+                Diagnostic::new(
+                    &codes::UNSUPPORTED_CHAR,
+                    format!("label of {who} has characters the font cannot draw: {}", odd.join(", ")),
+                )
+                .at(src, at)
+                .hint("they are drawn as a hollow box; the font has printable ASCII only"),
+            );
+        }
+    }
+    if def.screen_pos.is_some() {
+        let world_only: Vec<&str> = [
+            ("tile", def.tile.is_some()),
+            ("block", def.block.is_some()),
+            ("mover", def.mover.is_some()),
+            ("patrol", def.patrol.is_some()),
+            ("wander", def.wander.is_some()),
+            ("trigger", def.trigger.is_some()),
+            ("solid", def.solid),
+        ]
+        .into_iter()
+        .filter(|(_, has)| *has)
+        .map(|(k, _)| k)
+        .collect();
+        if !world_only.is_empty() {
+            diags.push(
+                Diagnostic::new(
+                    &codes::INVALID_VALUE,
+                    format!(
+                        "{who} has `screen_pos`, so it is drawn on the screen, not in the world; it cannot have `{}`",
+                        world_only.join("`, `")
+                    ),
+                )
+                .at(src, t.key_span("screen_pos", span))
+                .hint("screen entities can have `sprite` and `label`; put world parts on a separate entity"),
+            );
+        }
+    }
+}
+
+/// E0206 for `name` on `def`, suggesting a close prop or how to declare it.
+fn unknown_prop(def: &EntityDef, name: &str, what: &str, src: &SourceFile, at: Span) -> Diagnostic {
+    let who = def.name.as_deref().unwrap_or("the entity");
+    let hint = did_you_mean(name, def.props.iter().map(|(k, _)| k.as_str()))
+        .unwrap_or_else(|| format!("declare it with a starting value on `{who}`: `props = {{ {name} = 0 }}`"));
+    Diagnostic::new(&codes::UNKNOWN_PROP, format!("{what} names prop `{name}`, but `{who}` has no such prop"))
+        .at(src, at)
+        .hint(hint)
+}
+
+/// Checks on `add`/`set` and `when` that need the scene's entities.
+fn check_connect_logic(
+    c: &defs::ConnectDef,
+    t: &Table,
+    span: Span,
+    entities: &[EntityDef],
+    src: &SourceFile,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let by_name = |n: &str| entities.iter().find(|e| e.name.as_deref() == Some(n));
+    let action = c.action.name();
+    if c.action.changes_prop() {
+        match &c.prop {
+            None => diags.push(
+                Diagnostic::new(&codes::MISSING_KEY, format!("`action = \"{action}\"` needs `prop`"))
+                    .at(src, t.value_span("action", span))
+                    .hint(format!("add `prop = \"...\"`: a prop declared in `{}`'s props", c.to)),
+            ),
+            Some(prop) => {
+                if let Some(target) = by_name(&c.to) {
+                    match target.prop(prop) {
+                        None => diags.push(unknown_prop(
+                            target,
+                            prop,
+                            &format!("`{action}`"),
+                            src,
+                            t.value_span("prop", span),
+                        )),
+                        Some(current) => {
+                            let value_at = t.value_span("value", span);
+                            match (c.action, &c.value) {
+                                (ConnectAction::Add, _) if current.as_num().is_none() => diags.push(
+                                    Diagnostic::new(
+                                        &codes::PROP_TYPE,
+                                        format!(
+                                            "`add` needs a number prop, but `{}`.{prop} is {}",
+                                            c.to,
+                                            current.type_name()
+                                        ),
+                                    )
+                                    .at(src, t.value_span("prop", span))
+                                    .hint("use `set` for text and flags"),
+                                ),
+                                (ConnectAction::Add, Some(v)) if !current.accepts(v) => diags.push(
+                                    Diagnostic::new(
+                                        &codes::PROP_TYPE,
+                                        format!(
+                                            "`value = {}` cannot be added to `{}`.{prop}, which is {}",
+                                            v.literal(),
+                                            c.to,
+                                            current.type_name()
+                                        ),
+                                    )
+                                    .at(src, value_at)
+                                    .hint("integer props count in whole numbers; declare `0.0` for decimals"),
+                                ),
+                                (ConnectAction::Set, None) => diags.push(
+                                    Diagnostic::new(&codes::MISSING_KEY, "`action = \"set\"` needs `value`")
+                                        .at(src, t.value_span("action", span))
+                                        .hint(format!("add `value = ...` ({})", current.type_name())),
+                                ),
+                                (ConnectAction::Set, Some(v)) if !current.accepts(v) => diags.push(
+                                    Diagnostic::new(
+                                        &codes::PROP_TYPE,
+                                        format!(
+                                            "`value = {}` is {}, but `{}`.{prop} is {}",
+                                            v.literal(),
+                                            v.type_name(),
+                                            c.to,
+                                            current.type_name()
+                                        ),
+                                    )
+                                    .at(src, value_at),
+                                ),
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        for key in ["prop", "value"] {
+            if t.has(key) {
+                diags.push(
+                    Diagnostic::new(&codes::INVALID_VALUE, format!("`{key}` only applies to `add` and `set`"))
+                        .at(src, t.key_span(key, span))
+                        .hint(format!("remove `{key}`, or use `action = \"add\"` / `\"set\"`")),
+                );
+            }
+        }
+    }
+
+    for item in t.get("when").and_then(Node::as_array).unwrap_or(&[]) {
+        let Some(w) = item.as_table() else { continue };
+        let cond = defs::decode_condition(w);
+        let Some(target) = by_name(&cond.entity) else {
+            if !cond.entity.is_empty() {
+                let names = entities.iter().filter_map(|e| e.name.as_deref());
+                let hint = did_you_mean(&cond.entity, names)
+                    .unwrap_or_else(|| format!("give an entity `name = \"{}\"`", cond.entity));
+                diags.push(
+                    Diagnostic::new(
+                        &codes::UNKNOWN_ENTITY,
+                        format!("`when` condition names unknown entity `{}`", cond.entity),
+                    )
+                    .at(src, w.value_span("entity", item.span))
+                    .hint(hint),
+                );
+            }
+            continue;
+        };
+        let kinds: Vec<&str> = ["occupied", "enabled", "prop"].into_iter().filter(|k| w.has(k)).collect();
+        if kinds.len() != 1 {
+            let found = if kinds.is_empty() { "none".to_string() } else { kinds.join(" and ") };
+            diags.push(
+                Diagnostic::new(
+                    &codes::INVALID_VALUE,
+                    format!("a `when` condition needs exactly one of `occupied`, `enabled` or `prop` (found {found})"),
+                )
+                .at(src, item.span)
+                .hint("write one condition per test: when = [{ ... }, { ... }]"),
+            );
+            continue;
+        }
+        let compares: Vec<&str> = ["equals", "at_least", "at_most"].into_iter().filter(|k| w.has(k)).collect();
+        let CondTest::Prop { prop, equals, at_least, at_most } = &cond.test else {
+            for k in compares {
+                diags.push(
+                    Diagnostic::new(&codes::INVALID_VALUE, format!("`{k}` only applies with `prop`"))
+                        .at(src, w.key_span(k, item.span)),
+                );
+            }
+            continue;
+        };
+        if compares.is_empty() {
+            diags.push(
+                Diagnostic::new(
+                    &codes::INVALID_VALUE,
+                    format!("condition on `{}`.{prop} compares nothing", cond.entity),
+                )
+                .at(src, item.span)
+                .hint("add `equals = ...`, `at_least = N` or `at_most = N`"),
+            );
+            continue;
+        }
+        let Some(current) = target.prop(prop) else {
+            diags.push(unknown_prop(target, prop, "`when` condition", src, w.value_span("prop", item.span)));
+            continue;
+        };
+        if (at_least.is_some() || at_most.is_some()) && current.as_num().is_none() {
+            let k = if at_least.is_some() { "at_least" } else { "at_most" };
+            diags.push(
+                Diagnostic::new(
+                    &codes::PROP_TYPE,
+                    format!("`{k}` needs a number prop, but `{}`.{prop} is {}", cond.entity, current.type_name()),
+                )
+                .at(src, w.key_span(k, item.span))
+                .hint("use `equals` for text and flags"),
+            );
+        }
+        if let Some(v) = equals
+            && !current.accepts(v)
+        {
+            diags.push(
+                Diagnostic::new(
+                    &codes::PROP_TYPE,
+                    format!(
+                        "`equals = {}` is {}, but `{}`.{prop} is {}",
+                        v.literal(),
+                        v.type_name(),
+                        cond.entity,
+                        current.type_name()
+                    ),
+                )
+                .at(src, w.value_span("equals", item.span)),
+            );
+        }
+        if let (Some(lo), Some(hi)) = (at_least, at_most)
+            && lo > hi
+        {
+            diags.push(
+                Diagnostic::new(
+                    &codes::INVALID_VALUE,
+                    format!("`at_least = {lo}` is more than `at_most = {hi}`, so this condition never holds"),
+                )
+                .at(src, w.value_span("at_least", item.span)),
+            );
+        }
     }
 }
 
@@ -482,10 +775,11 @@ fn load_playtest_lenient(vfs: &Vfs, path: &str) -> (Option<PlaytestDef>, Vec<Dia
     for node in root.array("expect").unwrap_or(&[]) {
         let Some(t) = node.as_table() else { continue };
         let line = src.locate(node.span.start).0;
-        let state_keys: Vec<&str> = ["pos", "enabled", "solid", "props"].into_iter().filter(|k| t.has(k)).collect();
+        let state_keys: Vec<&str> =
+            ["pos", "enabled", "solid", "props", "text"].into_iter().filter(|k| t.has(k)).collect();
         if !t.has("event") && (!t.has("entity") || state_keys.is_empty()) {
             diags.push(Diagnostic::new(&codes::INVALID_VALUE, "[[expect]] checks nothing").at(&src, node.span).hint(
-                "use `entity` with `pos`/`enabled`/`solid`/`props`, or `event` (optionally with `entity`/`signal`)",
+                "use `entity` with `pos`/`enabled`/`solid`/`props`/`text`, or `event` (optionally with `entity`/`signal`)",
             ));
             continue;
         }
@@ -648,6 +942,44 @@ pub fn check_project(vfs: &Vfs) -> CheckReport {
                     Diagnostic::new(&codes::UNKNOWN_ENTITY, format!("[[expect]] names unknown entity `{name}`"))
                         .at(&def.src, exp.span)
                         .hint(hint),
+                );
+            }
+            let Some(target) =
+                exp.entity.as_deref().and_then(|n| scene.entities.iter().find(|e| e.name.as_deref() == Some(n)))
+            else {
+                continue;
+            };
+            let at = Span::new(exp.span.start, exp.span.start);
+            for (k, v) in &exp.props {
+                match target.prop(k) {
+                    None => diagnostics.push(unknown_prop(target, k, "[[expect]] props", &def.src, exp.span)),
+                    Some(cur) if !cur.accepts(v) && !v.accepts(cur) => diagnostics.push(
+                        Diagnostic::new(
+                            &codes::PROP_TYPE,
+                            format!(
+                                "[[expect]] props.{k} = {} is {}, but `{}`.{k} is {}",
+                                v.literal(),
+                                v.type_name(),
+                                target.name.as_deref().unwrap_or("?"),
+                                cur.type_name()
+                            ),
+                        )
+                        .at(&def.src, exp.span),
+                    ),
+                    Some(_) => {}
+                }
+            }
+            if exp.text.is_some() && target.label.is_none() {
+                diagnostics.push(
+                    Diagnostic::new(
+                        &codes::INVALID_VALUE,
+                        format!(
+                            "[[expect]] `text` checks a label, but `{}` has no label",
+                            target.name.as_deref().unwrap_or("?")
+                        ),
+                    )
+                    .at(&def.src, at)
+                    .hint("check `props` instead, or add `label = { text = \"...\" }` to the entity"),
                 );
             }
         }

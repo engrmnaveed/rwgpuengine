@@ -71,6 +71,7 @@ page matches `slate run`. Edit any file in the project and the page reloads it.
 | `crates/slate_cli` | the `slate` command line (+ project template, dev server) |
 | `crates/slate_web` | wasm build with a small C ABI; `web/` holds the page and JS glue |
 | `examples/iso_garden` | reference example: plate opens gate, goal raises flag; 2 playtests |
+| `examples/coin_vault` | reference example for data logic: coin counter on a HUD, vault opens at 3, AND lock; 4 playtests |
 | `xtask` | `cargo xtask ci | web | smoke | budgets | docs` |
 | `docs/` | vision, architecture, decisions (ADRs), MVP plan, roadmap, open questions, reference |
 

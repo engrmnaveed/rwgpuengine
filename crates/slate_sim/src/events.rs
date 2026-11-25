@@ -27,13 +27,15 @@ pub enum EventKind {
     Signal,
     /// A connection's action was applied to its target.
     Action,
+    /// A connection's `when` conditions did not all hold; nothing was done.
+    Skipped,
     Error,
     /// Logged by Rust game code.
     Custom,
 }
 
 impl EventKind {
-    pub const ALL: [EventKind; 10] = [
+    pub const ALL: [EventKind; 11] = [
         EventKind::Input,
         EventKind::Tap,
         EventKind::TapMiss,
@@ -42,6 +44,7 @@ impl EventKind {
         EventKind::Trigger,
         EventKind::Signal,
         EventKind::Action,
+        EventKind::Skipped,
         EventKind::Error,
         EventKind::Custom,
     ];
@@ -56,6 +59,7 @@ impl EventKind {
             EventKind::Trigger => "trigger",
             EventKind::Signal => "signal",
             EventKind::Action => "action",
+            EventKind::Skipped => "skipped",
             EventKind::Error => "error",
             EventKind::Custom => "custom",
         }
@@ -132,8 +136,17 @@ pub const EVENT_DOCS: &[EventDoc] = &[
         kind: EventKind::Action,
         subject: "the target",
         other: "the emitter",
-        fields: "signal, action, before, after",
-        meaning: "A connection enabled, disabled or toggled its target.",
+        fields: "signal, action, before, after; prop, value (add/set); when (each condition, held, seen)",
+        meaning: "A connection changed its target: enabled, disabled or toggled it, or added to or set a prop \
+                  (`before`/`after` are the prop's values).",
+    },
+    EventDoc {
+        kind: EventKind::Skipped,
+        subject: "the target",
+        other: "the emitter",
+        fields: "signal, action, prop, when (each condition, held, seen)",
+        meaning: "A connection's signal arrived, but a `when` condition did not hold, so nothing was done. The \
+                  message names the first failing condition and what was seen.",
     },
     EventDoc {
         kind: EventKind::Error,

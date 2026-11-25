@@ -1,0 +1,67 @@
+# The chest is open only WHILE both plates are held: stepping off plate_b
+# closes it again.
+[test]
+scene = "scenes/vault.toml"
+frames = 210
+
+[[input]]
+frame = 0
+hold = "right"
+for = 16
+
+[[input]]
+frame = 20
+hold = "down"
+for = 24
+
+[[input]]
+frame = 50
+hold = "left"
+for = 8
+
+[[input]]
+frame = 60
+hold = "down"
+for = 16
+
+[[input]]
+frame = 80
+hold = "right"
+for = 16
+
+[[input]]
+frame = 100
+hold = "up"
+for = 24
+
+[[input]]
+frame = 130
+hold = "right"
+for = 32
+
+[[input]]
+frame = 170
+hold = "down"        # onto plate_b: the chest opens
+for = 16
+
+[[input]]
+frame = 195
+press = "up"         # off plate_b: it closes
+
+[[expect]]
+frame = 190
+entity = "chest"
+enabled = true
+
+[[expect]]
+entity = "player"
+pos = [7, 3]
+
+[[expect]]
+entity = "chest"
+enabled = false
+
+[[expect]]
+event = "action"
+entity = "chest"
+signal = "released"

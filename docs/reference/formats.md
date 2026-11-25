@@ -122,19 +122,24 @@ A thing in the world. Starts from an optional prefab; keys here override it (com
 | `patrol` | table: patrol | — | Walks a fixed path of cells. |
 | `wander` | table: wander | — | Walks randomly (seeded). |
 | `trigger` | table: trigger | — | Emits signals when actors step on or off its cell. |
-| `props` | table | — | Free-form game data shown by `inspect` and checked by `[[expect]] props`. Nothing in data files changes props at runtime (Rust game code can). |
+| `label` | table: label | — | Text drawn with the built-in pixel font (scores, names). |
+| `screen_pos` | [x, y] | — | Draw this entity on the screen instead of in the world (a HUD): `[x, y]` is the top-left pixel of its sprite and label. Screen entities are drawn above the world, ignore the camera, can be tapped, and can only have `sprite` and `label`. |
+| `props` | table | — | Game data: numbers, text and flags, e.g. `{ score = 0 }`. A prop's type is fixed by its starting value. `[[connect]]` `add`/`set` change props at runtime, `when` conditions and label `{placeholders}` read them, `inspect` shows them and `[[expect]] props` checks them. |
 | `allow` | ["W....", ...] | — | Warning codes that are intended for this entity and should not be reported, e.g. `["W0201"]` for deliberately stacked solids. Errors cannot be allowed. |
 
 ### `[[connect]]`
 
-When entity `from` emits `signal`, apply `action` to entity `to`. Every entity emits `tapped` when tapped.
+When entity `from` emits `signal`, apply `action` to entity `to`, if every `when` condition holds. Every entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` emits `changed`.
 
 | key | type | default | meaning |
 |---|---|---|---|
 | `from` | name | **required** | Name of the emitting entity. |
-| `signal` | name | **required** | Signal name, e.g. `pressed`, `released`, `tapped`. |
+| `signal` | name | **required** | Signal name, e.g. `pressed`, `released`, `tapped`, `changed`. |
 | `to` | name | **required** | Name of the target entity. |
-| `action` | enable \| disable \| toggle | **required** | enable, disable or toggle the target. |
+| `action` | enable \| disable \| toggle \| add \| set | **required** | enable, disable or toggle the target; or `add` a number to / `set` one of its props. |
+| `prop` | name | — | With `add`/`set`: the target's prop (declared in its `props`). |
+| `value` | bool \| number \| string | — | With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), of the prop's type. |
+| `when` | [{ condition }, ...] | — | Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`. |
 
 
 ## Prefabs: prefabs/<name>.toml
@@ -157,7 +162,9 @@ A reusable entity template: prefabs/<name>.toml. Same keys as an entity, minus n
 | `patrol` | table: patrol | — | Walks a fixed path of cells. |
 | `wander` | table: wander | — | Walks randomly (seeded). |
 | `trigger` | table: trigger | — | Emits signals when actors step on or off its cell. |
-| `props` | table | — | Free-form game data shown by `inspect` and checked by `[[expect]] props`. Nothing in data files changes props at runtime (Rust game code can). |
+| `label` | table: label | — | Text drawn with the built-in pixel font (scores, names). |
+| `screen_pos` | [x, y] | — | Draw this entity on the screen instead of in the world (a HUD): `[x, y]` is the top-left pixel of its sprite and label. Screen entities are drawn above the world, ignore the camera, can be tapped, and can only have `sprite` and `label`. |
+| `props` | table | — | Game data: numbers, text and flags, e.g. `{ score = 0 }`. A prop's type is fixed by its starting value. `[[connect]]` `add`/`set` change props at runtime, `when` conditions and label `{placeholders}` read them, `inspect` shows them and `[[expect]] props` checks them. |
 | `allow` | ["W....", ...] | — | Warning codes that are intended for this entity and should not be reported, e.g. `["W0201"]` for deliberately stacked solids. Errors cannot be allowed. |
 
 
@@ -230,6 +237,17 @@ Watches its own cell. Emits `on_enter` when the first actor (an entity with move
 | `on_exit` | name | `"released"` | Signal emitted when the cell becomes empty. |
 | `only` | name | — | Only this entity (by name) counts. Default: any actor. |
 
+### `label`
+
+Text drawn with slate's built-in pixel font (printable ASCII; `\n` starts a new line). `{name}` is replaced by the entity's prop `name` every frame, so `text = "Coins: {coins}/3"` shows the current count; `{{` and `}}` print braces. Each character is 6 × `scale` pixels wide (5 + 1 space) and lines are 10 × `scale` pixels apart; the text box is (6 × characters − 1) × scale wide and (10 × lines − 2) × scale tall. In the world the box's bottom edge is centered on the entity's cell, like a sprite; with `screen_pos` its top-left corner is at `screen_pos`. `offset` shifts it either way.
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `text` | string | **required** | The text, with `{prop}` placeholders. |
+| `color` | color | `"#ffffff"` | Text color. |
+| `scale` | integer 1–8 | `1` | Pixel size of the font: 2 doubles it. |
+| `offset` | [x, y] | `[0, 0]` | Shift in pixels [right, down]. |
+
 
 ## Playtests: tests/*.toml
 
@@ -271,7 +289,7 @@ One input event. Use exactly one of `press`, `hold` or `tap`. Input at frame N i
 
 ### `[[expect]]`
 
-A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`) or the event log (`event`, filtered by `entity`, `other`, `signal`, `reason`, counted with `at_least`/`at_most`). Events are counted if they happened *before* `frame`: an event logged as `[N]` happened in step N and counts from `frame = N + 1`. `entity` matches the event's subject and `other` its other party (`slate explain events` lists both for every kind).
+A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`/`text`) or the event log (`event`, filtered by `entity`, `other`, `signal`, `reason`, counted with `at_least`/`at_most`). Events are counted if they happened *before* `frame`: an event logged as `[N]` happened in step N and counts from `frame = N + 1`. `entity` matches the event's subject and `other` its other party (`slate explain events` lists both for every kind).
 
 | key | type | default | meaning |
 |---|---|---|---|
@@ -281,7 +299,8 @@ A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`
 | `enabled` | bool | — | Expected enabled state. |
 | `solid` | bool | — | Expected solid state. |
 | `props` | table | — | Expected values of these props (others are ignored). |
-| `event` | input \| tap \| tap_miss \| moved \| blocked \| trigger \| signal \| action \| error \| custom | — | Count events of this kind that happened before `frame`. |
+| `text` | string | — | Expected label text as shown, with placeholders filled in (`"Coins: 3/3"`). |
+| `event` | input \| tap \| tap_miss \| moved \| blocked \| trigger \| signal \| action \| skipped \| error \| custom | — | Count events of this kind that happened before `frame`. |
 | `other` | name | — | With `event`: only events whose other party is this entity (the blocker of `blocked`, the actor of `trigger`, the emitter of `action`). |
 | `signal` | name | — | With `event`: only count events about this signal. |
 | `reason` | solid \| actor \| edge \| area \| cooldown | — | With `event = "blocked"`: only count refusals for this reason (e.g. `solid`, not `cooldown`). |
@@ -331,7 +350,15 @@ entity where an actor stands does not push the actor out.
 when its cell goes from empty to occupied by an enabled actor and `on_exit` (default `released`) when it
 empties. Occupancy is re-checked every step, so enabling or disabling an actor that stands on the cell
 counts too (the signal comes in the next step's trigger phase). A trigger that is already occupied at
-frame 0 does **not** emit: start the connected door in the state you want (e.g. `enabled = false`).
+frame 0 does **not** emit: start the connected door in the state you want (e.g. `enabled = false`), or use
+a `when` condition, which looks at the current state rather than at signals.
+
+**Props and conditions.** `[[connect]]` `add` and `set` change a prop of `to` (a prop's type is fixed by its
+declared starting value). When the value really changes and some `[[connect]]` listens to `changed` from that
+entity, it emits `changed`. Signals are dispatched first in, first out, each to its connections in file order,
+within the same step. `when` conditions are checked as the signal is dispatched, against the state at that
+moment (this step's positions and occupancy, plus the actions already applied in this step); if one fails,
+nothing is done and a `skipped` event names the condition and what was seen.
 
 **Events.** Every step logs what happened and what was refused, with a sentence and structured fields.
 Read them with `slate inspect --events` or `slate run --events`; `slate explain events` prints this table.
@@ -347,11 +374,13 @@ Every event has `frame` (the step that produced it: `[N]` happened in step N, so
 | `blocked` | the mover | the blocker (for `solid` and `actor`) | cause, from, to, reason, frames_left | A move was refused. `reason`: solid, actor, edge, area or cooldown. |
 | `trigger` | the trigger | the actor that entered or left | signal, by | The trigger's cell became occupied or empty; it emits `signal`. |
 | `signal` | the emitter | — | signal, connections | A signal was dispatched to this many `[[connect]]` tables (0 = nothing listens). |
-| `action` | the target | the emitter | signal, action, before, after | A connection enabled, disabled or toggled its target. |
+| `action` | the target | the emitter | signal, action, before, after; prop, value (add/set); when (each condition, held, seen) | A connection changed its target: enabled, disabled or toggled it, or added to or set a prop (`before`/`after` are the prop's values). |
+| `skipped` | the target | the emitter | signal, action, prop, when (each condition, held, seen) | A connection's signal arrived, but a `when` condition did not hold, so nothing was done. The message names the first failing condition and what was seen. |
 | `error` | the emitter | — | code, signal | A runtime error, such as more than 1000 signals in one step (E0301). |
 | `custom` | set by game code | set by game code | set by game code | Logged by Rust game code. |
 
 
-**Drawing.** Ground first, then tiles, then blocks and sprites back to front by `x + y`, then height, then
-part (block before sprite), then file order (later entities on top).
+**Drawing.** Ground first, then tiles, then blocks, sprites and labels back to front by `x + y`, then
+height, then part (block, sprite, label), then file order (later entities on top). Screen entities
+(`screen_pos`) are drawn after the whole world, in file order, and ignore the camera.
 Blocks shade their left and right faces automatically. A sprite's bottom edge stands on its cell's center.

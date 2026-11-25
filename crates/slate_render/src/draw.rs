@@ -6,13 +6,14 @@
 //! hits" can never disagree. A future GPU backend consumes the same list.
 
 use slate_core::color::Rgba;
-use slate_data::{GroundDef, SpriteShape};
+use slate_data::{GroundDef, SpriteShape, font};
 use slate_sim::{Entity, EntityId, World};
 
+use crate::font::{glyph_index, lit};
 use crate::view::{View, round};
 
 /// Pixel rectangle, `x1`/`y1` exclusive.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Rect {
     pub x0: i32,
     pub y0: i32,
@@ -61,6 +62,14 @@ pub enum Shape {
     /// Ellipse inscribed in the rectangle.
     Ellipse(Rect),
     Rect(Rect),
+    /// One character of the built-in font, top-left at (x0, y0), each font
+    /// pixel `scale` × `scale` screen pixels.
+    Glyph {
+        x0: i32,
+        y0: i32,
+        scale: i32,
+        index: u8,
+    },
 }
 
 impl Shape {
@@ -87,6 +96,9 @@ impl Shape {
                 y1: p.iter().map(|v| v[1]).max().unwrap_or(0),
             },
             Shape::Ellipse(r) | Shape::Rect(r) => *r,
+            Shape::Glyph { x0, y0, scale, .. } => {
+                Rect { x0: *x0, y0: *y0, x1: x0 + font::GLYPH_W * scale, y1: y0 + font::GLYPH_H * scale }
+            }
         }
     }
 
@@ -119,6 +131,9 @@ impl Shape {
                 dx * dx * h * h + dy * dy * w * w <= w * w * h * h
             }
             Shape::Rect(r) => px >= r.x0 && px < r.x1 && py >= r.y0 && py < r.y1,
+            Shape::Glyph { x0, y0, scale, index } => {
+                px >= *x0 && py >= *y0 && lit(*index, (px - x0) / scale, (py - y0) / scale)
+            }
         }
     }
 }
@@ -132,6 +147,7 @@ pub enum Part {
     BlockRight,
     BlockTop,
     Sprite,
+    Label,
 }
 
 impl Part {
@@ -141,6 +157,7 @@ impl Part {
             Part::Tile => "tile",
             Part::BlockLeft | Part::BlockRight | Part::BlockTop => "block",
             Part::Sprite => "sprite",
+            Part::Label => "label",
         }
     }
 }
@@ -168,7 +185,9 @@ pub struct DrawList {
 }
 
 /// Painter's order: floor first, then everything standing, sorted by depth
-/// (x + y), then height, then part (block faces before sprites), then id.
+/// (x + y), then height, then part (block faces, sprite, label), then id.
+/// Screen entities (`screen_pos`) come last, in file order: a HUD is always
+/// on top of the world.
 pub fn build(world: &World, view: &View, ground: Option<&GroundDef>, include_disabled: bool) -> DrawList {
     let mut items = Vec::new();
     if let Some(g) = ground {
@@ -200,8 +219,13 @@ pub fn build(world: &World, view: &View, ground: Option<&GroundDef>, include_dis
 fn push_entity(items: &mut Vec<DrawItem>, e: &Entity, view: &View) {
     let [x, y, z] = e.pos;
     let cell = e.cell();
-    let depth = cell[0] + cell[1];
-    let zkey = round(z * 1000.0);
+    let screen = e.screen_pos;
+    // Screen entities: one layer above the world, in file order (the id
+    // takes the depth slot so it sorts before the part).
+    let (layer, depth, zkey) = match screen {
+        Some(_) => (3, e.id as i32, 0),
+        None => (2, cell[0] + cell[1], round(z * 1000.0)),
+    };
     let mut push = |part: Part, layer: u8, shape: Shape, color: Rgba| {
         items.push(DrawItem {
             entity: Some(e.id),
@@ -213,25 +237,33 @@ fn push_entity(items: &mut Vec<DrawItem>, e: &Entity, view: &View) {
             key: (layer, depth, zkey, part, e.id),
         });
     };
-    if let Some(t) = &e.tile {
-        push(Part::Tile, 1, Shape::quad(view.diamond(x, y, z)), t.color);
-    }
-    if let Some(b) = &e.block {
-        let base = view.diamond(x, y, z);
-        let top = view.diamond(x, y, z + b.height);
-        let [_, base_r, base_b, base_l] = base;
-        let [_, top_r, top_b, top_l] = top;
-        if b.height > 0.0 {
-            push(Part::BlockLeft, 2, Shape::quad([top_l, top_b, base_b, base_l]), b.color.scale(4, 5));
-            push(Part::BlockRight, 2, Shape::quad([top_b, top_r, base_r, base_b]), b.color.scale(13, 20));
+    if screen.is_none() {
+        if let Some(t) = &e.tile {
+            push(Part::Tile, 1, Shape::quad(view.diamond(x, y, z)), t.color);
         }
-        push(Part::BlockTop, 2, Shape::quad(top), b.color);
+        if let Some(b) = &e.block {
+            let base = view.diamond(x, y, z);
+            let top = view.diamond(x, y, z + b.height);
+            let [_, base_r, base_b, base_l] = base;
+            let [_, top_r, top_b, top_l] = top;
+            if b.height > 0.0 {
+                push(Part::BlockLeft, 2, Shape::quad([top_l, top_b, base_b, base_l]), b.color.scale(4, 5));
+                push(Part::BlockRight, 2, Shape::quad([top_b, top_r, base_r, base_b]), b.color.scale(13, 20));
+            }
+            push(Part::BlockTop, 2, Shape::quad(top), b.color);
+        }
     }
+    // The standing point (world) or the top-left corner (screen).
+    let anchor = match screen {
+        Some(p) => p,
+        None => view.project(x, y, z),
+    };
     if let Some(s) = &e.sprite {
-        let [ax, ay] = view.project(x, y, z);
         let (w, h) = (round(s.size[0]).max(1), round(s.size[1]).max(1));
-        let x0 = round(ax - s.size[0] / 2.0 + s.offset[0]);
-        let y0 = round(ay - s.size[1] + s.offset[1]);
+        let (x0, y0) = match screen {
+            Some(_) => (round(anchor[0] + s.offset[0]), round(anchor[1] + s.offset[1])),
+            None => (round(anchor[0] - s.size[0] / 2.0 + s.offset[0]), round(anchor[1] - s.size[1] + s.offset[1])),
+        };
         let r = Rect { x0, y0, x1: x0 + w, y1: y0 + h };
         let shape = match s.shape {
             SpriteShape::Circle => Shape::Ellipse(r),
@@ -241,7 +273,29 @@ fn push_entity(items: &mut Vec<DrawItem>, e: &Entity, view: &View) {
                 Shape::quad([[mx, y0], [r.x1, my], [mx, r.y1], [x0, my]])
             }
         };
-        push(Part::Sprite, 2, shape, s.color);
+        push(Part::Sprite, layer, shape, s.color);
+    }
+    if let (Some(l), Some(text)) = (&e.label, e.label_text()) {
+        let scale = l.scale.max(1) as i32;
+        let [w, h] = font::text_size(&text).map(|v| v * scale);
+        let (x0, y0) = match screen {
+            Some(_) => (round(anchor[0] + l.offset[0]), round(anchor[1] + l.offset[1])),
+            None => (round(anchor[0] - w as f32 / 2.0 + l.offset[0]), round(anchor[1] - h as f32 + l.offset[1])),
+        };
+        for (row, line) in text.split('\n').enumerate() {
+            for (col, c) in line.chars().enumerate() {
+                if c == ' ' {
+                    continue;
+                }
+                let shape = Shape::Glyph {
+                    x0: x0 + col as i32 * font::ADVANCE * scale,
+                    y0: y0 + row as i32 * font::LINE * scale,
+                    scale,
+                    index: glyph_index(c),
+                };
+                push(Part::Label, layer, shape, l.color);
+            }
+        }
     }
 }
 

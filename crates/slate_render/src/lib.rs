@@ -8,6 +8,7 @@
 //! the same draw list and coverage test.
 
 pub mod draw;
+pub mod font;
 pub mod image;
 pub mod pick;
 pub mod raster;

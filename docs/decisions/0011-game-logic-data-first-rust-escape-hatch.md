@@ -1,6 +1,7 @@
 # ADR 0011: Game logic — a small data-level logic set, Rust as the escape hatch
 
-- Status: accepted, 2026-11-25 (resolves open question Q14; partly resolves Q5)
+- Status: accepted, 2026-11-25 (resolves open question Q14; partly resolves Q5); implemented the same day
+  (see "Implementation notes")
 - Decided by: the project owner's rule "choose on KPIs only: best performance and flexibility trade-off"
 
 ## Context
@@ -45,8 +46,9 @@ logic that data cannot express. (a) wins the agent-loop KPIs but is bounded.
      NOT = `false` / `at_most`.
    - **A `label` component**: text with `{prop}` placeholders filled from the entity's props, drawn with an
      owned, deterministic bitmap font (no new dependency; resolves Q5 for Latin text now).
-   - **Screen anchoring**: `screen = [x, y]` places a label or sprite in frame pixels (a HUD), independent of
-     the camera.
+   - **Screen anchoring**: `screen_pos = [x, y]` places a label or sprite in frame pixels (a HUD), independent
+     of the camera. (Named `screen_pos`, not `screen`, because `inspect` already reports each entity's drawn
+     rectangle as `screen`.)
    - Static checks for all of it (unknown entities and props, impossible conditions); a frame report that
      flags clipped text; events that log every condition evaluated and every prop change (with
      before/after values).
@@ -68,6 +70,34 @@ logic that data cannot express. (a) wins the agent-loop KPIs but is bounded.
   workaround recipes for them are retired.
 - Props change at runtime. `state_hash` already covers them. Docs must stop saying they are read-only.
 - More engine surface to keep small: every addition to the logic set needs evidence (a game or an agent run).
+
+## Implementation notes (2026-11-25)
+
+Decisions made while building it, each chosen for the agent loop:
+
+- **Props must be declared.** `add`, `set`, `when` and label placeholders may only name props declared in the
+  entity's (or prefab's) `props`; a prop's type is fixed by its starting value. Typos and type mixups are
+  `slate check` errors (E0206 unknown-prop, E0207 prop-type) instead of runtime surprises.
+- **`changed` only when it matters.** The owner emits `changed` only when the value really changes and some
+  `[[connect]]` listens to it, so counting does not flood the log with unheard signals.
+- **Conditions read the present.** `when` is evaluated at dispatch time against current state (this step's
+  occupancy, plus actions already applied this step). It also sidesteps the "occupied at frame 0 never
+  emits" trap. `occupied` works on any entity, honoring `only` on triggers.
+- **`skipped` is its own event kind**, so `event = "action"` still means "something changed" and a failed
+  condition is assertable (`event = "skipped"`) and explained (the failing condition and what was seen).
+- **Font:** 5×8 glyphs (row 7 for descenders), printable ASCII, 6 px advance, 10 px line pitch, integer
+  `scale`; other characters draw as a box (W0207). Glyphs are draw-list shapes, so text is pickable and
+  counted by the frame report: W0305 label-cut fires when text runs off the frame or anything covers a
+  lit pixel.
+- **Screen entities** draw after the world in file order, can be tapped (HUD buttons), and may only have
+  `sprite` and `label` (E0105 otherwise).
+- **Playtests** gained `[[expect]] text = "..."` (the label as shown); expected props are checked against
+  declarations.
+- Not built (no evidence yet): label alignment, number formatting (`{n:03}`), expressions, timers.
+
+Measured: wasm 504,174 → 580,108 bytes (budget 700,000; most of the growth is the static checks, which also
+run in the browser). State hashes and reference images of existing examples are unchanged; coin_vault's
+hashes match natively and in the browser.
 
 ## Revisit when
 

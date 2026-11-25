@@ -135,6 +135,9 @@ pub struct EntityDef {
     pub patrol: Option<PatrolDef>,
     pub wander: Option<WanderDef>,
     pub trigger: Option<TriggerDef>,
+    pub label: Option<LabelDef>,
+    /// Drawn on the screen at this pixel (top-left) instead of in the world.
+    pub screen_pos: Option<[f32; 2]>,
     pub props: Vec<(String, PropValue)>,
     /// Warning codes intended for this entity (not reported).
     pub allow: Vec<String>,
@@ -142,6 +145,10 @@ pub struct EntityDef {
 }
 
 impl EntityDef {
+    pub fn prop(&self, name: &str) -> Option<&PropValue> {
+        self.props.iter().find(|(k, _)| k == name).map(|(_, v)| v)
+    }
+
     /// The grid cell the entity stands on.
     pub fn cell(&self) -> [i32; 2] {
         [round_cell(self.pos[0]), round_cell(self.pos[1])]
@@ -235,7 +242,94 @@ pub struct TriggerDef {
     pub only: Option<String>,
 }
 
-/// A value in an entity's free-form `props` table.
+/// Text drawn with the built-in pixel font.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LabelDef {
+    /// The template, with `{prop}` placeholders.
+    pub text: String,
+    pub color: Rgba,
+    pub scale: u32,
+    pub offset: [f32; 2],
+}
+
+/// Metrics of the built-in pixel font, in font pixels (multiply by `scale`).
+pub mod font {
+    /// Glyph cell: 5 columns, 8 rows (row 7 holds descenders).
+    pub const GLYPH_W: i32 = 5;
+    pub const GLYPH_H: i32 = 8;
+    /// Distance from one character to the next.
+    pub const ADVANCE: i32 = 6;
+    /// Distance from one line to the next.
+    pub const LINE: i32 = 10;
+
+    /// Characters the font can draw (others are drawn as a hollow box).
+    pub fn supports(c: char) -> bool {
+        c == '\n' || (' '..='~').contains(&c)
+    }
+
+    /// Size of the text box in font pixels: `[width, height]`.
+    pub fn text_size(text: &str) -> [i32; 2] {
+        let lines: Vec<&str> = text.split('\n').collect();
+        let widest = lines.iter().map(|l| l.chars().count() as i32).max().unwrap_or(0);
+        let w = if widest == 0 { 0 } else { widest * ADVANCE - (ADVANCE - GLYPH_W) };
+        let h = lines.len() as i32 * LINE - (LINE - GLYPH_H);
+        [w, h]
+    }
+}
+
+/// One piece of a label template.
+#[derive(Clone, Debug, PartialEq)]
+pub enum LabelPart {
+    Text(String),
+    Prop(String),
+}
+
+/// Split a label template into literal text and `{prop}` placeholders.
+/// `{{` and `}}` are literal braces. Errors describe the first problem.
+pub fn parse_label(template: &str) -> Result<Vec<LabelPart>, String> {
+    let mut parts = Vec::new();
+    let mut lit = String::new();
+    let mut chars = template.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '{' if chars.peek() == Some(&'{') => {
+                chars.next();
+                lit.push('{');
+            }
+            '}' if chars.peek() == Some(&'}') => {
+                chars.next();
+                lit.push('}');
+            }
+            '{' => {
+                let mut name = String::new();
+                loop {
+                    match chars.next() {
+                        Some('}') => break,
+                        Some(c) => name.push(c),
+                        None => return Err(format!("`{{{name}` is never closed; write `{{{{` for a literal brace")),
+                    }
+                }
+                let valid = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || "_-".contains(c));
+                if !valid {
+                    return Err(format!("`{{{name}}}` is not a prop name; write `{{{{` for a literal brace"));
+                }
+                if !lit.is_empty() {
+                    parts.push(LabelPart::Text(std::mem::take(&mut lit)));
+                }
+                parts.push(LabelPart::Prop(name));
+            }
+            '}' => return Err("a single `}` must be written `}}`".to_string()),
+            c => lit.push(c),
+        }
+    }
+    if !lit.is_empty() {
+        parts.push(LabelPart::Text(lit));
+    }
+    Ok(parts)
+}
+
+/// A value in an entity's `props` table. Its type is fixed by the declared
+/// starting value.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PropValue {
     Bool(bool),
@@ -244,11 +338,79 @@ pub enum PropValue {
     Str(String),
 }
 
+impl PropValue {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            PropValue::Bool(_) => "a boolean",
+            PropValue::Int(_) => "an integer",
+            PropValue::Float(_) => "a number",
+            PropValue::Str(_) => "a string",
+        }
+    }
+
+    pub fn as_num(&self) -> Option<f64> {
+        match self {
+            PropValue::Int(i) => Some(*i as f64),
+            PropValue::Float(f) => Some(*f),
+            _ => None,
+        }
+    }
+
+    /// Can a prop of this type hold `v`? Integers fit number props.
+    pub fn accepts(&self, v: &PropValue) -> bool {
+        matches!(
+            (self, v),
+            (PropValue::Bool(_), PropValue::Bool(_))
+                | (PropValue::Int(_), PropValue::Int(_))
+                | (PropValue::Float(_), PropValue::Float(_) | PropValue::Int(_))
+                | (PropValue::Str(_), PropValue::Str(_))
+        )
+    }
+
+    /// Convert `v` to this prop's type (call after [`PropValue::accepts`]).
+    pub fn coerce(&self, v: &PropValue) -> PropValue {
+        match (self, v) {
+            (PropValue::Float(_), PropValue::Int(i)) => PropValue::Float(*i as f64),
+            _ => v.clone(),
+        }
+    }
+
+    /// Equal values; an integer equals the same whole number.
+    pub fn same(&self, v: &PropValue) -> bool {
+        match (self, v) {
+            (PropValue::Int(x), PropValue::Float(y)) | (PropValue::Float(y), PropValue::Int(x)) => (*x as f64) == *y,
+            _ => self == v,
+        }
+    }
+
+    /// As shown in labels: `3`, `0.5`, `true`, text without quotes.
+    pub fn display(&self) -> String {
+        match self {
+            PropValue::Bool(b) => b.to_string(),
+            PropValue::Int(i) => i.to_string(),
+            PropValue::Float(f) => f.to_string(),
+            PropValue::Str(s) => s.clone(),
+        }
+    }
+
+    /// As written in TOML: strings quoted.
+    pub fn literal(&self) -> String {
+        match self {
+            PropValue::Str(s) => format!("{s:?}"),
+            v => v.display(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConnectAction {
     Enable,
     Disable,
     Toggle,
+    /// Add `value` to the target's number prop.
+    Add,
+    /// Set the target's prop to `value`.
+    Set,
 }
 
 impl ConnectAction {
@@ -257,7 +419,13 @@ impl ConnectAction {
             ConnectAction::Enable => "enable",
             ConnectAction::Disable => "disable",
             ConnectAction::Toggle => "toggle",
+            ConnectAction::Add => "add",
+            ConnectAction::Set => "set",
         }
+    }
+
+    pub fn changes_prop(self) -> bool {
+        matches!(self, ConnectAction::Add | ConnectAction::Set)
     }
 }
 
@@ -267,6 +435,52 @@ pub struct ConnectDef {
     pub signal: String,
     pub to: String,
     pub action: ConnectAction,
+    /// With add/set: the target's prop.
+    pub prop: Option<String>,
+    /// With add/set: the value (add defaults to 1).
+    pub value: Option<PropValue>,
+    /// All must hold when the signal arrives.
+    pub when: Vec<ConditionDef>,
+}
+
+/// One `when` item.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConditionDef {
+    pub entity: String,
+    pub test: CondTest,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum CondTest {
+    Occupied(bool),
+    Enabled(bool),
+    Prop { prop: String, equals: Option<PropValue>, at_least: Option<f64>, at_most: Option<f64> },
+}
+
+impl ConditionDef {
+    /// `'plate_b' occupied`, `'hud'.coins >= 3`, for messages.
+    pub fn describe(&self) -> String {
+        let e = &self.entity;
+        match &self.test {
+            CondTest::Occupied(true) => format!("'{e}' occupied"),
+            CondTest::Occupied(false) => format!("'{e}' not occupied"),
+            CondTest::Enabled(true) => format!("'{e}' enabled"),
+            CondTest::Enabled(false) => format!("'{e}' disabled"),
+            CondTest::Prop { prop, equals, at_least, at_most } => {
+                let mut tests = Vec::new();
+                if let Some(v) = equals {
+                    tests.push(format!("== {}", v.literal()));
+                }
+                if let Some(v) = at_least {
+                    tests.push(format!(">= {v}"));
+                }
+                if let Some(v) = at_most {
+                    tests.push(format!("<= {v}"));
+                }
+                format!("'{e}'.{prop} {}", tests.join(" and "))
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -308,6 +522,8 @@ pub struct ExpectDef {
     pub enabled: Option<bool>,
     pub solid: Option<bool>,
     pub props: Vec<(String, PropValue)>,
+    /// Expected label text as shown.
+    pub text: Option<String>,
     pub event: Option<String>,
     pub signal: Option<String>,
     /// With `event = "blocked"`: solid, actor, edge, area or cooldown.
@@ -414,6 +630,16 @@ pub(crate) fn decode_entity(t: &Table, pos: [f32; 3], origin: Origin) -> EntityD
             let tr = Fields::new(t, &schema::TRIGGER);
             TriggerDef { on_enter: tr.str("on_enter"), on_exit: tr.str("on_exit"), only: tr.opt_str("only") }
         }),
+        label: comp("label").map(|t| {
+            let l = Fields::new(t, &schema::LABEL);
+            LabelDef {
+                text: l.str("text"),
+                color: l.color("color"),
+                scale: l.int("scale") as u32,
+                offset: l.vec2("offset"),
+            }
+        }),
+        screen_pos: f.opt_vec2("screen_pos"),
         props: f.table("props").map(decode_props).unwrap_or_default(),
         allow: f.strs("allow"),
         origin,
@@ -421,19 +647,18 @@ pub(crate) fn decode_entity(t: &Table, pos: [f32; 3], origin: Origin) -> EntityD
 }
 
 pub(crate) fn decode_props(t: &Table) -> Vec<(String, PropValue)> {
-    t.entries
-        .iter()
-        .filter_map(|e| {
-            let v = match &e.value.kind {
-                NodeKind::Bool(b) => PropValue::Bool(*b),
-                NodeKind::Int(i) => PropValue::Int(*i),
-                NodeKind::Float(f) => PropValue::Float(*f),
-                NodeKind::Str(s) => PropValue::Str(s.clone()),
-                _ => return None,
-            };
-            Some((e.key.clone(), v))
-        })
-        .collect()
+    t.entries.iter().filter_map(|e| Some((e.key.clone(), scalar(&e.value)?))).collect()
+}
+
+/// A scalar node as a prop value.
+pub(crate) fn scalar(n: &Node) -> Option<PropValue> {
+    Some(match &n.kind {
+        NodeKind::Bool(b) => PropValue::Bool(*b),
+        NodeKind::Int(i) => PropValue::Int(*i),
+        NodeKind::Float(f) => PropValue::Float(*f),
+        NodeKind::Str(s) => PropValue::Str(s.clone()),
+        _ => return None,
+    })
 }
 
 pub(crate) fn decode_connect(t: &Table) -> ConnectDef {
@@ -441,9 +666,45 @@ pub(crate) fn decode_connect(t: &Table) -> ConnectDef {
     let action = match c.str("action").as_str() {
         "enable" => ConnectAction::Enable,
         "disable" => ConnectAction::Disable,
+        "add" => ConnectAction::Add,
+        "set" => ConnectAction::Set,
         _ => ConnectAction::Toggle,
     };
-    ConnectDef { from: c.str("from"), signal: c.str("signal"), to: c.str("to"), action }
+    let mut value = t.get("value").and_then(scalar);
+    if action == ConnectAction::Add && value.is_none() {
+        value = Some(PropValue::Int(1));
+    }
+    let when = t
+        .get("when")
+        .and_then(Node::as_array)
+        .map(|items| items.iter().filter_map(|n| n.as_table().map(decode_condition)).collect())
+        .unwrap_or_default();
+    ConnectDef {
+        from: c.str("from"),
+        signal: c.str("signal"),
+        to: c.str("to"),
+        action,
+        prop: c.opt_str("prop"),
+        value,
+        when,
+    }
+}
+
+pub(crate) fn decode_condition(t: &Table) -> ConditionDef {
+    let c = Fields::new(t, &schema::CONDITION);
+    let test = if let Some(b) = t.bool("occupied") {
+        CondTest::Occupied(b)
+    } else if let Some(b) = t.bool("enabled") {
+        CondTest::Enabled(b)
+    } else {
+        CondTest::Prop {
+            prop: c.str("prop"),
+            equals: t.get("equals").and_then(scalar),
+            at_least: t.get("at_least").and_then(Node::as_num),
+            at_most: t.get("at_most").and_then(Node::as_num),
+        }
+    };
+    ConditionDef { entity: c.str("entity"), test }
 }
 
 pub(crate) fn decode_input(t: &Table) -> Option<InputDef> {
@@ -469,6 +730,7 @@ pub(crate) fn decode_expect(t: &Table, span: Span, line: usize) -> ExpectDef {
         enabled: e.table.bool("enabled"),
         solid: e.table.bool("solid"),
         props: e.table("props").map(decode_props).unwrap_or_default(),
+        text: e.opt_str("text"),
         event: e.opt_str("event"),
         signal: e.opt_str("signal"),
         reason: e.opt_str("reason"),

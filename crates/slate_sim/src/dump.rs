@@ -84,6 +84,20 @@ pub fn entity_json(world: &World, e: &Entity) -> Json {
                 .with("occupied_by", occ),
         );
     }
+    if let Some(l) = &e.label {
+        j.set(
+            "label",
+            Json::object()
+                .with("text", l.text.as_str())
+                .with("shown", e.label_text())
+                .with("color", l.color.to_hex())
+                .with("scale", l.scale)
+                .with("offset", vec_json(&l.offset)),
+        );
+    }
+    if let Some(p) = &e.screen_pos {
+        j.set("screen_pos", vec_json(p));
+    }
     let mut props = Json::object();
     for (k, v) in &e.props {
         props.set(k, prop_json(v));

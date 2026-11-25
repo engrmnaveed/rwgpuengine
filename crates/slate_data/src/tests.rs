@@ -241,3 +241,189 @@ fn actors_starting_inside_solids_are_warned_unless_allowed() {
     assert_eq!(codes(&scene("")), vec!["W0206"]);
     assert!(codes(&scene("allow = [\"W0206\"]")).is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// Data logic v1 (ADR 0011): props, conditions, labels, screen entities
+
+const LOGIC: &str = r##"
+[ground]
+size = [6, 4]
+
+[[entity]]
+name = "player"
+pos = [0, 0]
+sprite = {}
+mover = {}
+
+[[entity]]
+name = "plate_a"
+pos = [1, 1]
+tile = {}
+trigger = {}
+
+[[entity]]
+name = "plate_b"
+pos = [3, 1]
+tile = {}
+trigger = {}
+
+[[entity]]
+name = "door"
+pos = [5, 1]
+block = {}
+solid = true
+
+[[entity]]
+name = "coin"
+pos = [2, 3]
+sprite = {}
+trigger = { on_enter = "collected", only = "player" }
+
+[[entity]]
+name = "hud"
+screen_pos = [8, 8]
+label = { text = "Coins: {coins}/3 {mode}" }
+props = { coins = 0, mode = "play" }
+
+[[connect]]
+from = "plate_a"
+signal = "pressed"
+to = "door"
+action = "disable"
+when = [{ entity = "plate_b", occupied = true }]
+
+[[connect]]
+from = "coin"
+signal = "collected"
+to = "hud"
+action = "add"
+prop = "coins"
+
+[[connect]]
+from = "hud"
+signal = "changed"
+to = "hud"
+action = "set"
+prop = "mode"
+value = "rich"
+when = [{ entity = "hud", prop = "coins", at_least = 3 }, { entity = "door", enabled = false }]
+"##;
+
+fn logic_with(extra: &str) -> Vec<&'static str> {
+    let scene = format!("{LOGIC}\n{extra}");
+    let scene: &'static str = Box::leak(scene.into_boxed_str());
+    codes(&project(&[("scenes/main.toml", scene)]))
+}
+
+#[test]
+fn valid_logic_has_no_diagnostics() {
+    let vfs = project(&[("scenes/main.toml", LOGIC)]);
+    let report = check_project(&vfs);
+    assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
+    let scene = crate::SceneLoader::new(&vfs).load_scene("scenes/main.toml").unwrap();
+    let add = &scene.connections[1];
+    assert_eq!(add.value, Some(crate::PropValue::Int(1)), "add defaults to 1");
+    assert_eq!(scene.connections[2].when.len(), 2);
+}
+
+#[test]
+fn props_must_be_declared_and_typed() {
+    // Unknown prop on add, with a suggestion.
+    let d = check_project(&project(&[(
+        "scenes/main.toml",
+        Box::leak(format!("{LOGIC}\n[[connect]]\nfrom = \"coin\"\nsignal = \"collected\"\nto = \"hud\"\naction = \"add\"\nprop = \"coin\"\n").into_boxed_str()),
+    )]))
+    .diagnostics;
+    assert_eq!(d.iter().map(|d| d.code).collect::<Vec<_>>(), vec!["E0206"]);
+    assert_eq!(d[0].hint.as_deref(), Some("did you mean `coins`?"));
+    // add on a string prop; set with the wrong type; set without value; add without prop.
+    let bad = [
+        ("action = \"add\"\nprop = \"mode\"", "E0207"),
+        ("action = \"set\"\nprop = \"coins\"\nvalue = \"many\"", "E0207"),
+        ("action = \"add\"\nprop = \"coins\"\nvalue = 0.5", "E0207"),
+        ("action = \"set\"\nprop = \"coins\"", "E0104"),
+        ("action = \"add\"", "E0104"),
+        ("action = \"disable\"\nprop = \"coins\"", "E0105"),
+    ];
+    for (body, code) in bad {
+        let extra = format!("[[connect]]\nfrom = \"coin\"\nsignal = \"collected\"\nto = \"hud\"\n{body}\n");
+        assert_eq!(logic_with(&extra), vec![code], "{body}");
+    }
+}
+
+#[test]
+fn when_conditions_are_checked() {
+    let cases = [
+        ("{ entity = \"plate_c\", occupied = true }", "E0202"),
+        ("{ entity = \"plate_b\" }", "E0105"),
+        ("{ entity = \"plate_b\", occupied = true, enabled = true }", "E0105"),
+        ("{ entity = \"hud\", prop = \"coins\" }", "E0105"),
+        ("{ entity = \"hud\", prop = \"coin\", at_least = 1 }", "E0206"),
+        ("{ entity = \"hud\", prop = \"mode\", at_least = 1 }", "E0207"),
+        ("{ entity = \"hud\", prop = \"coins\", equals = \"3\" }", "E0207"),
+        ("{ entity = \"hud\", prop = \"coins\", at_least = 3, at_most = 2 }", "E0105"),
+        ("{ entity = \"plate_b\", enabled = true, at_least = 2 }", "E0105"),
+        ("{ entity = \"plate_b\", ocupied = true }", "E0103"),
+    ];
+    for (cond, code) in cases {
+        let extra = format!(
+            "[[connect]]\nfrom = \"plate_b\"\nsignal = \"pressed\"\nto = \"door\"\naction = \"disable\"\nwhen = [{cond}]\n"
+        );
+        let got = logic_with(&extra);
+        assert!(got.contains(&code), "{cond}: expected {code}, got {got:?}");
+    }
+}
+
+#[test]
+fn changed_is_emitted_only_by_entities_whose_props_change() {
+    let extra = "[[connect]]\nfrom = \"door\"\nsignal = \"changed\"\nto = \"door\"\naction = \"enable\"\n";
+    let d = check_project(&project(&[("scenes/main.toml", Box::leak(format!("{LOGIC}\n{extra}").into_boxed_str()))]))
+        .diagnostics;
+    assert_eq!(d.iter().map(|d| d.code).collect::<Vec<_>>(), vec!["W0203"]);
+    assert!(d[0].hint.as_deref().unwrap().contains("`add`s to or `set`s"), "{:?}", d[0].hint);
+}
+
+#[test]
+fn labels_and_screen_entities_are_checked() {
+    let cases = [
+        ("label = { text = \"Score {score}\" }\nprops = { points = 0 }", "E0206"),
+        ("label = { text = \"Score {points\" }\nprops = { points = 0 }", "E0105"),
+        ("label = { text = \"a } b\" }", "E0105"),
+        ("label = { text = \"Café\" }", "W0207"),
+        ("screen_pos = [4, 4]\nblock = {}", "E0105"),
+        ("screen_pos = [4, 4]\ntrigger = {}", "E0105"),
+        ("label = { text = \"x\", scale = 9 }", "E0105"),
+    ];
+    for (body, code) in cases {
+        let extra = format!("[[entity]]\nname = \"extra\"\npos = [4, 3]\n{body}\n");
+        assert_eq!(logic_with(&extra), vec![code], "{body}");
+    }
+    // Braces can be escaped; W0207 can be allowed.
+    assert!(logic_with("[[entity]]\nname = \"e\"\nlabel = { text = \"{{x}}\" }\n").is_empty());
+    assert!(logic_with("[[entity]]\nname = \"e\"\nlabel = { text = \"Café\" }\nallow = [\"W0207\"]\n").is_empty());
+}
+
+#[test]
+fn expectations_on_props_and_text_are_checked() {
+    let test = |body: &str| {
+        let t: &'static str = Box::leak(format!("[test]\nframes = 10\n[[expect]]\n{body}\n").into_boxed_str());
+        codes(&project(&[("scenes/main.toml", LOGIC), ("tests/t.toml", t)]))
+    };
+    assert!(test("entity = \"hud\"\nprops = { coins = 0 }\ntext = \"Coins: 0/3 play\"").is_empty());
+    assert_eq!(test("entity = \"hud\"\nprops = { coin = 0 }"), vec!["E0206"]);
+    assert_eq!(test("entity = \"hud\"\nprops = { coins = \"0\" }"), vec!["E0207"]);
+    assert_eq!(test("entity = \"door\"\ntext = \"x\""), vec!["E0105"]);
+}
+
+#[test]
+fn label_templates_parse() {
+    use crate::{LabelPart, parse_label};
+    assert_eq!(
+        parse_label("Coins: {coins}/3").unwrap(),
+        vec![LabelPart::Text("Coins: ".into()), LabelPart::Prop("coins".into()), LabelPart::Text("/3".into())]
+    );
+    assert_eq!(parse_label("{{x}}").unwrap(), vec![LabelPart::Text("{x}".into())]);
+    assert!(parse_label("{a b}").is_err() && parse_label("{").is_err() && parse_label("}").is_err());
+    assert_eq!(crate::font::text_size("ab\nc"), [11, 18]);
+    assert_eq!(crate::font::text_size(""), [0, 8]);
+}

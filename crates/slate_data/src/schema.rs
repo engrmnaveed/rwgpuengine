@@ -43,11 +43,15 @@ pub enum Ty {
     Cells,
     /// Table of scalar values (free-form game data).
     Props,
+    /// A boolean, number or string (a prop value).
+    Scalar,
     /// List of warning codes, e.g. `["W0201"]`.
     Codes,
     Table(&'static Spec),
     /// Array of tables (`[[name]]` sections).
     Tables(&'static Spec),
+    /// Inline list of tables: `[{ ... }, { ... }]`.
+    List(&'static Spec),
 }
 
 /// One key of a table.
@@ -91,14 +95,15 @@ const U16: Ty = Ty::Int { min: 1, max: 4096 };
 const FRAMES: Ty = Ty::Int { min: 1, max: 1_000_000 };
 const FRAME: Ty = Ty::Int { min: 0, max: 1_000_000 };
 const SEED: Ty = Ty::Int { min: 0, max: i64::MAX };
+const ANY_NUM: Ty = Ty::Num { min: f64::MIN, max: f64::MAX };
 
 /// Abstract input actions. Arrow keys / WASD map to the directions on the web.
 pub const ACTIONS: &[&str] = &["up", "down", "left", "right", "confirm", "cancel"];
 /// What a `[[connect]]` can do to its target.
-pub const CONNECT_ACTIONS: &[&str] = &["enable", "disable", "toggle"];
+pub const CONNECT_ACTIONS: &[&str] = &["enable", "disable", "toggle", "add", "set"];
 /// Kinds of entries in the event log.
 pub const EVENT_KINDS: &[&str] =
-    &["input", "tap", "tap_miss", "moved", "blocked", "trigger", "signal", "action", "error", "custom"];
+    &["input", "tap", "tap_miss", "moved", "blocked", "trigger", "signal", "action", "skipped", "error", "custom"];
 pub const SPRITE_SHAPES: &[&str] = &["circle", "rect", "diamond"];
 pub const PATROL_MODES: &[&str] = &["loop", "pingpong"];
 /// Why a move was refused (the `reason` of `blocked` events).
@@ -258,6 +263,8 @@ pub static ENTITY: Spec = Spec {
         F_PATROL,
         F_WANDER,
         F_TRIGGER,
+        F_LABEL,
+        F_SCREEN_POS,
         F_PROPS,
         F_ALLOW,
     ],
@@ -278,6 +285,8 @@ pub static PREFAB_FILE: Spec = Spec {
         F_PATROL,
         F_WANDER,
         F_TRIGGER,
+        F_LABEL,
+        F_SCREEN_POS,
         F_PROPS,
         F_ALLOW,
     ],
@@ -299,12 +308,23 @@ const F_PATROL: Field = opt("patrol", Ty::Table(&PATROL), None, "Walks a fixed p
 const F_WANDER: Field = opt("wander", Ty::Table(&WANDER), None, "Walks randomly (seeded).");
 const F_TRIGGER: Field =
     opt("trigger", Ty::Table(&TRIGGER), None, "Emits signals when actors step on or off its cell.");
+const F_LABEL: Field =
+    opt("label", Ty::Table(&LABEL), None, "Text drawn with the built-in pixel font (scores, names).");
+const F_SCREEN_POS: Field = opt(
+    "screen_pos",
+    Ty::Vec2,
+    None,
+    "Draw this entity on the screen instead of in the world (a HUD): `[x, y]` is the top-left pixel of its \
+     sprite and label. Screen entities are drawn above the world, ignore the camera, can be tapped, and can only \
+     have `sprite` and `label`.",
+);
 const F_PROPS: Field = opt(
     "props",
     Ty::Props,
     None,
-    "Free-form game data shown by `inspect` and checked by `[[expect]] props`. Nothing in data files changes \
-     props at runtime (Rust game code can).",
+    "Game data: numbers, text and flags, e.g. `{ score = 0 }`. A prop's type is fixed by its starting value. \
+     `[[connect]]` `add`/`set` change props at runtime, `when` conditions and label `{placeholders}` read them, \
+     `inspect` shows them and `[[expect]] props` checks them.",
 );
 const F_ALLOW: Field = opt(
     "allow",
@@ -407,15 +427,77 @@ pub static TRIGGER: Spec = Spec {
     ],
 };
 
+pub static LABEL: Spec = Spec {
+    id: "label",
+    title: "label",
+    doc: "Text drawn with slate's built-in pixel font (printable ASCII; `\\n` starts a new line). `{name}` is \
+          replaced by the entity's prop `name` every frame, so `text = \"Coins: {coins}/3\"` shows the current \
+          count; `{{` and `}}` print braces. Each character is 6 × `scale` pixels wide (5 + 1 space) and lines are \
+          10 × `scale` pixels apart; the text box is (6 × characters − 1) × scale wide and (10 × lines − 2) × scale \
+          tall. In the world the box's bottom edge is centered on the entity's cell, like a sprite; with \
+          `screen_pos` its top-left corner is at `screen_pos`. `offset` shifts it either way.",
+    fields: &[
+        req("text", Ty::Str, "The text, with `{prop}` placeholders."),
+        opt("color", Ty::Color, Some("\"#ffffff\""), "Text color."),
+        opt("scale", Ty::Int { min: 1, max: 8 }, Some("1"), "Pixel size of the font: 2 doubles it."),
+        opt("offset", Ty::Vec2, Some("[0, 0]"), "Shift in pixels [right, down]."),
+    ],
+};
+
 pub static CONNECT: Spec = Spec {
     id: "connect",
     title: "[[connect]]",
-    doc: "When entity `from` emits `signal`, apply `action` to entity `to`. Every entity emits `tapped` when tapped.",
+    doc: "When entity `from` emits `signal`, apply `action` to entity `to`, if every `when` condition holds. Every \
+          entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed \
+          by `add`/`set` emits `changed`.",
     fields: &[
         req("from", Ty::Name, "Name of the emitting entity."),
-        req("signal", Ty::Name, "Signal name, e.g. `pressed`, `released`, `tapped`."),
+        req("signal", Ty::Name, "Signal name, e.g. `pressed`, `released`, `tapped`, `changed`."),
         req("to", Ty::Name, "Name of the target entity."),
-        req("action", Ty::Enum(CONNECT_ACTIONS), "enable, disable or toggle the target."),
+        req(
+            "action",
+            Ty::Enum(CONNECT_ACTIONS),
+            "enable, disable or toggle the target; or `add` a number to / `set` one of its props.",
+        ),
+        opt("prop", Ty::Name, None, "With `add`/`set`: the target's prop (declared in its `props`)."),
+        opt(
+            "value",
+            Ty::Scalar,
+            None,
+            "With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), \
+             of the prop's type.",
+        ),
+        opt(
+            "when",
+            Ty::List(&CONDITION),
+            None,
+            "Conditions that must all hold when the signal arrives, or the action is skipped (logged as \
+             `skipped`). For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`.",
+        ),
+    ],
+};
+
+pub static CONDITION: Spec = Spec {
+    id: "condition",
+    title: "when condition",
+    doc: "One item of a `[[connect]]` `when` list, checked against the current state when the signal arrives. \
+          Names an `entity` and exactly one of `occupied`, `enabled` or `prop`: \
+          `{ entity = \"plate_b\", occupied = true }`, `{ entity = \"gate\", enabled = false }`, \
+          `{ entity = \"hud\", prop = \"coins\", at_least = 3 }`.",
+    fields: &[
+        req("entity", Ty::Name, "The entity to look at, by name."),
+        opt(
+            "occupied",
+            Ty::Bool,
+            None,
+            "true: an enabled actor stands on the entity's cell right now (for a trigger: one its `only` accepts). \
+             false: nobody does.",
+        ),
+        opt("enabled", Ty::Bool, None, "The entity's enabled state."),
+        opt("prop", Ty::Name, None, "One of the entity's props, compared with `equals`, `at_least` and/or `at_most`."),
+        opt("equals", Ty::Scalar, None, "With `prop`: the prop has exactly this value."),
+        opt("at_least", ANY_NUM, None, "With `prop`: the number prop is ≥ this."),
+        opt("at_most", ANY_NUM, None, "With `prop`: the number prop is ≤ this."),
     ],
 };
 
@@ -463,7 +545,7 @@ pub static INPUT: Spec = Spec {
 pub static EXPECT: Spec = Spec {
     id: "playtest.expect",
     title: "[[expect]]",
-    doc: "A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`) or the event log \
+    doc: "A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`/`text`) or the event log \
           (`event`, filtered by `entity`, `other`, `signal`, `reason`, counted with `at_least`/`at_most`). Events \
           are counted if they happened *before* `frame`: an event logged as `[N]` happened in step N and counts \
           from `frame = N + 1`. `entity` matches the event's subject and `other` its other party \
@@ -475,6 +557,7 @@ pub static EXPECT: Spec = Spec {
         opt("enabled", Ty::Bool, None, "Expected enabled state."),
         opt("solid", Ty::Bool, None, "Expected solid state."),
         opt("props", Ty::Props, None, "Expected values of these props (others are ignored)."),
+        opt("text", Ty::Str, None, "Expected label text as shown, with placeholders filled in (`\"Coins: 3/3\"`)."),
         opt("event", Ty::Enum(EVENT_KINDS), None, "Count events of this kind that happened before `frame`."),
         opt(
             "other",
@@ -529,6 +612,7 @@ pub static ALL_SPECS: &[&Spec] = &[
     &GROUND,
     &ENTITY,
     &CONNECT,
+    &CONDITION,
     &PREFAB_FILE,
     &TILE,
     &BLOCK,
@@ -537,6 +621,7 @@ pub static ALL_SPECS: &[&Spec] = &[
     &PATROL,
     &WANDER,
     &TRIGGER,
+    &LABEL,
     &PLAYTEST_FILE,
     &TEST,
     &INPUT,
@@ -548,7 +633,7 @@ pub static ALL_SPECS: &[&Spec] = &[
 pub static FILE_SPECS: &[&Spec] = &[&PROJECT_FILE, &SCENE_FILE, &PREFAB_FILE, &PLAYTEST_FILE];
 
 /// Component specs (tables an entity can carry).
-pub static COMPONENT_SPECS: &[&Spec] = &[&TILE, &BLOCK, &SPRITE, &MOVER, &PATROL, &WANDER, &TRIGGER];
+pub static COMPONENT_SPECS: &[&Spec] = &[&TILE, &BLOCK, &SPRITE, &MOVER, &PATROL, &WANDER, &TRIGGER, &LABEL];
 
 /// Find a spec by id or title (`sprite`, `entity`, `[ground]`, `ground`).
 pub fn find_spec(name: &str) -> Option<&'static Spec> {
@@ -584,9 +669,11 @@ impl Ty {
             Ty::Cell => "two integers [x, y]".into(),
             Ty::Cells => "a list of cells like [[0, 0], [1, 0]]".into(),
             Ty::Props => "a table of simple values like { hp = 3 }".into(),
+            Ty::Scalar => "a boolean, number or string".into(),
             Ty::Codes => "a list of warning codes like [\"W0201\"]".into(),
             Ty::Table(spec) => format!("a table ({})", spec.title),
             Ty::Tables(spec) => format!("an array of tables ({})", spec.title),
+            Ty::List(spec) => format!("a list of inline tables like [{{ ... }}] ({})", spec.title),
         }
     }
 
@@ -596,6 +683,7 @@ impl Ty {
             Ty::Bool => "bool".into(),
             Ty::Int { min, max } if *max >= 1_000_000 => format!("integer ≥ {min}"),
             Ty::Int { min, max } => format!("integer {min}–{max}"),
+            Ty::Num { min, max } if *min <= f64::MIN && *max >= f64::MAX => "number".into(),
             Ty::Num { min, max } => format!("number {min}–{max}"),
             Ty::Str => "string".into(),
             Ty::Name => "name".into(),
@@ -607,9 +695,11 @@ impl Ty {
             Ty::Cell => "[x, y] int".into(),
             Ty::Cells => "[[x, y], ...]".into(),
             Ty::Props => "table".into(),
+            Ty::Scalar => "bool \\| number \\| string".into(),
             Ty::Codes => "[\"W....\", ...]".into(),
             Ty::Table(spec) => format!("table: {}", spec.id),
             Ty::Tables(spec) => format!("[[{}]]", spec.title.trim_matches(['[', ']'])),
+            Ty::List(spec) => format!("[{{ {} }}, ...]", spec.id),
         }
     }
 }
@@ -618,7 +708,9 @@ fn describe_range(base: &str, min: f64, max: f64, unbounded: f64) -> String {
     let fmt = |v: f64| {
         if v.fract() == 0.0 { format!("{}", v as i64) } else { format!("{v}") }
     };
-    if max >= unbounded {
+    if min <= f64::MIN && max >= f64::MAX {
+        base.to_string()
+    } else if max >= unbounded {
         format!("{base} ≥ {}", fmt(min))
     } else {
         format!("{base} from {} to {}", fmt(min), fmt(max))
@@ -822,11 +914,18 @@ impl Checker<'_> {
                     ok
                 }
             },
+            Ty::Scalar => match node.kind {
+                NodeKind::Array(_) | NodeKind::Table(_) => wrong_type(self),
+                NodeKind::Float(f) if !f.is_finite() => {
+                    invalid(self, format!("`{label}` must be a finite number, found {f}"), None)
+                }
+                _ => true,
+            },
             Ty::Table(spec) => match node.as_table() {
                 None => wrong_type(self),
                 Some(t) => self.table(t, spec, node.span),
             },
-            Ty::Tables(spec) => match node.as_array() {
+            Ty::Tables(spec) | Ty::List(spec) => match node.as_array() {
                 None => wrong_type(self),
                 Some(items) => {
                     let mut ok = true;
@@ -1008,6 +1107,7 @@ fn ty_schema(ty: &Ty) -> Json {
     match ty {
         Ty::Bool => Json::object().with("type", "boolean"),
         Ty::Int { min, max } => Json::object().with("type", "integer").with("minimum", *min).with("maximum", *max),
+        Ty::Num { min, max } if *min <= f64::MIN && *max >= f64::MAX => Json::object().with("type", "number"),
         Ty::Num { min, max } => Json::object().with("type", "number").with("minimum", *min).with("maximum", *max),
         Ty::Str | Ty::Path => Json::object().with("type", "string"),
         Ty::Name => Json::object().with("type", "string").with("pattern", "^[A-Za-z0-9_/-]+$"),
@@ -1027,8 +1127,9 @@ fn ty_schema(ty: &Ty) -> Json {
             Json::object()
                 .with("type", vec![Json::from("boolean"), "integer".into(), "number".into(), "string".into()]),
         ),
+        Ty::Scalar => Json::object().with("type", vec![Json::from("boolean"), "number".into(), "string".into()]),
         Ty::Table(spec) => table_schema(spec),
-        Ty::Tables(spec) => Json::object().with("type", "array").with("items", table_schema(spec)),
+        Ty::Tables(spec) | Ty::List(spec) => Json::object().with("type", "array").with("items", table_schema(spec)),
     }
 }
 

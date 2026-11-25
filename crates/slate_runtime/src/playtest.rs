@@ -6,7 +6,7 @@
 
 use slate_core::codes;
 use slate_core::diag::Diagnostic;
-use slate_data::{ExpectDef, PlaytestDef, PropValue, ShotDef, Vfs};
+use slate_data::{ExpectDef, PlaytestDef, ShotDef, Vfs};
 use slate_render::{Frame, FrameReport};
 use slate_sim::EventKind;
 
@@ -81,22 +81,6 @@ fn fmt_pos(p: [f32; 3]) -> String {
         if v.fract() == 0.0 { format!("{}", v as i64) } else { format!("{v}") }
     };
     format!("[{}, {}, {}]", n(p[0]), n(p[1]), n(p[2]))
-}
-
-fn prop_eq(a: &PropValue, b: &PropValue) -> bool {
-    match (a, b) {
-        (PropValue::Int(x), PropValue::Float(y)) | (PropValue::Float(y), PropValue::Int(x)) => (*x as f64) == *y,
-        _ => a == b,
-    }
-}
-
-fn fmt_prop(v: &PropValue) -> String {
-    match v {
-        PropValue::Bool(b) => b.to_string(),
-        PropValue::Int(i) => i.to_string(),
-        PropValue::Float(f) => f.to_string(),
-        PropValue::Str(s) => format!("{s:?}"),
-    }
 }
 
 /// `None` if the expectation holds, else an E0401 with notes.
@@ -182,9 +166,16 @@ fn check_expect(session: &Session, def: &PlaytestDef, exp: &ExpectDef, frame: u6
     }
     for (k, v) in &exp.props {
         match e.props.get(k) {
-            Some(actual) if prop_eq(actual, v) => {}
-            Some(actual) => problems.push(format!("props.{k} = {} (found {})", fmt_prop(v), fmt_prop(actual))),
-            None => problems.push(format!("props.{k} = {} (not set)", fmt_prop(v))),
+            Some(actual) if actual.same(v) => {}
+            Some(actual) => problems.push(format!("props.{k} = {} (found {})", v.literal(), actual.literal())),
+            None => problems.push(format!("props.{k} = {} (not set)", v.literal())),
+        }
+    }
+    if let Some(want) = &exp.text {
+        match e.label_text() {
+            Some(shown) if &shown == want => {}
+            Some(shown) => problems.push(format!("text = {want:?} (shown: {shown:?})")),
+            None => problems.push(format!("text = {want:?} (it has no label)")),
         }
     }
     if problems.is_empty() {

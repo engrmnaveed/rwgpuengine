@@ -15,18 +15,21 @@ decision in [open-questions.md](open-questions.md).
 - Small fixes found during M1: validate required keys after prefab merge; `tap_ground` event with the
   cell under a tap; block edge shading so adjacent blocks read as separate.
 - Feature candidates from [cold-agent run #3](experiments/2026-11-25-cold-agent-3.md): text/number display,
-  prop actions, conditions and a HUD layer are scheduled as M1.6 (ADR 0011). Still candidates, waiting for a
+  prop actions, conditions and a HUD layer were built in M1.6 (ADR 0011). Still candidates, waiting for a
   game that needs them: pushable blocks or weights for plates; a single "cell is passable" expectation.
 
-## M1.6 — Data logic v1 ([ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)) — next
+## M1.6 — Data logic v1 ([ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)) — built 2026-11-25, acceptance run pending
 
 Need: scores, counts and conditions (cold-agent runs #3/#4 spent 14–19 min building them from parts).
 
 - `[[connect]]` actions `add` / `set` on props (target emits `changed`); props become runtime state.
 - `when = [...]` conditions on `[[connect]]` (occupied / enabled / prop comparisons; all must hold).
-- `label` component with `{prop}` placeholders, owned bitmap font; `screen = [x, y]` anchoring for HUDs.
+- `label` component with `{prop}` placeholders, owned bitmap font; `screen_pos = [x, y]` anchoring for HUDs.
 - Static checks, events (condition results, prop before/after), frame report "clipped text".
 - Acceptance: run #3's task with no approximations in ≤ 5 min; budgets and determinism hold.
+- Status: all of the above is built, with `examples/coin_vault` as the reference example (4 playtests).
+  Budgets and determinism hold (native = web for state and image hashes). The cold-agent acceptance run
+  (#5) is next.
 
 ## M2 — The live loop
 

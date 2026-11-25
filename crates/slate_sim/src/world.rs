@@ -11,10 +11,11 @@ use slate_core::hash::Hasher64;
 use slate_core::json::Json;
 use slate_core::rng::Rng;
 use slate_data::{
-    Action, BlockDef, ConnectAction, PatrolDef, PatrolMode, PropValue, SceneDef, SpriteDef, TileDef, TriggerDef,
-    WanderDef, round_cell,
+    Action, BlockDef, CondTest, ConditionDef, ConnectAction, LabelDef, LabelPart, PatrolDef, PatrolMode, PropValue,
+    SceneDef, SpriteDef, TileDef, TriggerDef, WanderDef, parse_label, round_cell,
 };
 
+use crate::dump::prop_json;
 use crate::events::{Event, EventKind, EventLog};
 use crate::input::InputFrame;
 
@@ -70,12 +71,34 @@ pub struct Entity {
     pub patrol: Option<Patrol>,
     pub wander: Option<Wander>,
     pub trigger: Option<Trigger>,
+    pub label: Option<LabelDef>,
+    /// Drawn on the screen at this pixel (top-left) instead of in the world.
+    pub screen_pos: Option<[f32; 2]>,
     pub props: BTreeMap<String, PropValue>,
     /// Warning codes intended for this entity (not reported).
     pub allow: Vec<String>,
 }
 
 impl Entity {
+    /// The label's text as shown: placeholders replaced by prop values.
+    pub fn label_text(&self) -> Option<String> {
+        let label = self.label.as_ref()?;
+        let Ok(parts) = parse_label(&label.text) else {
+            return Some(label.text.clone());
+        };
+        let mut out = String::new();
+        for p in parts {
+            match p {
+                LabelPart::Text(t) => out.push_str(&t),
+                LabelPart::Prop(name) => match self.props.get(&name) {
+                    Some(v) => out.push_str(&v.display()),
+                    None => out.push_str(&format!("{{{name}}}")),
+                },
+            }
+        }
+        Some(out)
+    }
+
     pub fn cell(&self) -> [i32; 2] {
         [round_cell(self.pos[0]), round_cell(self.pos[1])]
     }
@@ -115,6 +138,18 @@ pub struct Connection {
     pub signal: String,
     pub to: EntityId,
     pub action: ConnectAction,
+    /// With add/set.
+    pub prop: Option<String>,
+    pub value: Option<PropValue>,
+    /// All must hold when the signal arrives.
+    pub when: Vec<Condition>,
+}
+
+/// A `when` condition with its entity resolved.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Condition {
+    pub entity: EntityId,
+    pub def: ConditionDef,
 }
 
 /// Game-specific systems written in Rust. They run every step after the
@@ -167,6 +202,8 @@ impl World {
                 patrol: def.patrol.clone().map(|p| Patrol { def: p, target: 0, dir: 1, timer: 0 }),
                 wander: def.wander.map(|w| Wander { def: w, timer: 0 }),
                 trigger: def.trigger.clone().map(|t| Trigger { def: t, occupants: Vec::new() }),
+                label: def.label.clone(),
+                screen_pos: def.screen_pos,
                 props: def.props.iter().cloned().collect(),
                 allow: def.allow.clone(),
             });
@@ -175,11 +212,19 @@ impl World {
             .connections
             .iter()
             .filter_map(|c| {
+                let when = c
+                    .when
+                    .iter()
+                    .map(|w| Some(Condition { entity: *names.get(&w.entity)?, def: w.clone() }))
+                    .collect::<Option<Vec<_>>>()?;
                 Some(Connection {
                     from: *names.get(&c.from)?,
                     signal: c.signal.clone(),
                     to: *names.get(&c.to)?,
                     action: c.action,
+                    prop: c.prop.clone(),
+                    value: c.value.clone(),
+                    when,
                 })
             })
             .collect();
@@ -441,19 +486,48 @@ impl World {
         }
     }
 
-    /// Actors on a trigger's cell, honoring `only`.
-    fn occupants_of(&self, trigger_id: EntityId) -> Vec<EntityId> {
-        let t = &self.entities[trigger_id as usize];
-        let Some(trigger) = &t.trigger else {
-            return Vec::new();
-        };
+    /// Enabled actors on an entity's cell, other than itself. For a trigger,
+    /// only those its `only` accepts.
+    pub fn occupants_of(&self, id: EntityId) -> Vec<EntityId> {
+        let t = &self.entities[id as usize];
+        let only = t.trigger.as_ref().and_then(|tr| tr.def.only.as_ref());
         let cell = t.cell();
         self.entities
             .iter()
-            .filter(|e| e.id != trigger_id && e.enabled && e.is_actor() && e.cell() == cell)
-            .filter(|e| trigger.def.only.as_ref().is_none_or(|only| e.name.as_ref() == Some(only)))
+            .filter(|e| e.id != id && e.enabled && e.is_actor() && e.cell() == cell)
+            .filter(|e| only.is_none_or(|only| e.name.as_ref() == Some(only)))
             .map(|e| e.id)
             .collect()
+    }
+
+    /// Evaluate a condition now: whether it holds, and what was seen.
+    pub fn check_condition(&self, c: &Condition) -> (bool, String) {
+        let Some(e) = self.get(c.entity) else {
+            return (false, "entity missing".into());
+        };
+        match &c.def.test {
+            CondTest::Occupied(want) => {
+                let occ = self.occupants_of(c.entity);
+                let seen = match occ.first() {
+                    Some(&o) => format!("{} is on {}", self.describe(o), fmt_cell(e.cell())),
+                    None => format!("nobody is on {}", fmt_cell(e.cell())),
+                };
+                (occ.is_empty() != *want, seen)
+            }
+            CondTest::Enabled(want) => {
+                (e.enabled == *want, if e.enabled { "it is enabled".into() } else { "it is disabled".into() })
+            }
+            CondTest::Prop { prop, equals, at_least, at_most } => {
+                let Some(v) = e.props.get(prop) else {
+                    return (false, format!("{prop} is not set"));
+                };
+                let n = v.as_num();
+                let held = equals.as_ref().is_none_or(|x| v.same(x))
+                    && at_least.is_none_or(|lo| n.is_some_and(|n| n >= lo))
+                    && at_most.is_none_or(|hi| n.is_some_and(|n| n <= hi));
+                (held, format!("{prop} is {}", v.literal()))
+            }
+        }
     }
 
     fn run_triggers(&mut self) {
@@ -507,12 +581,8 @@ impl World {
                 self.pending.clear();
                 break;
             }
-            let targets: Vec<(EntityId, ConnectAction)> = self
-                .connections
-                .iter()
-                .filter(|c| c.from == from && c.signal == signal)
-                .map(|c| (c.to, c.action))
-                .collect();
+            let targets: Vec<Connection> =
+                self.connections.iter().filter(|c| c.from == from && c.signal == signal).cloned().collect();
             let source = self.describe(from);
             let msg = if targets.is_empty() {
                 let label = self.get(from).map_or_else(|| format!("#{from}"), Entity::label);
@@ -525,41 +595,111 @@ impl World {
             };
             let data = Json::object().with("signal", signal.as_str()).with("connections", targets.len());
             self.log(EventKind::Signal, Some(from), None, msg, data);
-            for (to, action) in targets {
-                self.apply_action(from, &signal, to, action);
+            for c in targets {
+                self.run_connection(&c, &signal);
             }
         }
     }
 
-    fn apply_action(&mut self, from: EntityId, signal: &str, to: EntityId, action: ConnectAction) {
-        let Some(target) = self.entities.get_mut(to as usize) else {
+    /// Check a connection's conditions, then apply its action or log why not.
+    fn run_connection(&mut self, c: &Connection, signal: &str) {
+        let results: Vec<(String, bool, String)> = c
+            .when
+            .iter()
+            .map(|w| {
+                let (held, seen) = self.check_condition(w);
+                (w.def.describe(), held, seen)
+            })
+            .collect();
+        let when_json: Vec<Json> = results
+            .iter()
+            .map(|(cond, held, seen)| {
+                Json::object().with("condition", cond.as_str()).with("held", *held).with("seen", seen.as_str())
+            })
+            .collect();
+        let target = self.describe(c.to);
+        let via = format!("via {}.'{signal}'", self.get(c.from).map_or_else(|| format!("#{}", c.from), Entity::label));
+        let mut data = Json::object().with("signal", signal).with("action", c.action.name());
+        if let Some(p) = &c.prop {
+            data.set("prop", p.as_str());
+        }
+        if !results.is_empty() {
+            data.set("when", when_json);
+        }
+        if let Some((cond, _, seen)) = results.iter().find(|(_, held, _)| !held) {
+            let msg = format!("{target} {} skipped ({via}): {cond} does not hold ({seen})", c.action.name());
+            self.log(EventKind::Skipped, Some(c.to), Some(c.from), msg, data);
             return;
+        }
+        let (change, prop_changed) = match c.action {
+            ConnectAction::Add | ConnectAction::Set => match self.change_prop(c) {
+                Some((change, before, value, after)) => {
+                    data = data
+                        .with("value", prop_json(&value))
+                        .with("before", prop_json(&before))
+                        .with("after", prop_json(&after));
+                    (change, after != before)
+                }
+                None => return,
+            },
+            ConnectAction::Enable | ConnectAction::Disable | ConnectAction::Toggle => {
+                let Some(e) = self.entities.get_mut(c.to as usize) else { return };
+                let before = e.enabled;
+                e.enabled = match c.action {
+                    ConnectAction::Enable => true,
+                    ConnectAction::Disable => false,
+                    _ => !before,
+                };
+                let after = e.enabled;
+                data = data.with("before", before).with("after", after);
+                let state = |b: bool| if b { "enabled" } else { "disabled" };
+                let change = if before == after {
+                    format!("{}: stays {}", c.action.name(), state(after))
+                } else {
+                    format!("{}: {} -> {}", c.action.name(), state(before), state(after))
+                };
+                (change, false)
+            }
         };
-        let before = target.enabled;
-        let after = match action {
-            ConnectAction::Enable => true,
-            ConnectAction::Disable => false,
-            ConnectAction::Toggle => !before,
+        let mut msg = format!("{target} {change} ({via})");
+        if !results.is_empty() {
+            let held: Vec<&str> = results.iter().map(|(cond, _, _)| cond.as_str()).collect();
+            msg.push_str(&format!("; when {} held", held.join(", ")));
+        }
+        self.log(EventKind::Action, Some(c.to), Some(c.from), msg, data);
+        // A prop change makes its owner emit `changed`, if anything listens.
+        if prop_changed && self.connections.iter().any(|x| x.from == c.to && x.signal == "changed") {
+            self.emit(c.to, "changed");
+        }
+    }
+
+    /// Apply `add`/`set`. Returns the message part, before, value and after.
+    /// Props keep their declared type (validated by `slate check`).
+    fn change_prop(&mut self, c: &Connection) -> Option<(String, PropValue, PropValue, PropValue)> {
+        let prop = c.prop.as_deref()?;
+        let value = c.value.clone().unwrap_or(PropValue::Int(1));
+        let current = self.entities.get_mut(c.to as usize)?.props.get_mut(prop)?;
+        let before = current.clone();
+        let after = match (c.action, &before) {
+            (ConnectAction::Add, PropValue::Int(a)) => match value {
+                PropValue::Int(b) => PropValue::Int(a.saturating_add(b)),
+                _ => before.clone(),
+            },
+            (ConnectAction::Add, PropValue::Float(a)) => PropValue::Float(a + value.as_num().unwrap_or(0.0)),
+            (ConnectAction::Set, _) if before.accepts(&value) => before.coerce(&value),
+            _ => before.clone(),
         };
-        target.enabled = after;
-        let state = |b: bool| if b { "enabled" } else { "disabled" };
-        let change = if before == after {
-            format!("stays {}", state(after))
+        *current = after.clone();
+        let what = match c.action {
+            ConnectAction::Add => format!("add {prop} {}", value.display()),
+            _ => format!("set {prop} = {}", value.literal()),
+        };
+        let change = if after == before {
+            format!("{what}: stays {}", after.literal())
         } else {
-            format!("{} -> {}", state(before), state(after))
+            format!("{what}: {} -> {}", before.literal(), after.literal())
         };
-        let msg = format!(
-            "{} {}: {change} (via {}.'{signal}')",
-            self.describe(to),
-            action.name(),
-            self.get(from).map_or_else(|| format!("#{from}"), Entity::label)
-        );
-        let data = Json::object()
-            .with("signal", signal)
-            .with("action", action.name())
-            .with("before", before)
-            .with("after", after);
-        self.log(EventKind::Action, Some(to), Some(from), msg, data);
+        Some((change, before, value, after))
     }
 
     /// Hash of the full simulation state. Equal hashes mean equal worlds:
@@ -595,6 +735,12 @@ impl World {
                 for o in &t.occupants {
                     h.u32(*o);
                 }
+            }
+            if let Some(l) = &e.label {
+                h.u8(8).str(&l.text).bytes(&[l.color.r, l.color.g, l.color.b, l.color.a]).u32(l.scale);
+            }
+            if let Some([x, y]) = e.screen_pos {
+                h.u8(9).f32(x).f32(y);
             }
             for (k, v) in &e.props {
                 h.str(k);

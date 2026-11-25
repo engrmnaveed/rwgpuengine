@@ -1,4 +1,4 @@
-use slate_data::{Action, SceneLoader, Vfs};
+use slate_data::{Action, PropValue, SceneLoader, Vfs};
 
 use crate::events::EventKind;
 use crate::input::{ActionSet, InputFrame, Tap};
@@ -270,4 +270,275 @@ enabled = false
     w.get_mut(bit).unwrap().enabled = false;
     idle(&mut w, 1);
     assert_eq!(w.events.all().last().unwrap().signal.as_deref(), Some("bit_off"));
+}
+
+// ---------------------------------------------------------------------------
+// Data logic v1 (ADR 0011)
+
+/// Two plates held by stationary actors that can be switched on and off,
+/// an AND door, coins counted into a HUD prop, and a status set at 2 coins.
+const LOGIC: &str = r##"
+[ground]
+size = [8, 4]
+
+[[entity]]
+name = "player"
+pos = [0, 0]
+sprite = {}
+mover = { step_frames = 4 }
+
+[[entity]]
+name = "plate_a"
+pos = [1, 2]
+tile = {}
+trigger = {}
+
+[[entity]]
+name = "plate_b"
+pos = [3, 2]
+tile = {}
+trigger = {}
+
+[[entity]]
+name = "weight_a"
+pos = [1, 2]
+enabled = false
+patrol = { path = [[1, 2]] }
+
+[[entity]]
+name = "weight_b"
+pos = [3, 2]
+enabled = false
+patrol = { path = [[3, 2]] }
+
+[[entity]]
+name = "door"
+pos = [5, 2]
+block = {}
+solid = true
+
+[[entity]]
+name = "coin1"
+pos = [1, 0]
+sprite = {}
+trigger = { on_enter = "collected", only = "player" }
+
+[[entity]]
+name = "coin2"
+pos = [2, 0]
+sprite = {}
+trigger = { on_enter = "collected", only = "player" }
+
+[[entity]]
+name = "hud"
+screen_pos = [4, 4]
+label = { text = "Coins {coins} {status}" }
+props = { coins = 0, status = "" }
+
+[[connect]]
+from = "plate_a"
+signal = "pressed"
+to = "door"
+action = "disable"
+when = [{ entity = "plate_b", occupied = true }]
+
+[[connect]]
+from = "plate_b"
+signal = "pressed"
+to = "door"
+action = "disable"
+when = [{ entity = "plate_a", occupied = true }]
+
+[[connect]]
+from = "plate_a"
+signal = "released"
+to = "door"
+action = "enable"
+
+[[connect]]
+from = "plate_b"
+signal = "released"
+to = "door"
+action = "enable"
+
+[[connect]]
+from = "coin1"
+signal = "collected"
+to = "hud"
+action = "add"
+prop = "coins"
+
+[[connect]]
+from = "coin2"
+signal = "collected"
+to = "hud"
+action = "add"
+prop = "coins"
+
+[[connect]]
+from = "coin1"
+signal = "collected"
+to = "coin1"
+action = "disable"
+
+[[connect]]
+from = "coin2"
+signal = "collected"
+to = "coin2"
+action = "disable"
+
+[[connect]]
+from = "hud"
+signal = "changed"
+to = "hud"
+action = "set"
+prop = "status"
+value = "rich"
+when = [{ entity = "hud", prop = "coins", at_least = 2 }]
+"##;
+
+fn set_enabled(w: &mut World, name: &str, on: bool) {
+    let id = w.find(name).unwrap();
+    w.get_mut(id).unwrap().enabled = on;
+}
+
+#[test]
+fn and_door_opens_only_while_both_plates_are_held_in_either_order() {
+    for order in [["weight_a", "weight_b"], ["weight_b", "weight_a"]] {
+        let mut w = world(LOGIC, 1);
+        set_enabled(&mut w, order[0], true);
+        idle(&mut w, 2);
+        assert!(w.by_name("door").unwrap().enabled, "one plate is not enough");
+        let skipped: Vec<_> = w.events.all().iter().filter(|e| e.kind == EventKind::Skipped).collect();
+        assert_eq!(skipped.len(), 1);
+        assert!(skipped[0].message.contains("occupied does not hold (nobody is on"), "{}", skipped[0].message);
+
+        set_enabled(&mut w, order[1], true);
+        idle(&mut w, 2);
+        assert!(!w.by_name("door").unwrap().enabled, "both held: open ({order:?})");
+        let action = w.events.all().iter().rev().find(|e| e.kind == EventKind::Action).unwrap();
+        assert!(action.message.contains("; when '"), "{}", action.message);
+        assert_eq!(action.data.pointer("when/0/held").and_then(|v| v.as_bool()), Some(true));
+
+        // Stepping off either closes it again.
+        set_enabled(&mut w, order[0], false);
+        idle(&mut w, 2);
+        assert!(w.by_name("door").unwrap().enabled, "released: closed again");
+    }
+}
+
+#[test]
+fn add_counts_into_a_prop_and_changed_drives_conditions() {
+    let mut w = world(LOGIC, 1);
+    let hud = w.find("hud").unwrap();
+    assert_eq!(w.get(hud).unwrap().label_text().as_deref(), Some("Coins 0 "));
+    step(&mut w, press(Action::Right)); // onto coin1
+    idle(&mut w, 1);
+    assert_eq!(w.get(hud).unwrap().props.get("coins"), Some(&PropValue::Int(1)));
+    assert!(!w.by_name("coin1").unwrap().enabled, "collected once");
+    let add = w.events.all().iter().find(|e| e.kind == EventKind::Action && e.entity == Some(hud)).unwrap();
+    assert!(add.message.contains("add coins 1: 0 -> 1"), "{}", add.message);
+    assert_eq!(add.data.get("after"), Some(&slate_core::json::Json::Int(1)));
+    // changed -> set skipped at 1 coin.
+    let skip = w.events.all().iter().find(|e| e.kind == EventKind::Skipped).unwrap();
+    assert!(skip.message.contains("'hud'.coins >= 2 does not hold (coins is 1)"), "{}", skip.message);
+
+    idle(&mut w, 4);
+    step(&mut w, press(Action::Right)); // onto coin2
+    idle(&mut w, 1);
+    let h = w.get(hud).unwrap();
+    assert_eq!(h.props.get("coins"), Some(&PropValue::Int(2)));
+    assert_eq!(h.props.get("status"), Some(&PropValue::Str("rich".into())));
+    assert_eq!(h.label_text().as_deref(), Some("Coins 2 rich"));
+
+    // Walking back over the collected coins counts nothing more.
+    idle(&mut w, 4);
+    step(&mut w, press(Action::Left));
+    idle(&mut w, 8);
+    assert_eq!(w.get(hud).unwrap().props.get("coins"), Some(&PropValue::Int(2)));
+}
+
+#[test]
+fn prop_changes_are_deterministic_and_hashed() {
+    let run = || {
+        let mut w = world(LOGIC, 3);
+        step(&mut w, press(Action::Right));
+        idle(&mut w, 3);
+        w.state_hash()
+    };
+    assert_eq!(run(), run());
+    let mut a = world(LOGIC, 3);
+    let b = world(LOGIC, 3);
+    let hud = a.find("hud").unwrap();
+    a.get_mut(hud).unwrap().props.insert("coins".into(), PropValue::Int(5));
+    assert_ne!(a.state_hash(), b.state_hash());
+}
+
+#[test]
+fn a_changed_loop_is_cut_off_by_the_signal_limit() {
+    let scene = r##"
+[[entity]]
+name = "n"
+props = { v = 0 }
+
+[[connect]]
+from = "n"
+signal = "tapped"
+to = "n"
+action = "add"
+prop = "v"
+
+[[connect]]
+from = "n"
+signal = "changed"
+to = "n"
+action = "add"
+prop = "v"
+"##;
+    let mut w = world(scene, 1);
+    let n = w.find("n").unwrap();
+    let tap = Tap { x: 0.0, y: 0.0, hit: Some(n), under_disabled: vec![] };
+    step(&mut w, InputFrame { taps: vec![tap.clone()], ..InputFrame::default() });
+    assert!(w.events.all().iter().any(|e| e.kind == EventKind::Error), "{:?}", kinds(&w));
+    // A `when` bound stops it instead.
+    let bounded = scene.replace(
+        "signal = \"changed\"\nto = \"n\"\naction = \"add\"\nprop = \"v\"",
+        "signal = \"changed\"\nto = \"n\"\naction = \"add\"\nprop = \"v\"\nwhen = [{ entity = \"n\", prop = \"v\", at_most = 9 }]",
+    );
+    let mut w = world(&bounded, 1);
+    step(&mut w, InputFrame { taps: vec![tap], ..InputFrame::default() });
+    assert_eq!(w.get(n).unwrap().props.get("v"), Some(&PropValue::Int(10)), "adds while v <= 9");
+    assert!(!w.events.all().iter().any(|e| e.kind == EventKind::Error));
+}
+
+#[test]
+fn set_and_add_on_float_props() {
+    let scene = r##"
+[[entity]]
+name = "n"
+props = { speed = 1.5, flag = false }
+
+[[connect]]
+from = "n"
+signal = "tapped"
+to = "n"
+action = "add"
+prop = "speed"
+value = -2
+
+[[connect]]
+from = "n"
+signal = "tapped"
+to = "n"
+action = "set"
+prop = "flag"
+value = true
+"##;
+    let mut w = world(scene, 1);
+    let n = w.find("n").unwrap();
+    let tap = Tap { x: 0.0, y: 0.0, hit: Some(n), under_disabled: vec![] };
+    step(&mut w, InputFrame { taps: vec![tap], ..InputFrame::default() });
+    let e = w.get(n).unwrap();
+    assert_eq!(e.props.get("speed"), Some(&PropValue::Float(-0.5)));
+    assert_eq!(e.props.get("flag"), Some(&PropValue::Bool(true)));
 }

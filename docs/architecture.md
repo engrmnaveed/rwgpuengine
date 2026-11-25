@@ -82,8 +82,10 @@ generates JSON Schemas, the reference docs and `slate explain <component>`; one 
 ## The world
 
 "Fat" entities (ADR 0006): one `Entity` struct with optional built-in components (`tile`, `block`,
-`sprite`, `mover`, `patrol`, `wander`, `trigger`) plus a free-form `props` map. Entity ids are their index
-in scene order — stable for a given file, usable in scripts and tests.
+`sprite`, `label`, `mover`, `patrol`, `wander`, `trigger`), an optional `screen_pos` (HUD entities) and a
+`props` map. Props are runtime state with types fixed by their declared starting values: `[[connect]]`
+`add`/`set` change them, `when` conditions and label placeholders read them (ADR 0011). Entity ids are their
+index in scene order — stable for a given file, usable in scripts and tests.
 
 ### The step
 
@@ -95,17 +97,20 @@ in scene order — stable for a given file, usable in scripts and tests.
 4. **wanderers** — one RNG draw each, in entity order.
 5. **custom systems** — Rust game code (`Game: Systems`).
 6. **triggers** — compare cell occupancy with last step; emit `on_enter` / `on_exit`.
-7. **signal dispatch** — FIFO through `[[connect]]` wiring (`enable`/`disable`/`toggle`), capped at 1000
-   per step (E0301).
+7. **signal dispatch** — FIFO through `[[connect]]` wiring, capped at 1000 per step (E0301). Each
+   connection first checks its `when` conditions against the current state (logging `skipped` if one
+   fails), then applies `enable`/`disable`/`toggle` or `add`/`set` on a prop. A prop that really changes
+   makes its owner emit `changed` (queued at the back, same step) if any connection listens to it.
 
 Then `frame += 1`. Frame N is the state after N steps; input scheduled at frame N is applied by step N.
 
 ### The event log
 
-Every step appends structured events — `input tap tap_miss moved blocked trigger signal action error
-custom` — each with a complete sentence and fields. Refusals are first-class: a `blocked` event says
+Every step appends structured events — `input tap tap_miss moved blocked trigger signal action skipped
+error custom` — each with a complete sentence and fields. Refusals are first-class: a `blocked` event says
 which solid, actor, edge, area or cooldown stopped a move; a `signal` with zero connections says which
-`[[connect]]` to add; a `tap_miss` names the disabled entity under the finger.
+`[[connect]]` to add; a `skipped` event names the `when` condition that failed and what was seen; a
+`tap_miss` names the disabled entity under the finger. `action` events carry prop values before and after.
 
 ## Determinism
 
@@ -115,14 +120,17 @@ only IEEE-exact operations (clippy bans libm transcendental functions); `BTreeMa
 `Frame::image_hash()` (FNV-1a 64) make equality a one-line check.
 
 Verified: the example walkthrough reaches state `469ae7c92124d43d` and image `bfca8c0b40af6828` both
-natively (aarch64-apple-darwin) and in the browser (wasm32).
+natively (aarch64-apple-darwin) and in the browser (wasm32); coin_vault's solve (props, conditions, text,
+HUD) reaches state `41f58b0904b83261` and image `f15c777308fdf361` on both.
 
 ## Rendering
 
 ADR 0007. The **draw list** is the central artifact:
 
-- `draw::build` turns the world into back-to-front items: ground cells, then tiles, then block faces and
-  sprites sorted by `(x + y, z, part, id)`.
+- `draw::build` turns the world into back-to-front items: ground cells, then tiles, then block faces,
+  sprites and label glyphs sorted by `(x + y, z, part, id)`, then screen entities (`screen_pos`) in file
+  order. Text is drawn with an owned 5×8 pixel font (`font.rs`, printable ASCII); each glyph is a shape
+  whose coverage is a bit test, so text is as deterministic, reportable and pickable as everything else.
 - `rasterize` fills shapes with exact integer coverage tests at pixel centers (doubled coordinates,
   top-left fill rule) and integer shading/blending; it records which item owns each pixel.
 - `build_report` turns ownership into per-entity drawn/visible pixels and "covered by", and flags W0301
@@ -165,5 +173,5 @@ diagnostics in the page. Touch first: tap = tap, swipe = move along the iso axes
 
 ## Known limits of v0.1 (by design, for now)
 
-See [mvp-plan.md](mvp-plan.md#known-limitations) — no text, images or audio; single-cell objects only;
-CPU rendering only; no native window.
+See [mvp-plan.md](mvp-plan.md#known-limitations) — no images or audio; ASCII text only; single-cell
+objects only; CPU rendering only; no native window.

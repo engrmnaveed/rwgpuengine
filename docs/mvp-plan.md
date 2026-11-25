@@ -63,8 +63,11 @@ table](experiments/2026-11-25-cold-agent-4.md) — every verdict at command 2, 1
 Deliberate gaps in v0.1 — each waits for a reference game that needs it (guardrail 2):
 
 - The full list an agent sees is in the project AGENTS.md ("Limits in this version") and `slate explain limits`.
-- **No text rendering**, **no image sprites**, **no audio** ([open-questions](open-questions.md) Q5, Q6).
-- **No counters or conditions in data** yet: decided, scheduled as M1.6 ([ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)).
+- **Text is printable ASCII only** (one owned pixel font; non-Latin shaping is Q5), **no image sprites**,
+  **no audio** ([open-questions](open-questions.md) Q5, Q6).
+- **Data logic is deliberately small** (M1.6, [ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)):
+  `add`/`set` constants on props, `when` conditions that compare with constants, `changed` signals. No
+  expressions, timers or random choices in data; anything beyond that is Rust game code (M4).
 - **Single-cell objects only**: draw order is per cell (`x + y`); multi-cell buildings need M3 sorting.
 - **CPU rendering only** (deterministic, fine at 640×480; GPU via wgpu later — Q4).
 - **No native window**: humans use the web player (`slate serve`).
@@ -77,5 +80,6 @@ Deliberate gaps in v0.1 — each waits for a reference game that needs it (guard
 
 ## Next
 
-Q14 is decided ([ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)): build data logic v1
-(M1.6 in [roadmap.md](roadmap.md)), then verify it against run #3's task.
+Data logic v1 is built (M1.6, [ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)). Next:
+cold-agent run #5 on run #3's task to check the acceptance targets (every requirement supported, 0 warnings,
+≤ 5 min), then M2/M3 once Q3 picks the first reference game.

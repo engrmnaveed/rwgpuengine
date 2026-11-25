@@ -173,12 +173,53 @@
       },
       "additionalProperties": false
     },
+    "label": {
+      "type": "object",
+      "description": "Text drawn with the built-in pixel font (scores, names).",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The text, with `{prop}` placeholders."
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+          "description": "Text color. Default: \"#ffffff\"."
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Pixel size of the font: 2 doubles it. Default: 1."
+        },
+        "offset": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "Shift in pixels [right, down]. Default: [0, 0]."
+        }
+      },
+      "required": ["text"],
+      "additionalProperties": false
+    },
+    "screen_pos": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Draw this entity on the screen instead of in the world (a HUD): `[x, y]` is the top-left pixel of its sprite and label. Screen entities are drawn above the world, ignore the camera, can be tapped, and can only have `sprite` and `label`."
+    },
     "props": {
       "type": "object",
       "additionalProperties": {
         "type": ["boolean", "integer", "number", "string"]
       },
-      "description": "Free-form game data shown by `inspect` and checked by `[[expect]] props`. Nothing in data files changes props at runtime (Rust game code can)."
+      "description": "Game data: numbers, text and flags, e.g. `{ score = 0 }`. A prop's type is fixed by its starting value. `[[connect]]` `add`/`set` change props at runtime, `when` conditions and label `{placeholders}` read them, `inspect` shows them and `[[expect]] props` checks them."
     },
     "allow": {
       "type": "array",
