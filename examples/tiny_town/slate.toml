@@ -1,0 +1,17 @@
+# tiny_town — reference game 1 (ADR 0013): an isometric builder for young
+# children. Tap a tool, then tap the island to build; every building costs
+# coins. Build 2 houses, 3 trees and a well with 12 coins. No Rust code.
+
+[project]
+name = "tiny-town"
+engine = "0.1"
+main_scene = "scenes/island.toml"
+
+[display]
+width = 640
+height = 480
+background = "#2a5d8f"
+
+[sim]
+tick_rate = 60
+seed = 1

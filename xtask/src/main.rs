@@ -80,7 +80,7 @@ fn ci() -> Result {
     step("generated docs are current");
     docs(true)?;
     step("example playtests");
-    for example in ["examples/iso_garden", "examples/coin_vault"] {
+    for example in ["examples/iso_garden", "examples/coin_vault", "examples/tiny_town"] {
         run("cargo", &["run", "--quiet", "--bin", "slate", "--", "check", example])?;
         run("cargo", &["run", "--quiet", "--bin", "slate", "--", "test", example])?;
     }

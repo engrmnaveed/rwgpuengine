@@ -158,6 +158,15 @@ impl Table {
         self.entry(key).map_or(fallback, |e| e.value.span)
     }
 
+    /// Set (or replace) a string value, with no source span.
+    pub fn set_str(&mut self, key: &str, value: &str) {
+        let node = Node { kind: NodeKind::Str(value.to_string()), span: Span::default() };
+        match self.entries.iter_mut().find(|e| e.key == key) {
+            Some(e) => e.value = node,
+            None => self.entries.push(Entry { key: key.to_string(), key_span: Span::default(), value: node }),
+        }
+    }
+
     /// Merge `over` onto `self`: tables merge recursively, everything else is
     /// replaced. Used to apply entity overrides on top of a prefab.
     pub fn merged_with(&self, over: &Table) -> Table {

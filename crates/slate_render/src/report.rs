@@ -123,8 +123,9 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
         entry.drawn_px += s.drawn.saturating_sub(self_covered);
         entry.visible_px += s.visible;
         if item.part == Part::Tile && world.get(id).is_some_and(|e| e.trigger.is_some()) {
-            let hidden: u32 =
-                s.covered_by.iter().filter(|(o, _)| list.items[**o].cell != item.cell).map(|(_, n)| *n).sum();
+            // What stands on any cell of the trigger does not hide it.
+            let on_it = |o: usize| world.get(id).is_some_and(|t| t.covers(list.items[o].cell));
+            let hidden: u32 = s.covered_by.iter().filter(|(o, _)| !on_it(**o)).map(|(_, n)| *n).sum();
             let p = trigger_tile_px.entry(id).or_insert((0, 0));
             p.0 += s.drawn;
             p.1 += s.drawn.saturating_sub(hidden);
@@ -195,7 +196,7 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
             let by: Vec<String> = r
                 .covered_by
                 .iter()
-                .filter(|(o, _)| world.get(*o).is_some_and(|e| e.cell() != r.cell))
+                .filter(|(o, _)| world.get(*o).is_some_and(|e| world.get(id).is_none_or(|t| !t.covers(e.cell()))))
                 .take(3)
                 .map(|(o, n)| format!("{} ({n} px)", world.get(*o).map_or_else(|| format!("#{o}"), |e| e.label())))
                 .collect();

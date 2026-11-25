@@ -9,7 +9,7 @@ use slate_core::json::Json;
 use slate_core::text::did_you_mean;
 use slate_data::{check_project, schema};
 use slate_render::image::{self, Image};
-use slate_runtime::{InspectOptions, Session, SessionConfig, run_playtest};
+use slate_runtime::{InspectOptions, PlaceQuery, Session, SessionConfig, run_playtest};
 use slate_sim::dump;
 
 use crate::GameFactory;
@@ -452,11 +452,17 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
             return Outcome::usage(args::bad_arg(format!("unknown component `{c}`"), Some(hint)));
         }
     }
+    let place = match p.value("--place").map(PlaceQuery::parse) {
+        None => None,
+        Some(Ok(q)) => Some(q),
+        Some(Err(why)) => return Outcome::usage(args::bad_arg(format!("--place: {why}"), None)),
+    };
     let opts = InspectOptions {
         entity: p.value("--entity").map(str::to_string),
         component: p.value("--component").map(str::to_string),
         events: p.has("--events"),
         since,
+        place,
     };
     let data = session.inspect(&opts);
     let mut o = Outcome::new(true).with_root(&loc.root);
@@ -476,9 +482,14 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
             .into_iter()
             .filter(|c| e.get(c).is_some())
             .collect();
-        let at = match e.get("screen_pos") {
-            Some(_) => "screen".to_string(),
-            None => format!("cell {}", e.get("cell").map(Json::to_compact).unwrap_or_default()),
+        let at = match (e.get("screen_pos"), e.get("footprint")) {
+            (Some(_), _) => "screen".to_string(),
+            (None, Some(f)) => format!(
+                "cell {} {}",
+                e.get("cell").map(Json::to_compact).unwrap_or_default(),
+                f.as_array().map_or(String::new(), |v| v.iter().map(Json::to_compact).collect::<Vec<_>>().join("x"))
+            ),
+            (None, None) => format!("cell {}", e.get("cell").map(Json::to_compact).unwrap_or_default()),
         };
         let enabled = if e.get("enabled").and_then(Json::as_bool) == Some(true) { "" } else { "  (disabled)" };
         let solid = if e.get("solid").and_then(Json::as_bool) == Some(true) { " solid" } else { "" };
@@ -509,6 +520,40 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
         {
             let list: Vec<String> = props.iter().map(|(k, v)| format!("{k} = {}", v.to_compact())).collect();
             o.line(format!("      props {{ {} }}", list.join(", ")));
+        }
+    }
+    if let Some(place) = data.get("place") {
+        let msg = place.get("message").and_then(Json::as_str).unwrap_or("");
+        match place.get("free").and_then(Json::as_array) {
+            Some(free) => {
+                let cells: Vec<String> = free
+                    .iter()
+                    .map(|f| {
+                        let c = f.get("cell").map(Json::to_compact).unwrap_or_default();
+                        match f.get("tap").filter(|t| !t.is_null()) {
+                            Some(t) => format!("{c} tap {}", t.to_compact()),
+                            None => c,
+                        }
+                    })
+                    .collect();
+                o.line(format!(
+                    "place {}: fits at {} cell(s){}",
+                    place.get("prefab").and_then(Json::as_str).unwrap_or(""),
+                    free.len(),
+                    if cells.is_empty() { ": none".to_string() } else { String::new() }
+                ));
+                for c in cells {
+                    o.line(format!("  {c}"));
+                }
+            }
+            None => {
+                let tap = place
+                    .get("tap")
+                    .filter(|t| !t.is_null())
+                    .map(|t| format!(" (tap the cell at {})", t.to_compact()))
+                    .unwrap_or_default();
+                o.line(format!("place: {msg}{tap}"));
+            }
         }
     }
     if let Some(events) = data.get("events").and_then(Json::as_array) {

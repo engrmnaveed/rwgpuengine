@@ -193,7 +193,8 @@ pub fn build(world: &World, view: &View, ground: Option<&GroundDef>, include_dis
     if let Some(g) = ground {
         for y in 0..g.size[1] {
             for x in 0..g.size[0] {
-                let color = if (x + y) % 2 == 0 { g.color } else { g.alt_color };
+                let Some(t) = g.terrain_at([x, y]) else { continue };
+                let color = if (x + y) % 2 == 0 { t.color } else { t.alt_color };
                 let shape = Shape::quad(view.diamond(x as f32, y as f32, 0.0));
                 items.push(DrawItem {
                     entity: None,
@@ -220,13 +221,17 @@ fn push_entity(items: &mut Vec<DrawItem>, e: &Entity, view: &View) {
     let [x, y, z] = e.pos;
     let cell = e.cell();
     let screen = e.screen_pos;
+    let [fw, fh] = e.footprint;
+    // The front cell (largest x + y): a multi-cell entity's sprite and label
+    // sort with it, after every slice of its block.
+    let front = [cell[0] + fw - 1, cell[1] + fh - 1];
     // Screen entities: one layer above the world, in file order (the id
     // takes the depth slot so it sorts before the part).
     let (layer, depth, zkey) = match screen {
         Some(_) => (3, e.id as i32, 0),
-        None => (2, cell[0] + cell[1], round(z * 1000.0)),
+        None => (2, front[0] + front[1], round(z * 1000.0)),
     };
-    let mut push = |part: Part, layer: u8, shape: Shape, color: Rgba| {
+    let mut push_at = |part: Part, layer: u8, depth: i32, shape: Shape, color: Rgba| {
         items.push(DrawItem {
             entity: Some(e.id),
             part,
@@ -238,21 +243,53 @@ fn push_entity(items: &mut Vec<DrawItem>, e: &Entity, view: &View) {
         });
     };
     if screen.is_none() {
+        // The footprint's corners: from (x - 0.5, y - 0.5) to (x + w - 0.5, y + h - 0.5).
+        let (x1, y1) = (x + (fw - 1) as f32, y + (fh - 1) as f32);
         if let Some(t) = &e.tile {
-            push(Part::Tile, 1, Shape::quad(view.diamond(x, y, z)), t.color);
+            let d = [
+                view.project_px(x - 0.5, y - 0.5, z),
+                view.project_px(x1 + 0.5, y - 0.5, z),
+                view.project_px(x1 + 0.5, y1 + 0.5, z),
+                view.project_px(x - 0.5, y1 + 0.5, z),
+            ];
+            push_at(Part::Tile, 1, front[0] + front[1], Shape::quad(d), t.color);
         }
         if let Some(b) = &e.block {
-            let base = view.diamond(x, y, z);
-            let top = view.diamond(x, y, z + b.height);
-            let [_, base_r, base_b, base_l] = base;
-            let [_, top_r, top_b, top_l] = top;
-            if b.height > 0.0 {
-                push(Part::BlockLeft, 2, Shape::quad([top_l, top_b, base_b, base_l]), b.color.scale(4, 5));
-                push(Part::BlockRight, 2, Shape::quad([top_b, top_r, base_r, base_b]), b.color.scale(13, 20));
+            // One slice per covered cell, each sorted by its own cell, so a big
+            // box interleaves correctly with smaller things around it; slices
+            // drawn back to front hide each other's inner faces exactly.
+            for dy in 0..fh {
+                for dx in 0..fw {
+                    let (cx, cy) = (x + dx as f32, y + dy as f32);
+                    let depth = cell[0] + dx + cell[1] + dy;
+                    let base = view.diamond(cx, cy, z);
+                    let top = view.diamond(cx, cy, z + b.height);
+                    let [_, base_r, base_b, base_l] = base;
+                    let [_, top_r, top_b, top_l] = top;
+                    if b.height > 0.0 {
+                        push_at(
+                            Part::BlockLeft,
+                            2,
+                            depth,
+                            Shape::quad([top_l, top_b, base_b, base_l]),
+                            b.color.scale(4, 5),
+                        );
+                        push_at(
+                            Part::BlockRight,
+                            2,
+                            depth,
+                            Shape::quad([top_b, top_r, base_r, base_b]),
+                            b.color.scale(13, 20),
+                        );
+                    }
+                    push_at(Part::BlockTop, 2, depth, Shape::quad(top), b.top);
+                }
             }
-            push(Part::BlockTop, 2, Shape::quad(top), b.color);
         }
     }
+    let mut push = |part: Part, layer: u8, shape: Shape, color: Rgba| push_at(part, layer, depth, shape, color);
+    // A multi-cell entity's sprite and label stand at the middle of its footprint.
+    let (x, y) = (x + (fw - 1) as f32 / 2.0, y + (fh - 1) as f32 / 2.0);
     // The standing point (world) or the top-left corner (screen).
     let anchor = match screen {
         Some(p) => p,

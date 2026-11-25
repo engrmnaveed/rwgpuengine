@@ -35,6 +35,10 @@ pub fn entity_json(world: &World, e: &Entity) -> Json {
         .with("pos", vec_json(&e.pos))
         .with("cell", e.cell())
         .with("solid", e.solid);
+    if e.footprint != [1, 1] {
+        j.set("footprint", e.footprint);
+        j.set("cells", Json::Arr(e.cells().into_iter().map(Json::from).collect()));
+    }
     if e.pushable {
         j.set("pushable", true);
     }
@@ -42,7 +46,11 @@ pub fn entity_json(world: &World, e: &Entity) -> Json {
         j.set("tile", Json::object().with("color", t.color.to_hex()));
     }
     if let Some(b) = &e.block {
-        j.set("block", Json::object().with("color", b.color.to_hex()).with("height", num(b.height)));
+        let mut bj = Json::object().with("color", b.color.to_hex());
+        if b.top != b.color {
+            bj.set("top", b.top.to_hex());
+        }
+        j.set("block", bj.with("height", num(b.height)));
     }
     if let Some(s) = &e.sprite {
         j.set(
@@ -129,6 +137,29 @@ pub fn event_json(world: &World, e: &Event) -> Json {
                 j.set(k, v.clone());
             }
         }
+    }
+    j
+}
+
+/// The ground for `inspect`: size, and for terrain maps the map rows and the
+/// terrain legend. `None` without a ground.
+pub fn ground_json(world: &World) -> Json {
+    let Some(g) = &world.ground else { return Json::Null };
+    let mut j = Json::object().with("size", g.size);
+    if g.has_map {
+        let terrains: Vec<Json> = g
+            .terrains
+            .iter()
+            .map(|t| {
+                Json::object()
+                    .with("char", t.ch.to_string())
+                    .with("name", t.name.as_str())
+                    .with("build", t.build)
+                    .with("color", t.color.to_hex())
+            })
+            .collect();
+        j.set("map", Json::Arr(g.rows().into_iter().map(Json::from).collect()));
+        j.set("terrain", terrains);
     }
     j
 }

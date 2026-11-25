@@ -159,16 +159,26 @@ need a number prop.
 Fix: change the value, or declare the prop with the type you mean (`0` for a
 count, `0.0` for a decimal, `\"\"` for text, `false` for a flag).";
 
+    UNKNOWN_TERRAIN = "E0208", "unknown-terrain", Error, "Map uses an undeclared terrain character",
+"A row of `[ground] map` has a character that no `[[terrain]]` table declares
+with `char`, so slate does not know what that cell is.
+
+Fix: add a `[[terrain]]` table with `char = \"...\"` for it (with a `name`,
+`color` and `build`), or change the character to a declared one. Every cell
+needs a terrain: write plain ground as a declared character too.";
+
     SOLID_OVERLAP = "W0201", "solid-overlap", Warning, "Two solid entities share a cell",
-"Two enabled solid entities start on the same grid cell. This is usually a
-copy-paste mistake and makes the cell impossible to enter.
+"Two enabled solid entities start on the same grid cell (for an entity with a
+`footprint`, any cell it covers). This is usually a copy-paste mistake and makes
+the cell impossible to enter.
 
 Fix: move one of them, or make one non-solid. If it is deliberate (for example
 two stacked door leaves, each opened by its own plate, to build an AND), add
 `allow = [\"W0201\"]` to either entity.";
 
     OUTSIDE_GROUND = "W0202", "outside-ground", Warning, "Entity is outside the ground",
-"The entity's cell is outside `[ground] size`. Movers can never reach it, and
+"The entity's cell (or a cell of its `footprint`) is outside the ground
+(`[ground] size`, or the size of `[ground] map`). Movers can never reach it, and
 it may be drawn off-screen.
 
 Fix: move it inside 0..size, or grow the ground.";
@@ -177,8 +187,10 @@ Fix: move it inside 0..size, or grow the ground.";
 "A `[[connect]]` listens for a signal its `from` entity can never emit. Every
 entity emits `tapped`; an entity with a `trigger` emits its `on_enter` and
 `on_exit` signals (default `pressed` and `released`); an entity whose props are
-changed by a `[[connect]]` `add` or `set` emits `changed`. Rust game code may
-emit other signals, in which case this warning can be ignored.
+changed by a `[[connect]]` `add` or `set` emits `changed`; an entity made by a
+`spawn` action emits `spawned`; the ground (`from = \"ground\"`) emits only
+`tapped`. With `from_prefab`, the prefab's own components decide. Rust game code
+may emit other signals, in which case this warning can be ignored.
 
 Fix: add the component that emits the signal, or fix the signal name.";
 

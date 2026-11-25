@@ -9,7 +9,7 @@ pub mod playtest;
 pub mod session;
 
 pub use playtest::{PlaytestRun, ShotCapture, run_playtest};
-pub use session::{DataOnly, Game, InspectOptions, LiveInput, Script, Session, SessionConfig};
+pub use session::{DataOnly, Game, InspectOptions, LiveInput, PlaceQuery, Script, Session, SessionConfig};
 
 #[cfg(test)]
 mod tests;

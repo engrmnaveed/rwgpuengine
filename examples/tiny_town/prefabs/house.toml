@@ -1,0 +1,4 @@
+doc = "A house: 2 x 2 cells, cream walls and a red roof. Costs 3 coins."
+footprint = [2, 2]
+block = { color = "#e8dcc0", top = "#c0533a", height = 1.0 }
+solid = true

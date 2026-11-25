@@ -29,13 +29,15 @@ pub enum EventKind {
     Action,
     /// A connection's `when` conditions did not all hold; nothing was done.
     Skipped,
+    /// A `spawn` action placed a new entity.
+    Spawned,
     Error,
     /// Logged by Rust game code.
     Custom,
 }
 
 impl EventKind {
-    pub const ALL: [EventKind; 11] = [
+    pub const ALL: [EventKind; 12] = [
         EventKind::Input,
         EventKind::Tap,
         EventKind::TapMiss,
@@ -45,6 +47,7 @@ impl EventKind {
         EventKind::Signal,
         EventKind::Action,
         EventKind::Skipped,
+        EventKind::Spawned,
         EventKind::Error,
         EventKind::Custom,
     ];
@@ -60,6 +63,7 @@ impl EventKind {
             EventKind::Signal => "signal",
             EventKind::Action => "action",
             EventKind::Skipped => "skipped",
+            EventKind::Spawned => "spawned",
             EventKind::Error => "error",
             EventKind::Custom => "custom",
         }
@@ -92,17 +96,19 @@ pub const EVENT_DOCS: &[EventDoc] = &[
     },
     EventDoc {
         kind: EventKind::Tap,
-        subject: "the entity hit",
+        subject: "the entity hit (none for a ground tap)",
         other: "—",
-        fields: "x, y, signal",
-        meaning: "A tap hit the topmost enabled entity under the point; it emits `tapped`.",
+        fields: "x, y, signal; cell (ground taps)",
+        meaning: "A tap hit the topmost enabled entity under the point; it emits `tapped`. A tap that hits no \
+                  entity but lands on a ground cell is a ground tap when a [[connect]] listens to \
+                  `from = \"ground\"`: the ground emits `tapped` with that `cell`.",
     },
     EventDoc {
         kind: EventKind::TapMiss,
         subject: "topmost disabled entity under the point, if any",
         other: "—",
-        fields: "x, y, under_disabled",
-        meaning: "A tap hit nothing enabled.",
+        fields: "x, y, under_disabled; cell (when over the ground)",
+        meaning: "A tap hit nothing enabled (and, over the ground, nothing listens to the ground's `tapped`).",
     },
     EventDoc {
         kind: EventKind::Moved,
@@ -114,11 +120,15 @@ pub const EVENT_DOCS: &[EventDoc] = &[
     },
     EventDoc {
         kind: EventKind::Blocked,
-        subject: "the mover",
-        other: "the blocker (for `solid` and `actor`), the pushable that would not move (for `push`)",
-        fields: "cause, from, to, reason, frames_left; beyond, push_blocked, push_blocked_by (for `push`)",
-        meaning: "A move was refused. `reason`: solid, actor, edge, area, cooldown, or push (the pushable in the \
-                  way could not move: `push_blocked` says why).",
+        subject: "the mover (none for a spawn)",
+        other: "the blocker (for `solid` and `actor`), the pushable that would not move (for `push`), the entity \
+                in the way (for `occupied`)",
+        fields: "cause, from, to, reason, frames_left; beyond, push_blocked, push_blocked_by (for `push`); \
+                 prefab, at, cell, terrain (for a spawn)",
+        meaning: "A move or a placement was refused. For moves, `reason`: solid, actor, edge, area, cooldown, or \
+                  push (the pushable in the way could not move: `push_blocked` says why). For a `spawn` \
+                  (`cause = \"spawn\"`): edge (a cell outside the ground), terrain (a cell whose terrain has \
+                  `build = false`) or occupied (an enabled entity covers a cell); `cell` is the cell that failed.",
     },
     EventDoc {
         kind: EventKind::Trigger,
@@ -146,11 +156,20 @@ pub const EVENT_DOCS: &[EventDoc] = &[
     },
     EventDoc {
         kind: EventKind::Skipped,
-        subject: "the target",
+        subject: "the target (none for `spawn`)",
         other: "the emitter",
-        fields: "signal, action, prop, when (each condition, held, seen)",
+        fields: "signal, action, prop, prefab, cell, when (each condition, held, seen)",
         meaning: "A connection's signal arrived, but a `when` condition did not hold, so nothing was done. The \
                   message names the first failing condition and what was seen.",
+    },
+    EventDoc {
+        kind: EventKind::Spawned,
+        subject: "the new entity",
+        other: "the emitter of the signal (none for a ground tap)",
+        fields: "prefab, cell, cells",
+        meaning: "A `spawn` action placed a new copy of `prefab` with its back corner on `cell`, covering `cells`. \
+                  It gets the next free id (`#N (prefab)` in messages) and emits `spawned` if a [[connect]] \
+                  listens (`from_prefab`).",
     },
     EventDoc {
         kind: EventKind::Error,

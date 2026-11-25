@@ -11,8 +11,9 @@ use slate_core::hash::Hasher64;
 use slate_core::json::Json;
 use slate_core::rng::Rng;
 use slate_data::{
-    Action, BlockDef, CondTest, ConditionDef, ConnectAction, LabelDef, LabelPart, PatrolDef, PatrolMode, PropValue,
-    SceneDef, SpriteDef, TileDef, TriggerDef, WanderDef, parse_label, round_cell,
+    Action, BlockDef, CondTest, ConditionDef, ConnectAction, ConnectFrom, EntityDef, GroundDef, LabelDef, LabelPart,
+    PatrolDef, PatrolMode, PropValue, SceneDef, SpriteDef, TileDef, TriggerDef, WanderDef, footprint_cells,
+    parse_label, round_cell,
 };
 
 use crate::dump::prop_json;
@@ -63,6 +64,8 @@ pub struct Entity {
     pub prefab: Option<String>,
     pub enabled: bool,
     pub pos: [f32; 3],
+    /// Cells covered along +x and +y from `pos` ([1, 1] for most entities).
+    pub footprint: [i32; 2],
     pub solid: bool,
     /// Movers push it one cell; triggers count it; it blocks everything else.
     pub pushable: bool,
@@ -105,6 +108,38 @@ impl Entity {
         [round_cell(self.pos[0]), round_cell(self.pos[1])]
     }
 
+    /// Every cell the entity covers (its footprint), x first then y.
+    pub fn cells(&self) -> Vec<[i32; 2]> {
+        footprint_cells(self.cell(), self.footprint)
+    }
+
+    /// Does the entity cover `c`?
+    pub fn covers(&self, c: [i32; 2]) -> bool {
+        let [x, y] = self.cell();
+        c[0] >= x && c[1] >= y && c[0] < x + self.footprint[0] && c[1] < y + self.footprint[1]
+    }
+
+    /// Is the entity in the world (not a screen/HUD entity)?
+    pub fn in_world(&self) -> bool {
+        self.screen_pos.is_none()
+    }
+
+    /// Does it take up its cells for placement? Enabled world entities that
+    /// are drawn there (tile, block, sprite, label), solid, pushable, actors
+    /// or triggers. A data-only entity (just props) takes up nothing.
+    pub fn takes_space(&self) -> bool {
+        self.enabled
+            && self.in_world()
+            && (self.tile.is_some()
+                || self.block.is_some()
+                || self.sprite.is_some()
+                || self.label.is_some()
+                || self.trigger.is_some()
+                || self.solid
+                || self.pushable
+                || self.is_actor())
+    }
+
     pub fn is_actor(&self) -> bool {
         self.mover.is_some() || self.patrol.is_some() || self.wander.is_some()
     }
@@ -139,17 +174,76 @@ impl Entity {
     }
 }
 
+/// What a connection listens to.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Source {
+    Entity(EntityId),
+    /// Every entity made from this prefab (placed or spawned).
+    Prefab(String),
+    /// Taps on ground cells that hit no entity.
+    Ground,
+}
+
+/// What a connection acts on.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Target {
+    Entity(EntityId),
+    /// The entity that emitted the signal (`to = "self"`).
+    Emitter,
+    /// `spawn` has no target.
+    None,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Connection {
-    pub from: EntityId,
+    pub from: Source,
     pub signal: String,
-    pub to: EntityId,
+    pub to: Target,
     pub action: ConnectAction,
     /// With add/set.
     pub prop: Option<String>,
     pub value: Option<PropValue>,
+    /// With spawn.
+    pub prefab: Option<String>,
     /// All must hold when the signal arrives.
     pub when: Vec<Condition>,
+}
+
+impl Connection {
+    /// Does this connection listen to `signal` from `emitter` (`None` = the ground)?
+    fn listens(&self, world: &World, emitter: Option<EntityId>, signal: &str) -> bool {
+        self.signal == signal
+            && match (&self.from, emitter) {
+                (Source::Entity(id), Some(e)) => *id == e,
+                (Source::Prefab(p), Some(e)) => world.get(e).and_then(|x| x.prefab.as_deref()) == Some(p.as_str()),
+                (Source::Ground, None) => true,
+                _ => false,
+            }
+    }
+}
+
+/// A queued signal: who emitted it (`None` = the ground) and the cell it
+/// happened on (the tapped cell, or the emitter's cell).
+#[derive(Clone, Debug, PartialEq)]
+struct Pending {
+    emitter: Option<EntityId>,
+    signal: String,
+    cell: [i32; 2],
+}
+
+/// Why a spawn could not be placed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Refusal {
+    /// `edge`, `terrain` or `occupied`.
+    pub reason: &'static str,
+    /// The first cell of the footprint that failed.
+    pub cell: [i32; 2],
+    /// The entity covering that cell (for `occupied`).
+    pub by: Option<EntityId>,
+    /// The terrain there (for `terrain`).
+    pub terrain: Option<String>,
+    /// "cell (4, 4) is water (build = false)".
+    pub why: String,
 }
 
 /// A `when` condition with its entity resolved.
@@ -179,10 +273,39 @@ pub struct World {
     pub entities: Vec<Entity>,
     /// Ground size: movement is limited to 0..size on each axis.
     pub bounds: Option<[i32; 2]>,
+    /// The ground with its terrain (placement rules read it).
+    pub ground: Option<GroundDef>,
     pub connections: Vec<Connection>,
     pub events: EventLog,
-    pending: VecDeque<(EntityId, String)>,
+    /// Prefabs that `spawn` actions place (their `prefab` is the name).
+    pub templates: Vec<EntityDef>,
+    pending: VecDeque<Pending>,
     names: BTreeMap<String, EntityId>,
+}
+
+/// A runtime entity from its definition.
+fn make_entity(id: EntityId, def: &EntityDef) -> Entity {
+    Entity {
+        id,
+        name: def.name.clone(),
+        prefab: def.prefab.clone(),
+        enabled: def.enabled,
+        pos: def.pos,
+        footprint: def.footprint,
+        solid: def.solid,
+        pushable: def.pushable,
+        tile: def.tile,
+        block: def.block,
+        sprite: def.sprite,
+        mover: def.mover.map(|m| Mover { step_frames: m.step_frames, cooldown: 0 }),
+        patrol: def.patrol.clone().map(|p| Patrol { def: p, target: 0, dir: 1, timer: 0 }),
+        wander: def.wander.map(|w| Wander { def: w, timer: 0 }),
+        trigger: def.trigger.clone().map(|t| Trigger { def: t, occupants: Vec::new() }),
+        label: def.label.clone(),
+        screen_pos: def.screen_pos,
+        props: def.props.iter().cloned().collect(),
+        allow: def.allow.clone(),
+    }
 }
 
 impl World {
@@ -195,26 +318,7 @@ impl World {
             if let Some(n) = &def.name {
                 names.insert(n.clone(), id);
             }
-            entities.push(Entity {
-                id,
-                name: def.name.clone(),
-                prefab: def.prefab.clone(),
-                enabled: def.enabled,
-                pos: def.pos,
-                solid: def.solid,
-                pushable: def.pushable,
-                tile: def.tile,
-                block: def.block,
-                sprite: def.sprite,
-                mover: def.mover.map(|m| Mover { step_frames: m.step_frames, cooldown: 0 }),
-                patrol: def.patrol.clone().map(|p| Patrol { def: p, target: 0, dir: 1, timer: 0 }),
-                wander: def.wander.map(|w| Wander { def: w, timer: 0 }),
-                trigger: def.trigger.clone().map(|t| Trigger { def: t, occupants: Vec::new() }),
-                label: def.label.clone(),
-                screen_pos: def.screen_pos,
-                props: def.props.iter().cloned().collect(),
-                allow: def.allow.clone(),
-            });
+            entities.push(make_entity(id, def));
         }
         let connections = scene
             .connections
@@ -225,25 +329,40 @@ impl World {
                     .iter()
                     .map(|w| Some(Condition { entity: *names.get(&w.entity)?, def: w.clone() }))
                     .collect::<Option<Vec<_>>>()?;
+                let from = match &c.from {
+                    ConnectFrom::Entity(n) => Source::Entity(*names.get(n)?),
+                    ConnectFrom::Prefab(p) => Source::Prefab(p.clone()),
+                    ConnectFrom::Ground => Source::Ground,
+                };
+                let to = match (c.action, c.to.as_deref()) {
+                    (ConnectAction::Spawn, _) => Target::None,
+                    (_, Some("self")) => Target::Emitter,
+                    (_, Some(n)) => Target::Entity(*names.get(n)?),
+                    (_, None) => return None,
+                };
                 Some(Connection {
-                    from: *names.get(&c.from)?,
+                    from,
                     signal: c.signal.clone(),
-                    to: *names.get(&c.to)?,
+                    to,
                     action: c.action,
                     prop: c.prop.clone(),
                     value: c.value.clone(),
+                    prefab: c.prefab.clone(),
                     when,
                 })
             })
             .collect();
+        let templates = scene.templates.clone();
         let mut world = World {
             frame: 0,
             seed,
             rng: Rng::new(seed),
             entities,
-            bounds: scene.ground.map(|g| g.size),
+            bounds: scene.ground.as_ref().map(|g| g.size),
+            ground: scene.ground.clone(),
             connections,
             events: EventLog::default(),
+            templates,
             pending: VecDeque::new(),
             names,
         };
@@ -297,7 +416,13 @@ impl World {
 
     /// Queue a signal; it is dispatched at the end of the current step.
     pub fn emit(&mut self, from: EntityId, signal: &str) {
-        self.pending.push_back((from, signal.to_string()));
+        let cell = self.get(from).map_or([0, 0], Entity::cell);
+        self.pending.push_back(Pending { emitter: Some(from), signal: signal.to_string(), cell });
+    }
+
+    /// Is any connection listening to `signal` from `emitter` (`None` = the ground)?
+    pub fn is_listened(&self, emitter: Option<EntityId>, signal: &str) -> bool {
+        self.connections.iter().any(|c| c.listens(self, emitter, signal))
     }
 
     /// Advance one fixed step: input, movers, patrols, wanderers, custom
@@ -334,19 +459,33 @@ impl World {
                     self.log(EventKind::Tap, Some(id), None, msg, data.with("signal", "tapped"));
                     self.emit(id, "tapped");
                 }
+                None if tap.ground.is_some() && self.is_listened(None, "tapped") => {
+                    let cell = tap.ground.expect("ground cell");
+                    let mut msg = format!("tap at {at} hit ground cell {}", fmt_cell(cell));
+                    if let Some(t) = self.terrain_name(cell) {
+                        msg.push_str(&format!(" ({t})"));
+                    }
+                    msg.push_str("; the ground emits 'tapped'");
+                    self.log(EventKind::Tap, None, None, msg, data.with("cell", cell).with("signal", "tapped"));
+                    self.pending.push_back(Pending { emitter: None, signal: "tapped".into(), cell });
+                }
                 None => {
                     let mut msg = format!("tap at {at} hit nothing enabled");
+                    if let Some(cell) = tap.ground {
+                        msg.push_str(&format!(
+                            " (ground cell {}; nothing listens to the ground's 'tapped')",
+                            fmt_cell(cell)
+                        ));
+                    }
                     if let Some(&d) = tap.under_disabled.first() {
                         msg.push_str(&format!("; disabled {} is under the pointer", self.describe(d)));
                     }
                     let under: Vec<Json> = tap.under_disabled.iter().map(|id| Json::from(*id)).collect();
-                    self.log(
-                        EventKind::TapMiss,
-                        tap.under_disabled.first().copied(),
-                        None,
-                        msg,
-                        data.with("under_disabled", under),
-                    );
+                    let mut data = data.with("under_disabled", under);
+                    if let Some(cell) = tap.ground {
+                        data.set("cell", cell);
+                    }
+                    self.log(EventKind::TapMiss, tap.under_disabled.first().copied(), None, msg, data);
                 }
             }
         }
@@ -362,7 +501,7 @@ impl World {
     fn blockers_at(&self, cell: [i32; 2], except: EntityId) -> Vec<(EntityId, &'static str)> {
         self.entities
             .iter()
-            .filter(|e| e.id != except && e.enabled && e.cell() == cell)
+            .filter(|e| e.id != except && e.enabled && e.in_world() && e.covers(cell))
             .filter_map(|e| {
                 if e.solid || e.pushable {
                     Some((e.id, "solid"))
@@ -553,10 +692,9 @@ impl World {
     pub fn occupants_of(&self, id: EntityId) -> Vec<EntityId> {
         let t = &self.entities[id as usize];
         let only = t.trigger.as_ref().and_then(|tr| tr.def.only.as_ref());
-        let cell = t.cell();
         self.entities
             .iter()
-            .filter(|e| e.id != id && e.enabled && e.holds_plates() && e.cell() == cell)
+            .filter(|e| e.id != id && e.enabled && e.holds_plates() && t.covers(e.cell()))
             .filter(|e| only.is_none_or(|only| e.name.as_ref() == Some(only)))
             .map(|e| e.id)
             .collect()
@@ -623,19 +761,26 @@ impl World {
         }
     }
 
+    fn source_name(&self, emitter: Option<EntityId>) -> String {
+        match emitter {
+            Some(id) => self.describe(id),
+            None => "the ground".into(),
+        }
+    }
+
     fn dispatch_signals(&mut self) {
         let mut dispatched = 0;
-        while let Some((from, signal)) = self.pending.pop_front() {
+        while let Some(Pending { emitter, signal, cell }) = self.pending.pop_front() {
             dispatched += 1;
             if dispatched > SIGNAL_LIMIT {
                 let msg = format!(
                     "more than {SIGNAL_LIMIT} signals in one frame (last: '{signal}' from {}); dropping the rest. \
                      This is usually a loop of connections (E0301)",
-                    self.describe(from)
+                    self.source_name(emitter)
                 );
                 self.log(
                     EventKind::Error,
-                    Some(from),
+                    emitter,
                     None,
                     msg,
                     Json::object().with("code", "E0301").with("signal", signal.as_str()),
@@ -644,27 +789,37 @@ impl World {
                 break;
             }
             let targets: Vec<Connection> =
-                self.connections.iter().filter(|c| c.from == from && c.signal == signal).cloned().collect();
-            let source = self.describe(from);
+                self.connections.iter().filter(|c| c.listens(self, emitter, &signal)).cloned().collect();
+            let source = self.source_name(emitter);
             let msg = if targets.is_empty() {
-                let label = self.get(from).map_or_else(|| format!("#{from}"), Entity::label);
+                let hint = match emitter.and_then(|id| self.get(id)) {
+                    Some(e) => match (&e.name, &e.prefab) {
+                        (None, Some(p)) => format!("from_prefab = \"{p}\""),
+                        _ => format!("from = \"{}\"", e.label()),
+                    },
+                    None => "from = \"ground\"".to_string(),
+                };
                 format!(
-                    "{source} emitted '{signal}' but nothing is connected to it \
-                     (add [[connect]] from = \"{label}\" signal = \"{signal}\")"
+                    "{source} emitted '{signal}' but nothing is connected to it (add [[connect]] {hint} signal = \"{signal}\")"
                 )
             } else {
                 format!("{source} emitted '{signal}' to {} connection(s)", targets.len())
             };
             let data = Json::object().with("signal", signal.as_str()).with("connections", targets.len());
-            self.log(EventKind::Signal, Some(from), None, msg, data);
+            self.log(EventKind::Signal, emitter, None, msg, data);
             for c in targets {
-                self.run_connection(&c, &signal);
+                self.run_connection(&c, emitter, &signal, cell);
             }
         }
     }
 
     /// Check a connection's conditions, then apply its action or log why not.
-    fn run_connection(&mut self, c: &Connection, signal: &str) {
+    fn run_connection(&mut self, c: &Connection, emitter: Option<EntityId>, signal: &str, cell: [i32; 2]) {
+        let to = match c.to {
+            Target::Entity(id) => Some(id),
+            Target::Emitter => emitter,
+            Target::None => None,
+        };
         let results: Vec<(String, bool, String)> = c
             .when
             .iter()
@@ -679,22 +834,49 @@ impl World {
                 Json::object().with("condition", cond.as_str()).with("held", *held).with("seen", seen.as_str())
             })
             .collect();
-        let target = self.describe(c.to);
-        let via = format!("via {}.'{signal}'", self.get(c.from).map_or_else(|| format!("#{}", c.from), Entity::label));
+        let target = match (to, &c.prefab) {
+            (Some(id), _) => self.describe(id),
+            (None, Some(p)) => format!("spawn '{p}'"),
+            (None, None) => "nothing".into(),
+        };
+        let via = match emitter.and_then(|id| self.get(id)) {
+            Some(e) => format!("via {}.'{signal}'", e.label()),
+            None => format!("via the ground's '{signal}' at {}", fmt_cell(cell)),
+        };
         let mut data = Json::object().with("signal", signal).with("action", c.action.name());
         if let Some(p) = &c.prop {
             data.set("prop", p.as_str());
         }
+        if let Some(p) = &c.prefab {
+            data.set("prefab", p.as_str());
+            data.set("cell", cell);
+        }
         if !results.is_empty() {
             data.set("when", when_json);
         }
+        // For spawn the subject is nothing yet; the emitter is the other party.
+        let (subject, other) = match to {
+            Some(id) => (Some(id), emitter),
+            None => (None, emitter),
+        };
         if let Some((cond, _, seen)) = results.iter().find(|(_, held, _)| !held) {
-            let msg = format!("{target} {} skipped ({via}): {cond} does not hold ({seen})", c.action.name());
-            self.log(EventKind::Skipped, Some(c.to), Some(c.from), msg, data);
+            let msg = if c.action == ConnectAction::Spawn {
+                format!("{target} at {} skipped ({via}): {cond} does not hold ({seen})", fmt_cell(cell))
+            } else {
+                format!("{target} {} skipped ({via}): {cond} does not hold ({seen})", c.action.name())
+            };
+            self.log(EventKind::Skipped, subject, other, msg, data);
             return;
         }
+        if c.action == ConnectAction::Spawn {
+            let held: Vec<&str> = results.iter().map(|(cond, _, _)| cond.as_str()).collect();
+            self.spawn(c.prefab.as_deref().unwrap_or_default(), cell, emitter, &via, &held);
+            return;
+        }
+        let Some(to) = to else { return };
         let (change, prop_changed) = match c.action {
-            ConnectAction::Add | ConnectAction::Set => match self.change_prop(c) {
+            ConnectAction::Spawn => return,
+            ConnectAction::Add | ConnectAction::Set => match self.change_prop(c, to) {
                 Some((change, before, value, after)) => {
                     data = data
                         .with("value", prop_json(&value))
@@ -706,7 +888,7 @@ impl World {
                 None => return,
             },
             ConnectAction::Enable | ConnectAction::Disable | ConnectAction::Toggle => {
-                let Some(e) = self.entities.get_mut(c.to as usize) else { return };
+                let Some(e) = self.entities.get_mut(to as usize) else { return };
                 let before = e.enabled;
                 e.enabled = match c.action {
                     ConnectAction::Enable => true,
@@ -729,19 +911,105 @@ impl World {
             let held: Vec<&str> = results.iter().map(|(cond, _, _)| cond.as_str()).collect();
             msg.push_str(&format!("; when {} held", held.join(", ")));
         }
-        self.log(EventKind::Action, Some(c.to), Some(c.from), msg, data);
+        self.log(EventKind::Action, Some(to), emitter, msg, data);
         // A prop change makes its owner emit `changed`, if anything listens.
-        if prop_changed && self.connections.iter().any(|x| x.from == c.to && x.signal == "changed") {
-            self.emit(c.to, "changed");
+        if prop_changed && self.is_listened(Some(to), "changed") {
+            self.emit(to, "changed");
+        }
+    }
+
+    /// The spawn template for `prefab`, if a `spawn` action uses it.
+    pub fn template(&self, prefab: &str) -> Option<&EntityDef> {
+        self.templates.iter().find(|t| t.prefab.as_deref() == Some(prefab))
+    }
+
+    fn terrain_name(&self, cell: [i32; 2]) -> Option<String> {
+        let g = self.ground.as_ref().filter(|g| g.has_map)?;
+        g.terrain_at(cell).map(|t| t.name.clone())
+    }
+
+    /// Can `prefab` be placed with its back corner on `at` right now? Returns
+    /// the cells it would cover, or why not. Every covered cell must be inside
+    /// the ground, on buildable terrain, and not covered by an enabled entity.
+    pub fn can_place(&self, prefab: &str, at: [i32; 2]) -> Result<Vec<[i32; 2]>, Refusal> {
+        let footprint = self.template(prefab).map_or([1, 1], |t| t.footprint);
+        let cells = footprint_cells(at, footprint);
+        for &c in &cells {
+            match &self.ground {
+                Some(g) if !g.contains(c) => {
+                    let why = format!("cell {} is outside the {}x{} ground", fmt_cell(c), g.size[0], g.size[1]);
+                    return Err(Refusal { reason: "edge", cell: c, by: None, terrain: None, why });
+                }
+                Some(g) => {
+                    if let Some(t) = g.terrain_at(c).filter(|t| !t.build) {
+                        let why =
+                            format!("cell {} is {}, where nothing can be built (build = false)", fmt_cell(c), t.name);
+                        return Err(Refusal {
+                            reason: "terrain",
+                            cell: c,
+                            by: None,
+                            terrain: Some(t.name.clone()),
+                            why,
+                        });
+                    }
+                }
+                None => {}
+            }
+            if let Some(e) = self.entities.iter().find(|e| e.takes_space() && e.covers(c)) {
+                let why = format!("cell {} is taken by {}", fmt_cell(c), e.describe());
+                return Err(Refusal { reason: "occupied", cell: c, by: Some(e.id), terrain: None, why });
+            }
+        }
+        Ok(cells)
+    }
+
+    /// Place a new copy of `prefab` at `at`, or log why not. The new entity
+    /// emits `spawned` if a connection listens.
+    fn spawn(&mut self, prefab: &str, at: [i32; 2], emitter: Option<EntityId>, via: &str, held: &[&str]) {
+        let when = if held.is_empty() { String::new() } else { format!("; when {} held", held.join(", ")) };
+        let Some(template) = self.template(prefab).cloned() else {
+            let msg = format!("could not spawn '{prefab}' at {} ({via}): no such prefab", fmt_cell(at));
+            let data = Json::object().with("code", "E0201").with("prefab", prefab);
+            self.log(EventKind::Error, None, emitter, msg, data);
+            return;
+        };
+        match self.can_place(prefab, at) {
+            Err(r) => {
+                let msg = format!("'{prefab}' could not be placed at {} ({via}): {}{when}", fmt_cell(at), r.why);
+                let mut data = Json::object()
+                    .with("cause", "spawn")
+                    .with("prefab", prefab)
+                    .with("at", at)
+                    .with("reason", r.reason)
+                    .with("cell", r.cell);
+                if let Some(t) = &r.terrain {
+                    data.set("terrain", t.as_str());
+                }
+                self.log(EventKind::Blocked, None, r.by, msg, data);
+            }
+            Ok(cells) => {
+                let id = self.entities.len() as EntityId;
+                let mut def = template;
+                def.pos = [at[0] as f32, at[1] as f32, def.pos[2]];
+                self.entities.push(make_entity(id, &def));
+                let who = self.describe(id);
+                let msg = format!("{who} was spawned at {} ({via}){when}", fmt_cell(at));
+                let cells_json: Vec<Json> = cells.iter().map(|c| Json::from(*c)).collect();
+                let data = Json::object().with("prefab", prefab).with("cell", at).with("cells", cells_json);
+                self.log(EventKind::Spawned, Some(id), emitter, msg, data);
+                if self.is_listened(Some(id), "spawned") {
+                    self.emit(id, "spawned");
+                }
+            }
         }
     }
 
     /// Apply `add`/`set`. Returns the message part, before, value and after.
     /// Props keep their declared type (validated by `slate check`).
-    fn change_prop(&mut self, c: &Connection) -> Option<(String, PropValue, PropValue, PropValue)> {
+    fn change_prop(&mut self, c: &Connection, to: EntityId) -> Option<(String, PropValue, PropValue, PropValue)> {
         let prop = c.prop.as_deref()?;
         let value = c.value.clone().unwrap_or(PropValue::Int(1));
-        let current = self.entities.get_mut(c.to as usize)?.props.get_mut(prop)?;
+        let current = self.entities.get_mut(to as usize)?.props.get_mut(prop)?;
         let before = current.clone();
         let after = match (c.action, &before) {
             (ConnectAction::Add, PropValue::Int(a)) => match value {
@@ -772,10 +1040,21 @@ impl World {
         h.u64(self.frame).u64(self.seed);
         let (s, inc) = self.rng.state();
         h.u64(s).u64(inc);
+        // A terrain map is part of the world (plain ground is not, so older
+        // scenes keep their hashes).
+        if let Some(g) = self.ground.as_ref().filter(|g| g.has_map) {
+            h.u8(0xA0).i64(g.size[0] as i64).i64(g.size[1] as i64).bytes(&g.cells);
+            for t in &g.terrains {
+                h.str(&t.name).bool(t.build);
+            }
+        }
         for e in &self.entities {
             h.u32(e.id).bool(e.enabled).bool(e.solid);
             if e.pushable {
                 h.u8(10);
+            }
+            if e.footprint != [1, 1] {
+                h.u8(11).i64(e.footprint[0] as i64).i64(e.footprint[1] as i64);
             }
             h.f32(e.pos[0]).f32(e.pos[1]).f32(e.pos[2]);
             if let Some(t) = &e.tile {
@@ -783,6 +1062,9 @@ impl World {
             }
             if let Some(b) = &e.block {
                 h.u8(2).bytes(&[b.color.r, b.color.g, b.color.b, b.color.a]).f32(b.height);
+                if b.top != b.color {
+                    h.u8(12).bytes(&[b.top.r, b.top.g, b.top.b, b.top.a]);
+                }
             }
             if let Some(s) = &e.sprite {
                 h.u8(3).bytes(&[s.color.r, s.color.g, s.color.b, s.color.a]).f32(s.size[0]).f32(s.size[1]);

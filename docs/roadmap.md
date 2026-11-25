@@ -12,8 +12,8 @@ decision in [open-questions.md](open-questions.md).
   limits table: verdicts at command 2, −25% time) all PASS; their findings are fixed. Next cold run after
   Q14 is decided and built.
 - Push to a remote and get CI green on GitHub (Q10).
-- Small fixes found during M1: validate required keys after prefab merge; `tap_ground` event with the
-  cell under a tap; block edge shading so adjacent blocks read as separate.
+- Small fixes found during M1: validate required keys after prefab merge; block edge shading so adjacent
+  blocks read as separate. (Ground taps were built in M3.1.)
 - Feature candidates from [cold-agent run #3](experiments/2026-11-25-cold-agent-3.md): text/number display,
   prop actions, conditions and a HUD layer were built in M1.6 (ADR 0011). Still candidates, waiting for a
   game that needs them: pushable blocks or weights for plates; a single "cell is passable" expectation.
@@ -52,12 +52,25 @@ Need: people (and agents) iterate on feel, not just on end states.
 
 ## M3 — Reference game 1 and its kit
 
-Need: the first real game (Q3 picks which). Likely the **isometric builder**, which pulls in:
+Need: the first real game. Q3 is decided: the **isometric builder**, Tiny Town
+([spec](games/tiny-town.md), [ADR 0013](decisions/0013-first-reference-game-isometric-builder.md)).
 
-- Iso grid kit: multi-cell objects, placement rules, "can I build here" queries, ground-cell taps.
-- Draw sorting for multi-cell and tall objects.
-- Tilemaps kit (layered ground, terrain types).
-- Score/state: props + signals cover most; add counters/timers if the game needs them.
+- **M3.1 — builder kit v1 + Tiny Town: done 2026-11-25.**
+  - Terrain maps (`[ground] map` + `[[terrain]]`, `build`).
+  - Ground-cell taps (`from = "ground"`).
+  - `spawn` with placement rules (edge, terrain, occupied).
+  - Multi-cell `footprint` with sliced draw order.
+  - `from_prefab` / `to = "self"`, `block.top`, `[[expect]] prefab` + `count`.
+  - `slate inspect --place` ("can I build here?", with tap pixels).
+  - `examples/tiny_town` with 3 playtests; native = web.
+- Next: cold-agent run #7 on a different builder task (ADR 0013's acceptance).
+- Candidates, waiting for evidence from the game or a cold run:
+  - a signal on refused placements (a "can't build there" message);
+  - per-prefab costs or grouped connections (Tiny Town needs 26 connections, 9 of them for clear/refund);
+  - drag input (ADR 0010);
+  - terrain that blocks walking;
+  - rotation;
+  - `opt-level = "z"` for the web build (−40 KB measured, frame time not yet measured).
 
 ## M4 — Rust game code, fast
 

@@ -116,8 +116,9 @@ bottom edge sits at its cell's (sx, sy); `offset` shifts it. `slate inspect --js
 `screen` rectangle, which is the easiest way to place things.
 
 **Step order.** Each step: input (taps resolve to the topmost enabled entity drawn under the point and
-emit `tapped`), movers, patrols, wanderers, Rust game systems, triggers, then signal dispatch through
-`[[connect]]` tables. A step that dispatches more than 1000 signals is cut off (E0301).
+emit `tapped`; a tap that hits no entity but lands on a ground cell makes the ground emit `tapped`, if a
+`[[connect]] from = "ground"` listens), movers, patrols, wanderers, Rust game systems, triggers, then signal
+dispatch through `[[connect]]` tables. A step that dispatches more than 1000 signals is cut off (E0301).
 
 **Actors and blocking.** Entities with `mover`, `patrol` or `wander` are actors. A move is refused when
 the target cell is outside the ground, holds an enabled `solid` entity, or holds another enabled actor.
@@ -125,6 +126,27 @@ A `pushable` entity blocks like a solid, except that a mover walking into it pus
 `moved` event, cause `pushed`, comes just before the mover's): the cell beyond must be inside the ground
 and free of solids, actors and other pushables, or the mover is refused with reason `push`. Patrols and
 wanderers never push.
+
+**Ground and terrain.** `[ground] size = [w, h]` is plain ground. `[ground] map` is one string per row
+(y = 0 first), one character per cell (x = 0 first); every character is declared by a `[[terrain]]` table
+with a `name`, colors and `build` (whether spawned things may be placed on it). `slate inspect --json`
+shows the map and legend under `ground`.
+
+**Footprints.** `footprint = [w, h]` makes an entity cover w × h cells from its `pos` toward +x and +y (its
+`pos` is the back corner, nearest the top of the screen). It blocks, counts for triggers, takes up space
+for placement and is tapped on every covered cell. A block or tile fills the whole area; a sprite or label
+stands at the middle and is drawn with the front cell. Only things that stay put can be bigger than one
+cell.
+
+**Spawning.** `action = "spawn"` with `prefab` places a new copy of the prefab where the signal happened: on
+the tapped cell for `from = "ground"`, else on the emitter's cell (its back corner there). Every covered cell
+must be inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there,
+solid, an actor or a trigger (data-only entities with just props take no space). Otherwise nothing is placed
+and a `blocked` event (`cause = "spawn"`, reason `edge`, `terrain` or `occupied`) names the cell that failed.
+A new copy gets the next id (`#12 (house)`), has no name, and emits `spawned` if a connection listens.
+`from_prefab = "house"` listens to every copy of a prefab, placed or spawned, and `to = "self"` targets the
+copy that emitted. `slate inspect --place house@3,4` answers "can I build here?" at any frame (with a pixel
+that taps that ground cell); `--place house` lists every cell where it fits.
 
 **Enabled.** Disabled entities are not drawn, not solid, cannot be tapped, run no behaviors and do not
 count for triggers. `[[connect]]` actions `enable`, `disable` and `toggle` change this. Enabling a solid
@@ -152,7 +174,9 @@ Read them with `slate inspect --events` or `slate run --events`; `slate explain 
 {event_table}
 
 **Drawing.** Ground first, then tiles, then blocks, sprites and labels back to front by `x + y`, then
-height, then part (block, sprite, label), then file order (later entities on top). Screen entities
+height, then part (block, sprite, label), then file order (later entities on top). A multi-cell block is
+drawn one cell-slice at a time, each sorted by its own cell, so it looks like one box and still sorts
+correctly against smaller things around it. Screen entities
 (`screen_pos`) are drawn after the whole world, in file order, and ignore the camera.
 Blocks shade their left and right faces automatically. A sprite's bottom edge stands on its cell's center.
 "#
@@ -269,7 +293,8 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   to itself: `trigger = {{ on_enter = "collected", only = "player" }}` +
   `[[connect]] from = "coin1" signal = "collected" to = "coin1" action = "disable"`. Disabling it also
   disables the trigger, so walking over the spot again does nothing. (A separate trigger left enabled would
-  fire again.)
+  fire again.) For many coins, one connection covers every copy of the prefab:
+  `from_prefab = "coin"` with `to = "self"` (the coin that emitted) and `action = "disable"`.
 - **Score or counter.** Keep the number in a prop and `add` to it:
   `props = {{ coins = 0 }}` on a `hud` entity, then
   `[[connect]] from = "coin1" signal = "collected" to = "hud" action = "add" prop = "coins"` (`value`
@@ -317,6 +342,52 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   is guaranteed to hit it from `slate inspect --entity lever --json` (field `tap`, also shown in the text
   table), then `[[input]] frame = 5` with `tap = [x, y]`. The tap point is for that frame: things in front
   of the entity can move.
+- **Island or level map.** `[ground] map = ["~~gg~", ...]` (one string per row, one character per cell)
+  plus one `[[terrain]]` per character: `char = "~"`, `name = "water"`, `color`, `build = false` where
+  nothing may be built. Colors move to the terrains (`alt_color` is the checkerboard).
+- **Build by tapping the ground.** A tap on a ground cell that hits no entity makes the ground emit
+  `tapped`; `spawn` places a prefab there, and the new copy's `spawned` pays for it:
+
+  ```toml
+  [[entity]]
+  name = "town"
+  screen_pos = [8, 40]
+  label = {{ text = "Coins: {{coins}}" }}
+  props = {{ coins = 10 }}
+
+  [[connect]]                                  # tap the ground: a house there
+  from = "ground"
+  signal = "tapped"
+  action = "spawn"
+  prefab = "house"                             # prefabs/house.toml: footprint = [2, 2], block, solid
+  when = [{{ entity = "town", prop = "coins", at_least = 3 }}]
+
+  [[connect]]                                  # pay only for houses really placed
+  from_prefab = "house"
+  signal = "spawned"
+  to = "town"
+  action = "add"
+  prop = "coins"
+  value = -3
+  ```
+
+  The house's back corner goes on the tapped cell and it grows toward +x and +y. A refused placement (water,
+  a taken cell, the edge) spawns nothing, so nothing is paid; the `blocked` event says which cell failed.
+- **Choose what to build (a toolbar).** Screen buttons `set` a prop: `from = "btn_tree" signal = "tapped"
+  to = "town" action = "set" prop = "tool" value = "tree"`, and each spawn connection adds
+  `{{ entity = "town", prop = "tool", equals = "tree" }}` to its `when`. Show the tool with a label
+  (`"Tool: {{tool}}"`).
+- **Remove what you tap (bulldoze, with a refund).** `from_prefab = "house" signal = "tapped" to = "self"
+  action = "disable"` plus `to = "town" action = "add" prop = "coins" value = 3`, both with
+  `when = [{{ entity = "town", prop = "tool", equals = "clear" }}]`. A disabled copy takes no space, so its
+  cells can be built on again (it stays in `inspect`, disabled).
+- **Where can I tap to build?** `slate inspect --place house` lists every cell where a house fits right now,
+  each with a `tap` pixel for `[[input]] tap`; `--place house@3,4` says whether it fits there and why not.
+  Add `--input tests/x.toml --frame N` to ask after some building. A cell hidden behind a building has no
+  tap pixel: a player cannot tap it either.
+- **Prove a build**: `[[expect]] prefab = "house"` with `count = 2` (enabled copies), optionally `pos = [4, 1]`
+  for one spot (`count = 0` there: nothing was built). Prove a refusal with `event = "blocked"` and
+  `reason = "terrain"` / `"occupied"` / `"edge"`.
 
 ## Tips
 
@@ -449,8 +520,10 @@ then build the closest honest approximation.
 
 Supported (no workaround needed): text and numbers on screen (`label`, with `{prop}` placeholders), counters
 and variables (`props` with `[[connect]]` `add`/`set`), conditions (`when` on `[[connect]]`: AND within one
-connection, OR as several connections), a screen-space HUD (`screen_pos`), and objects that hold pressure
-plates (`pushable` crates the player pushes). See the Recipes.
+connection, OR as several connections), a screen-space HUD (`screen_pos`), objects that hold pressure
+plates (`pushable` crates the player pushes), terrain maps (`[ground] map` + `[[terrain]]`), multi-cell
+objects (`footprint`), tapping the ground, and building at runtime (`spawn` a prefab where the player taps,
+with placement rules; `from_prefab` wires every copy). See the Recipes.
 
 | not in this version | what you can do instead (and what it costs) |
 |---|---|
@@ -460,15 +533,20 @@ plates (`pushable` crates the player pushes). See the Recipes.
 | **Pulling, lifting, or pushing several crates in a row** | A mover pushes one `pushable` one cell; a crate with another crate behind it does not move (reason `push`). |
 | **Text beyond printable ASCII** (accents, other scripts, emoji), fonts and text styles | One built-in pixel font: printable ASCII, a color and an integer `scale`. Other characters draw as a box (W0207). |
 | **Image sprites, audio, animation** | Shapes only (`circle`, `rect`, `diamond`), colors, blocks, tiles and text. |
-| **Multi-cell objects, rotation, scrolling camera** | One cell per entity (use `cells` for rows of copies); the camera is fixed per scene. |
+| **Rotation, scrolling camera** | Footprints are fixed: a 2 x 3 building is always 2 along x and 3 along y (make a second prefab for the turned one). The camera is fixed per scene. |
+| **Dragging** (drag to build a row, drag to move a building) | Taps only: one tap, one `spawn`. Moving a building is clear (disable) and build again. |
+| **Feedback when a placement is refused** (a "can't build there" message or sound) | A refused spawn logs `blocked` but emits no signal, so the game cannot react to it. Show costs and rules up front (button labels); "not enough coins" can be its own `[[connect]]` on the ground's `tapped` with `when = [{ ..., prop = "coins", at_most = 2 }]`. |
+| **Terrain that blocks walking** | `build = false` only stops spawning; movers walk on every terrain. Put solid entities (`cells = [...]`) where they must not walk. |
+| **Deleting entities** | `disable` is the removal: a disabled copy takes no space and is not drawn, but stays in `inspect` (and keeps its id). |
 | **Rust game code in a `slate new` project** | The engine supports Rust systems (`Game` trait), but `slate new` makes data-only projects and the CLI cannot load Rust code yet. Everything above is data. |
-| **Tapping bare ground** | A tap on the floor hits nothing; taps only reach entities (screen entities included, so HUD buttons work). |
 
 Behaviours worth knowing:
 - Draw-order ties (same cell and height) go to file order: later entities are drawn on top.
 - Enabling a solid entity on a cell where an actor stands does not push the actor out; it overlaps until the
   actor leaves.
-- `changed` is only emitted when some `[[connect]]` listens to it, and only when the value really changes.
+- `changed` is only emitted when some `[[connect]]` listens to it, and only when the value really changes; the
+  same goes for `spawned`.
+- A tap on bare ground is a miss (`tap_miss`, with the `cell`) unless a `[[connect]] from = "ground"` listens.
 "##;
 
 #[cfg(test)]
@@ -512,7 +590,7 @@ mod tests {
             .skip(1)
             .map(|b| b[..b.find("```").unwrap()].lines().map(str::trim_start).collect::<Vec<_>>().join("\n"))
             .collect();
-        assert_eq!(snippets.len(), 2, "AND door and HUD");
+        assert_eq!(snippets.len(), 3, "AND door, HUD and builder");
         let base = r##"
 [ground]
 size = [4, 4]
@@ -545,6 +623,7 @@ solid = true
         let mut vfs = Vfs::new();
         vfs.insert("slate.toml", "[project]\nname = \"t\"\n");
         vfs.insert("scenes/main.toml", scene.as_str());
+        vfs.insert("prefabs/house.toml", "footprint = [2, 2]\nblock = {}\nsolid = true\n");
         vfs.insert(
             "tests/hud.toml",
             "[test]\nframes = 1\n[[expect]]\nentity = \"hud\"\ntext = \"Coins: 0/3\"\n[[shot]]\nreference = \"x.png\"\n",

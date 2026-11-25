@@ -47,6 +47,8 @@ pub enum Ty {
     Scalar,
     /// List of warning codes, e.g. `["W0201"]`.
     Codes,
+    /// Non-empty list of strings (map rows).
+    Strs,
     Table(&'static Spec),
     /// Array of tables (`[[name]]` sections).
     Tables(&'static Spec),
@@ -100,14 +102,18 @@ const ANY_NUM: Ty = Ty::Num { min: f64::MIN, max: f64::MAX };
 /// Abstract input actions. Arrow keys / WASD map to the directions on the web.
 pub const ACTIONS: &[&str] = &["up", "down", "left", "right", "confirm", "cancel"];
 /// What a `[[connect]]` can do to its target.
-pub const CONNECT_ACTIONS: &[&str] = &["enable", "disable", "toggle", "add", "set"];
+pub const CONNECT_ACTIONS: &[&str] = &["enable", "disable", "toggle", "add", "set", "spawn"];
 /// Kinds of entries in the event log.
-pub const EVENT_KINDS: &[&str] =
-    &["input", "tap", "tap_miss", "moved", "blocked", "trigger", "signal", "action", "skipped", "error", "custom"];
+pub const EVENT_KINDS: &[&str] = &[
+    "input", "tap", "tap_miss", "moved", "blocked", "trigger", "signal", "action", "skipped", "spawned", "error",
+    "custom",
+];
 pub const SPRITE_SHAPES: &[&str] = &["circle", "rect", "diamond"];
 pub const PATROL_MODES: &[&str] = &["loop", "pingpong"];
 /// Why a move was refused (the `reason` of `blocked` events).
-pub const BLOCK_REASONS: &[&str] = &["solid", "actor", "edge", "area", "cooldown", "push"];
+pub const BLOCK_REASONS: &[&str] = &["solid", "actor", "edge", "area", "cooldown", "push", "terrain", "occupied"];
+/// Names that refer to something other than an entity in `[[connect]]`.
+pub const RESERVED_NAMES: &[&str] = &["ground", "self"];
 
 // ---------------------------------------------------------------------------
 // Project file: slate.toml
@@ -188,6 +194,12 @@ pub static SCENE_FILE: Spec = Spec {
         opt("scene", Ty::Table(&SCENE), None, "Scene metadata."),
         opt("camera", Ty::Table(&CAMERA), None, "What part of the world is on screen."),
         opt("ground", Ty::Table(&GROUND), None, "A rectangle of floor cells; also the bounds movers stay inside."),
+        opt(
+            "terrain",
+            Ty::Tables(&TERRAIN),
+            None,
+            "Kinds of ground used by `[ground] map`, one `[[terrain]]` table each (grass, water, ...).",
+        ),
         opt("entity", Ty::Tables(&ENTITY), None, "Things in the world, one `[[entity]]` table each."),
         opt("connect", Ty::Tables(&CONNECT), None, "Signal wiring, one `[[connect]]` table each."),
     ],
@@ -222,11 +234,50 @@ pub static CAMERA: Spec = Spec {
 pub static GROUND: Spec = Spec {
     id: "scene.ground",
     title: "[ground]",
-    doc: "Floor cells from [0, 0] to [size_x - 1, size_y - 1], drawn as a checkerboard.",
+    doc: "Floor cells from [0, 0] to [size_x - 1, size_y - 1], drawn as a checkerboard. Give `size` for plain \
+          ground, or `map` for ground made of terrains: one string per row (y = 0 first), one character per cell \
+          (x = 0 first), each character declared by a `[[terrain]]` table. `map = [\"ggw\", \"gww\"]` is 3 x 2 cells \
+          with water on the right.",
     fields: &[
-        req("size", Ty::Cell, "Number of cells [x, y]."),
-        opt("color", Ty::Color, Some("\"#6fa86a\""), "Floor color."),
+        opt(
+            "size",
+            Ty::Cell,
+            None,
+            "Number of cells [x, y]. Required unless `map` is given (then it is the map's size).",
+        ),
+        opt(
+            "map",
+            Ty::Strs,
+            None,
+            "Rows of terrain characters, all the same length: row y, character x is cell [x, y]. Every character \
+             must be declared by a `[[terrain]]` `char`.",
+        ),
+        opt("color", Ty::Color, Some("\"#6fa86a\""), "Floor color (without `map`)."),
         opt("alt_color", Ty::Color, None, "Color of every other cell. Default: `color`, slightly darker."),
+    ],
+};
+
+pub static TERRAIN: Spec = Spec {
+    id: "scene.terrain",
+    title: "[[terrain]]",
+    doc: "A kind of ground for `[ground] map`: its character, look, and whether things can be built on it. Spawned \
+          entities (`action = \"spawn\"`) can only be placed where every cell of their footprint is buildable.",
+    fields: &[
+        req("char", Ty::Str, "The single character that marks this terrain in `[ground] map`, e.g. \"g\" or \"~\"."),
+        opt("name", Ty::Name, None, "Name used in messages and `inspect`, e.g. `water`. Default: the character."),
+        opt("color", Ty::Color, Some("\"#6fa86a\""), "Cell color."),
+        opt(
+            "alt_color",
+            Ty::Color,
+            None,
+            "Color of every other cell (checkerboard). Default: `color`, slightly darker.",
+        ),
+        opt(
+            "build",
+            Ty::Bool,
+            Some("true"),
+            "Spawned entities can be placed on it. false for water, rock, roads you must keep clear.",
+        ),
     ],
 };
 
@@ -254,6 +305,7 @@ pub static ENTITY: Spec = Spec {
             None,
             "Place one copy on each listed cell instead of `pos`. Cannot be used with `name`.",
         ),
+        F_FOOTPRINT,
         F_ENABLED,
         F_SOLID,
         F_PUSHABLE,
@@ -277,6 +329,7 @@ pub static PREFAB_FILE: Spec = Spec {
     doc: "A reusable entity template: prefabs/<name>.toml. Same keys as an entity, minus name/prefab/pos/cells.",
     fields: &[
         opt("doc", Ty::Str, None, "What the prefab is."),
+        F_FOOTPRINT,
         F_ENABLED,
         F_SOLID,
         F_PUSHABLE,
@@ -294,6 +347,15 @@ pub static PREFAB_FILE: Spec = Spec {
     ],
 };
 
+const F_FOOTPRINT: Field = opt(
+    "footprint",
+    Ty::Cell,
+    Some("[1, 1]"),
+    "Cells covered [along x, along y], from `pos` toward +x and +y: `[2, 2]` at pos [3, 4] covers [3, 4], [4, 4], \
+     [3, 5] and [4, 5]. Blocks and tiles fill the whole area; a sprite or label stands at its middle. It blocks, \
+     counts for triggers and is tapped on every covered cell. Only things that stay put can be bigger than one \
+     cell (no mover, patrol, wander, pushable or screen_pos).",
+);
 const F_ENABLED: Field = opt(
     "enabled",
     Ty::Bool,
@@ -355,9 +417,11 @@ pub static TILE: Spec = Spec {
 pub static BLOCK: Spec = Spec {
     id: "block",
     title: "block",
-    doc: "An isometric box filling the entity's cell. Left and right faces are shaded automatically.",
+    doc: "An isometric box filling the entity's cell (or its whole `footprint`). Left and right faces are shaded \
+          automatically.",
     fields: &[
-        opt("color", Ty::Color, Some("\"#9aa0a6\""), "Top face color."),
+        opt("color", Ty::Color, Some("\"#9aa0a6\""), "Wall color; the top face too unless `top` is given."),
+        opt("top", Ty::Color, None, "Top face color (a roof, the water in a well). Default: `color`."),
         opt("height", Ty::Num { min: 0.0, max: 64.0 }, Some("1.0"), "Height in z units."),
     ],
 };
@@ -458,17 +522,39 @@ pub static LABEL: Spec = Spec {
 pub static CONNECT: Spec = Spec {
     id: "connect",
     title: "[[connect]]",
-    doc: "When entity `from` emits `signal`, apply `action` to entity `to`, if every `when` condition holds. Every \
-          entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed \
-          by `add`/`set` emits `changed`.",
+    doc: "When `from` emits `signal`, apply `action` to `to`, if every `when` condition holds. Every entity emits \
+          `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` \
+          emits `changed`; a spawned entity emits `spawned`. `from = \"ground\"` listens to taps on ground cells \
+          that hit no entity; `from_prefab` listens to every entity made from a prefab, and `to = \"self\"` then \
+          targets the one that emitted.",
     fields: &[
-        req("from", Ty::Name, "Name of the emitting entity."),
-        req("signal", Ty::Name, "Signal name, e.g. `pressed`, `released`, `tapped`, `changed`."),
-        req("to", Ty::Name, "Name of the target entity."),
+        opt(
+            "from",
+            Ty::Name,
+            None,
+            "Name of the emitting entity, or `ground` for taps on empty ground cells (signal `tapped`). Use \
+             exactly one of `from` and `from_prefab`.",
+        ),
+        opt(
+            "from_prefab",
+            Ty::Name,
+            None,
+            "Listen to every entity made from this prefab, placed in the scene or spawned later: \
+             `from_prefab = \"coin\"` instead of one [[connect]] per coin.",
+        ),
+        req("signal", Ty::Name, "Signal name, e.g. `pressed`, `released`, `tapped`, `changed`, `spawned`."),
+        opt(
+            "to",
+            Ty::Name,
+            None,
+            "Name of the target entity, or `self` for the entity that emitted (with `from_prefab`). Required for \
+             every action except `spawn`.",
+        ),
         req(
             "action",
             Ty::Enum(CONNECT_ACTIONS),
-            "enable, disable or toggle the target; or `add` a number to / `set` one of its props.",
+            "enable, disable or toggle the target; `add` a number to / `set` one of its props; or `spawn` a new copy \
+             of `prefab` where the signal happened.",
         ),
         opt("prop", Ty::Name, None, "With `add`/`set`: the target's prop (declared in its `props`)."),
         opt(
@@ -477,6 +563,16 @@ pub static CONNECT: Spec = Spec {
             None,
             "With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), \
              of the prop's type.",
+        ),
+        opt(
+            "prefab",
+            Ty::Name,
+            None,
+            "With `spawn`: the prefab to place. It goes on the tapped cell (`from = \"ground\"`) or the emitter's \
+             cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain \
+             with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger \
+             (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, \
+             reason `edge`, `terrain` or `occupied`).",
         ),
         opt(
             "when",
@@ -556,8 +652,8 @@ pub static INPUT: Spec = Spec {
 pub static EXPECT: Spec = Spec {
     id: "playtest.expect",
     title: "[[expect]]",
-    doc: "A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`/`text`) or the event log \
-          (`event`, filtered by `entity`, `other`, `signal`, `reason`, counted with `at_least`/`at_most`). Events \
+    doc: "A check at `frame`. Entity state (`entity` with `pos`/`enabled`/`solid`/`props`/`text`), a count of \
+          entities made from a prefab (`prefab` with `count`, optionally at `pos`), or the event log (`event`, filtered by `entity`, `other`, `signal`, `reason`, counted with `at_least`/`at_most`). Events \
           are counted if they happened *before* `frame`: an event logged as `[N]` happened in step N and counts \
           from `frame = N + 1`. `entity` matches the event's subject and `other` its other party \
           (`slate explain events` lists both for every kind).",
@@ -569,6 +665,19 @@ pub static EXPECT: Spec = Spec {
         opt("solid", Ty::Bool, None, "Expected solid state."),
         opt("props", Ty::Props, None, "Expected values of these props (others are ignored)."),
         opt("text", Ty::Str, None, "Expected label text as shown, with placeholders filled in (`\"Coins: 3/3\"`)."),
+        opt(
+            "prefab",
+            Ty::Name,
+            None,
+            "Count the enabled entities made from this prefab (placed or spawned), optionally only those at `pos`. \
+             Checked with `count`, or at least one when `count` is absent.",
+        ),
+        opt(
+            "count",
+            Ty::Int { min: 0, max: 1_000_000 },
+            None,
+            "With `prefab`: exactly this many. `count = 0` with `pos` asserts nothing of that prefab stands there.",
+        ),
         opt("event", Ty::Enum(EVENT_KINDS), None, "Count events of this kind that happened before `frame`."),
         opt(
             "other",
@@ -583,7 +692,7 @@ pub static EXPECT: Spec = Spec {
             Ty::Enum(BLOCK_REASONS),
             None,
             "With `event = \"blocked\"`: only count refusals for this reason (e.g. `solid`, not `cooldown`; `push` = a \
-             pushable could not be pushed).",
+             pushable could not be pushed; `terrain`/`occupied`/`edge` = a spawn could not be placed).",
         ),
         opt(
             "at_least",
@@ -622,6 +731,7 @@ pub static ALL_SPECS: &[&Spec] = &[
     &SCENE,
     &CAMERA,
     &GROUND,
+    &TERRAIN,
     &ENTITY,
     &CONNECT,
     &CONDITION,
@@ -683,6 +793,7 @@ impl Ty {
             Ty::Props => "a table of simple values like { hp = 3 }".into(),
             Ty::Scalar => "a boolean, number or string".into(),
             Ty::Codes => "a list of warning codes like [\"W0201\"]".into(),
+            Ty::Strs => "a list of strings like [\"ggw\", \"gww\"]".into(),
             Ty::Table(spec) => format!("a table ({})", spec.title),
             Ty::Tables(spec) => format!("an array of tables ({})", spec.title),
             Ty::List(spec) => format!("a list of inline tables like [{{ ... }}] ({})", spec.title),
@@ -709,6 +820,7 @@ impl Ty {
             Ty::Props => "table".into(),
             Ty::Scalar => "bool \\| number \\| string".into(),
             Ty::Codes => "[\"W....\", ...]".into(),
+            Ty::Strs => "[\"...\", ...]".into(),
             Ty::Table(spec) => format!("table: {}", spec.id),
             Ty::Tables(spec) => format!("[[{}]]", spec.title.trim_matches(['[', ']'])),
             Ty::List(spec) => format!("[{{ {} }}, ...]", spec.id),
@@ -902,6 +1014,16 @@ impl Checker<'_> {
                     }
                     ok
                 }
+            },
+            Ty::Strs => match node.as_array() {
+                Some(items) if !items.is_empty() => {
+                    let mut ok = true;
+                    for item in items {
+                        ok &= self.value(item, &Ty::Str, label);
+                    }
+                    ok
+                }
+                _ => wrong_type(self),
             },
             Ty::Props => match node.as_table() {
                 None => wrong_type(self),
@@ -1134,6 +1256,10 @@ fn ty_schema(ty: &Ty) -> Json {
         Ty::Codes => Json::object()
             .with("type", "array")
             .with("items", Json::object().with("type", "string").with("pattern", "^W[0-9]{4}$")),
+        Ty::Strs => Json::object()
+            .with("type", "array")
+            .with("items", Json::object().with("type", "string"))
+            .with("minItems", 1),
         Ty::Props => Json::object().with("type", "object").with(
             "additionalProperties",
             Json::object()
@@ -1234,7 +1360,7 @@ mod tests {
     #[test]
     fn json_schema_lists_required_keys() {
         let s = json_schema(&CONNECT);
-        assert_eq!(s.pointer("required/0").and_then(Json::as_str), Some("from"));
+        assert_eq!(s.pointer("required/0").and_then(Json::as_str), Some("signal"));
         assert_eq!(s.pointer("properties/action/enum/2").and_then(Json::as_str), Some("toggle"));
     }
 }

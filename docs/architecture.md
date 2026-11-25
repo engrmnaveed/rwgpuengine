@@ -70,7 +70,8 @@ Every command is a **pure function of (files, input script, seed, frame)**. `sho
 ## The file model
 
 - `slate.toml` marks the project root (found by walking up, like Cargo.toml).
-- `scenes/*.toml`: `[scene]`, `[camera]`, `[ground]`, `[[entity]]`, `[[connect]]`.
+- `scenes/*.toml`: `[scene]`, `[camera]`, `[ground]` (a size or a terrain `map`), `[[terrain]]`, `[[entity]]`,
+  `[[connect]]`.
 - `prefabs/<name>.toml`: an entity template; entity keys override it, component tables merge key by key.
 - `tests/*.toml`: playtests — `[test]`, `[[input]]`, `[[expect]]`, `[[shot]]`.
 
@@ -82,16 +83,22 @@ generates JSON Schemas, the reference docs and `slate explain <component>`; one 
 ## The world
 
 "Fat" entities (ADR 0006): one `Entity` struct with optional built-in components (`tile`, `block`,
-`sprite`, `label`, `mover`, `patrol`, `wander`, `trigger`), an optional `screen_pos` (HUD entities) and a
-`props` map. Props are runtime state with types fixed by their declared starting values: `[[connect]]`
+`sprite`, `label`, `mover`, `patrol`, `wander`, `trigger`), an optional `screen_pos` (HUD entities), a
+`footprint` (cells covered from `pos` toward +x/+y, default 1 × 1) and a `props` map. Props are runtime state with types fixed by their declared starting values: `[[connect]]`
 `add`/`set` change them, `when` conditions and label placeholders read them (ADR 0011). Entity ids are their
-index in scene order — stable for a given file, usable in scripts and tests.
+index in scene order — stable for a given file, usable in scripts and tests. Entities made at runtime by a
+`spawn` action get the next ids in spawn order and no name; there is no deletion (disabled entities keep their
+ids). The world also holds the ground (size, and a terrain per cell when the scene has a `map`) and the spawn
+templates (the prefabs `spawn` actions name, decoded at load time), so placement rules need no files at runtime
+(ADR 0013).
 
 ### The step
 
 `World::tick(input, systems)` runs, in this fixed order:
 
-1. **input** — log pressed actions; each resolved tap logs `tap`/`tap_miss` and emits `tapped`.
+1. **input** — log pressed actions; each resolved tap logs `tap`/`tap_miss` and emits `tapped`. A tap that
+   hits no entity over a ground cell is a ground tap: the ground emits `tapped` with that cell, if a
+   `[[connect]] from = "ground"` listens.
 2. **movers** — one cell per direction input, gated by `step_frames` cooldown; a mover walking into a
    `pushable` pushes it one cell if the cell beyond is free (ADR 0012).
 3. **patrols** — step toward the next path cell every `step_frames`.
@@ -101,8 +108,12 @@ index in scene order — stable for a given file, usable in scripts and tests.
    `on_exit`.
 7. **signal dispatch** — FIFO through `[[connect]]` wiring, capped at 1000 per step (E0301). Each
    connection first checks its `when` conditions against the current state (logging `skipped` if one
-   fails), then applies `enable`/`disable`/`toggle` or `add`/`set` on a prop. A prop that really changes
-   makes its owner emit `changed` (queued at the back, same step) if any connection listens to it.
+   fails), then applies `enable`/`disable`/`toggle`, `add`/`set` on a prop, or `spawn`. A connection listens
+   to one entity, every copy of a prefab (`from_prefab`), or the ground, and `to = "self"` targets the
+   emitter. Each queued signal carries a cell (the tapped cell, or the emitter's), which `spawn` builds on
+   after checking placement (inside the ground, buildable terrain, no entity taking up a cell). A prop that
+   really changes makes its owner emit `changed`, and a new copy emits `spawned` (queued at the back, same
+   step), if a connection listens.
 
 Then `frame += 1`. Frame N is the state after N steps; input scheduled at frame N is applied by step N.
 
@@ -123,21 +134,27 @@ only IEEE-exact operations (clippy bans libm transcendental functions); `BTreeMa
 
 Verified: the example walkthrough reaches state `469ae7c92124d43d` and image `bfca8c0b40af6828` both
 natively (aarch64-apple-darwin) and in the browser (wasm32); coin_vault's solve (props, conditions, text,
-HUD) reaches state `41f58b0904b83261` and image `f15c777308fdf361` on both.
+HUD) reaches state `41f58b0904b83261` and image `f15c777308fdf361` on both; Tiny Town's `build_town`
+(terrain, ground taps, spawning, 2 × 2 houses) reaches state `537ae6f9300e9b67` and image `58bd8a0dbea14409` on
+both.
 
 ## Rendering
 
 ADR 0007. The **draw list** is the central artifact:
 
-- `draw::build` turns the world into back-to-front items: ground cells, then tiles, then block faces,
-  sprites and label glyphs sorted by `(x + y, z, part, id)`, then screen entities (`screen_pos`) in file
-  order. Text is drawn with an owned 5×8 pixel font (`font.rs`, printable ASCII); each glyph is a shape
+- `draw::build` turns the world into back-to-front items: ground cells (colored by terrain), then tiles,
+  then block faces, sprites and label glyphs sorted by `(x + y, z, part, id)`, then screen entities
+  (`screen_pos`) in file order. A multi-cell block is pushed as one slice per covered cell, each with its own
+  `x + y`, so the per-cell painter's order stays correct around big objects; sprites and labels of a
+  multi-cell entity sort with its front cell (ADR 0013). Text is drawn with an owned 5×8 pixel font (`font.rs`, printable ASCII); each glyph is a shape
   whose coverage is a bit test, so text is as deterministic, reportable and pickable as everything else.
 - `rasterize` fills shapes with exact integer coverage tests at pixel centers (doubled coordinates,
   top-left fill rule) and integer shading/blending; it records which item owns each pixel.
 - `build_report` turns ownership into per-entity drawn/visible pixels and "covered by", and flags W0301
   off-screen, W0302 mostly-hidden sprites, W0303 clipped.
-- `pick` walks the same list front to back with the same coverage test, so taps hit exactly what is drawn.
+- `pick` walks the same list front to back with the same coverage test, so taps hit exactly what is drawn;
+  when no entity is hit, the ground item under the point gives the tapped cell. `ground_tap_point` finds a
+  pixel that taps a given cell (what `inspect --place` reports).
 
 Isometric projection: `sx = ox + (x − y)·tw/2`, `sy = oy + (x + y)·th/2 − z·zh`. +x is down-right,
 +y down-left, z up. The camera centers the ground by default.
@@ -156,7 +173,7 @@ Isometric projection: `sx = ox + (x − y)·tw/2`, `sy = oy + (x + y)·th/2 − 
 
 ## The web player
 
-ADR 0008. `slate_web` compiles to a 467 KB wasm module with zero imports. `web/player.js` (no framework,
+ADR 0008. `slate_web` compiles to a wasm module with zero imports (640,798 bytes after M3.1; budget 700,000). `web/player.js` (no framework,
 no build step) loads it, fetches the project as a bundle (`path\0text\0…`), steps at the project's
 tick rate, and paints the CPU-rendered frame with `putImageData`. `slate serve` (std-only HTTP) rebuilds
 the bundle from disk per request; the page polls a content hash and reloads on change, showing
@@ -175,5 +192,5 @@ diagnostics in the page. Touch first: tap = tap, swipe = move along the iso axes
 
 ## Known limits of v0.1 (by design, for now)
 
-See [mvp-plan.md](mvp-plan.md#known-limitations) — no images or audio; ASCII text only; single-cell
-objects only; CPU rendering only; no native window.
+See [mvp-plan.md](mvp-plan.md#known-limitations) — no images or audio; ASCII text only; no rotation or
+dragging; CPU rendering only; no native window.

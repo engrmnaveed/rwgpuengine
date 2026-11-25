@@ -71,6 +71,7 @@ A level: ground, entities and the connections between their signals.
 | `scene` | table: scene.scene | — | Scene metadata. |
 | `camera` | table: scene.camera | — | What part of the world is on screen. |
 | `ground` | table: scene.ground | — | A rectangle of floor cells; also the bounds movers stay inside. |
+| `terrain` | [[terrain]] | — | Kinds of ground used by `[ground] map`, one `[[terrain]]` table each (grass, water, ...). |
 | `entity` | [[entity]] | — | Things in the world, one `[[entity]]` table each. |
 | `connect` | [[connect]] | — | Signal wiring, one `[[connect]]` table each. |
 
@@ -95,12 +96,13 @@ The camera looks straight down the isometric axis; it only pans.
 
 ### `[ground]`
 
-Floor cells from [0, 0] to [size_x - 1, size_y - 1], drawn as a checkerboard.
+Floor cells from [0, 0] to [size_x - 1, size_y - 1], drawn as a checkerboard. Give `size` for plain ground, or `map` for ground made of terrains: one string per row (y = 0 first), one character per cell (x = 0 first), each character declared by a `[[terrain]]` table. `map = ["ggw", "gww"]` is 3 x 2 cells with water on the right.
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `size` | [x, y] int | **required** | Number of cells [x, y]. |
-| `color` | color | `"#6fa86a"` | Floor color. |
+| `size` | [x, y] int | — | Number of cells [x, y]. Required unless `map` is given (then it is the map's size). |
+| `map` | ["...", ...] | — | Rows of terrain characters, all the same length: row y, character x is cell [x, y]. Every character must be declared by a `[[terrain]]` `char`. |
+| `color` | color | `"#6fa86a"` | Floor color (without `map`). |
 | `alt_color` | color | — | Color of every other cell. Default: `color`, slightly darker. |
 
 ### `entity`
@@ -113,6 +115,7 @@ A thing in the world. Starts from an optional prefab; keys here override it (com
 | `prefab` | name | — | Prefab to start from: `wall` loads prefabs/wall.toml. |
 | `pos` | [x, y, z?] | `[0, 0, 0]` | Grid position [x, y] or [x, y, z]. +x is down-right on screen, +y is down-left, z is up. |
 | `cells` | [[x, y], ...] | — | Place one copy on each listed cell instead of `pos`. Cannot be used with `name`. |
+| `footprint` | [x, y] int | `[1, 1]` | Cells covered [along x, along y], from `pos` toward +x and +y: `[2, 2]` at pos [3, 4] covers [3, 4], [4, 4], [3, 5] and [4, 5]. Blocks and tiles fill the whole area; a sprite or label stands at its middle. It blocks, counts for triggers and is tapped on every covered cell. Only things that stay put can be bigger than one cell (no mover, patrol, wander, pushable or screen_pos). |
 | `enabled` | bool | `true` | Disabled entities are not drawn, not solid, cannot be tapped and run no behaviors. |
 | `solid` | bool | `false` | Nothing can move into its cell. |
 | `pushable` | bool | `false` | A crate or weight. A mover that walks into it pushes it one cell, if the cell beyond is inside the ground and free (nothing solid, no actor, no other pushable); otherwise the mover is refused (`blocked`, reason `push`). Patrols and wanderers cannot push it: it blocks them like a solid. It holds pressure plates: triggers count it like an actor (`only` can name it). It cannot have mover, patrol or wander. |
@@ -130,16 +133,18 @@ A thing in the world. Starts from an optional prefab; keys here override it (com
 
 ### `[[connect]]`
 
-When entity `from` emits `signal`, apply `action` to entity `to`, if every `when` condition holds. Every entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` emits `changed`.
+When `from` emits `signal`, apply `action` to `to`, if every `when` condition holds. Every entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` emits `changed`; a spawned entity emits `spawned`. `from = "ground"` listens to taps on ground cells that hit no entity; `from_prefab` listens to every entity made from a prefab, and `to = "self"` then targets the one that emitted.
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `from` | name | **required** | Name of the emitting entity. |
-| `signal` | name | **required** | Signal name, e.g. `pressed`, `released`, `tapped`, `changed`. |
-| `to` | name | **required** | Name of the target entity. |
-| `action` | enable \| disable \| toggle \| add \| set | **required** | enable, disable or toggle the target; or `add` a number to / `set` one of its props. |
+| `from` | name | — | Name of the emitting entity, or `ground` for taps on empty ground cells (signal `tapped`). Use exactly one of `from` and `from_prefab`. |
+| `from_prefab` | name | — | Listen to every entity made from this prefab, placed in the scene or spawned later: `from_prefab = "coin"` instead of one [[connect]] per coin. |
+| `signal` | name | **required** | Signal name, e.g. `pressed`, `released`, `tapped`, `changed`, `spawned`. |
+| `to` | name | — | Name of the target entity, or `self` for the entity that emitted (with `from_prefab`). Required for every action except `spawn`. |
+| `action` | enable \| disable \| toggle \| add \| set \| spawn | **required** | enable, disable or toggle the target; `add` a number to / `set` one of its props; or `spawn` a new copy of `prefab` where the signal happened. |
 | `prop` | name | — | With `add`/`set`: the target's prop (declared in its `props`). |
 | `value` | bool \| number \| string | — | With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), of the prop's type. |
+| `prefab` | name | — | With `spawn`: the prefab to place. It goes on the tapped cell (`from = "ground"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`). |
 | `when` | [{ condition }, ...] | — | Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`. |
 
 
@@ -154,6 +159,7 @@ A reusable entity template: prefabs/<name>.toml. Same keys as an entity, minus n
 | key | type | default | meaning |
 |---|---|---|---|
 | `doc` | string | — | What the prefab is. |
+| `footprint` | [x, y] int | `[1, 1]` | Cells covered [along x, along y], from `pos` toward +x and +y: `[2, 2]` at pos [3, 4] covers [3, 4], [4, 4], [3, 5] and [4, 5]. Blocks and tiles fill the whole area; a sprite or label stands at its middle. It blocks, counts for triggers and is tapped on every covered cell. Only things that stay put can be bigger than one cell (no mover, patrol, wander, pushable or screen_pos). |
 | `enabled` | bool | `true` | Disabled entities are not drawn, not solid, cannot be tapped and run no behaviors. |
 | `solid` | bool | `false` | Nothing can move into its cell. |
 | `pushable` | bool | `false` | A crate or weight. A mover that walks into it pushes it one cell, if the cell beyond is inside the ground and free (nothing solid, no actor, no other pushable); otherwise the mover is refused (`blocked`, reason `push`). Patrols and wanderers cannot push it: it blocks them like a solid. It holds pressure plates: triggers count it like an actor (`only` can name it). It cannot have mover, patrol or wander. |
@@ -184,11 +190,12 @@ A flat diamond drawn on the floor at the entity's cell, above the ground.
 
 ### `block`
 
-An isometric box filling the entity's cell. Left and right faces are shaded automatically.
+An isometric box filling the entity's cell (or its whole `footprint`). Left and right faces are shaded automatically.
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `color` | color | `"#9aa0a6"` | Top face color. |
+| `color` | color | `"#9aa0a6"` | Wall color; the top face too unless `top` is given. |
+| `top` | color | — | Top face color (a roof, the water in a well). Default: `color`. |
 | `height` | number 0–64 | `1.0` | Height in z units. |
 
 ### `sprite`
@@ -291,7 +298,7 @@ One input event. Use exactly one of `press`, `hold` or `tap`. Input at frame N i
 
 ### `[[expect]]`
 
-A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`props`/`text`) or the event log (`event`, filtered by `entity`, `other`, `signal`, `reason`, counted with `at_least`/`at_most`). Events are counted if they happened *before* `frame`: an event logged as `[N]` happened in step N and counts from `frame = N + 1`. `entity` matches the event's subject and `other` its other party (`slate explain events` lists both for every kind).
+A check at `frame`. Entity state (`entity` with `pos`/`enabled`/`solid`/`props`/`text`), a count of entities made from a prefab (`prefab` with `count`, optionally at `pos`), or the event log (`event`, filtered by `entity`, `other`, `signal`, `reason`, counted with `at_least`/`at_most`). Events are counted if they happened *before* `frame`: an event logged as `[N]` happened in step N and counts from `frame = N + 1`. `entity` matches the event's subject and `other` its other party (`slate explain events` lists both for every kind).
 
 | key | type | default | meaning |
 |---|---|---|---|
@@ -302,10 +309,12 @@ A check at `frame`. Either entity state (`entity` with `pos`/`enabled`/`solid`/`
 | `solid` | bool | — | Expected solid state. |
 | `props` | table | — | Expected values of these props (others are ignored). |
 | `text` | string | — | Expected label text as shown, with placeholders filled in (`"Coins: 3/3"`). |
-| `event` | input \| tap \| tap_miss \| moved \| blocked \| trigger \| signal \| action \| skipped \| error \| custom | — | Count events of this kind that happened before `frame`. |
+| `prefab` | name | — | Count the enabled entities made from this prefab (placed or spawned), optionally only those at `pos`. Checked with `count`, or at least one when `count` is absent. |
+| `count` | integer ≥ 0 | — | With `prefab`: exactly this many. `count = 0` with `pos` asserts nothing of that prefab stands there. |
+| `event` | input \| tap \| tap_miss \| moved \| blocked \| trigger \| signal \| action \| skipped \| spawned \| error \| custom | — | Count events of this kind that happened before `frame`. |
 | `other` | name | — | With `event`: only events whose other party is this entity (the blocker of `blocked`, the actor of `trigger`, the emitter of `action`). |
 | `signal` | name | — | With `event`: only count events about this signal. |
-| `reason` | solid \| actor \| edge \| area \| cooldown \| push | — | With `event = "blocked"`: only count refusals for this reason (e.g. `solid`, not `cooldown`; `push` = a pushable could not be pushed). |
+| `reason` | solid \| actor \| edge \| area \| cooldown \| push \| terrain \| occupied | — | With `event = "blocked"`: only count refusals for this reason (e.g. `solid`, not `cooldown`; `push` = a pushable could not be pushed; `terrain`/`occupied`/`edge` = a spawn could not be placed). |
 | `at_least` | integer ≥ 0 | `1` | With `event`: minimum number of matching events (0 when only `at_most` is given). |
 | `at_most` | integer ≥ 0 | — | With `event`: maximum number of matching events. `at_most = 0` asserts it never happened. |
 
@@ -338,8 +347,9 @@ bottom edge sits at its cell's (sx, sy); `offset` shifts it. `slate inspect --js
 `screen` rectangle, which is the easiest way to place things.
 
 **Step order.** Each step: input (taps resolve to the topmost enabled entity drawn under the point and
-emit `tapped`), movers, patrols, wanderers, Rust game systems, triggers, then signal dispatch through
-`[[connect]]` tables. A step that dispatches more than 1000 signals is cut off (E0301).
+emit `tapped`; a tap that hits no entity but lands on a ground cell makes the ground emit `tapped`, if a
+`[[connect]] from = "ground"` listens), movers, patrols, wanderers, Rust game systems, triggers, then signal
+dispatch through `[[connect]]` tables. A step that dispatches more than 1000 signals is cut off (E0301).
 
 **Actors and blocking.** Entities with `mover`, `patrol` or `wander` are actors. A move is refused when
 the target cell is outside the ground, holds an enabled `solid` entity, or holds another enabled actor.
@@ -347,6 +357,27 @@ A `pushable` entity blocks like a solid, except that a mover walking into it pus
 `moved` event, cause `pushed`, comes just before the mover's): the cell beyond must be inside the ground
 and free of solids, actors and other pushables, or the mover is refused with reason `push`. Patrols and
 wanderers never push.
+
+**Ground and terrain.** `[ground] size = [w, h]` is plain ground. `[ground] map` is one string per row
+(y = 0 first), one character per cell (x = 0 first); every character is declared by a `[[terrain]]` table
+with a `name`, colors and `build` (whether spawned things may be placed on it). `slate inspect --json`
+shows the map and legend under `ground`.
+
+**Footprints.** `footprint = [w, h]` makes an entity cover w × h cells from its `pos` toward +x and +y (its
+`pos` is the back corner, nearest the top of the screen). It blocks, counts for triggers, takes up space
+for placement and is tapped on every covered cell. A block or tile fills the whole area; a sprite or label
+stands at the middle and is drawn with the front cell. Only things that stay put can be bigger than one
+cell.
+
+**Spawning.** `action = "spawn"` with `prefab` places a new copy of the prefab where the signal happened: on
+the tapped cell for `from = "ground"`, else on the emitter's cell (its back corner there). Every covered cell
+must be inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there,
+solid, an actor or a trigger (data-only entities with just props take no space). Otherwise nothing is placed
+and a `blocked` event (`cause = "spawn"`, reason `edge`, `terrain` or `occupied`) names the cell that failed.
+A new copy gets the next id (`#12 (house)`), has no name, and emits `spawned` if a connection listens.
+`from_prefab = "house"` listens to every copy of a prefab, placed or spawned, and `to = "self"` targets the
+copy that emitted. `slate inspect --place house@3,4` answers "can I build here?" at any frame (with a pixel
+that taps that ground cell); `--place house` lists every cell where it fits.
 
 **Enabled.** Disabled entities are not drawn, not solid, cannot be tapped, run no behaviors and do not
 count for triggers. `[[connect]]` actions `enable`, `disable` and `toggle` change this. Enabling a solid
@@ -376,19 +407,22 @@ Every event has `frame` (the step that produced it: `[N]` happened in step N, so
 | kind | `entity` (subject) | `other` | extra fields | meaning |
 |---|---|---|---|---|
 | `input` | — | — | pressed | Actions that went down this step. |
-| `tap` | the entity hit | — | x, y, signal | A tap hit the topmost enabled entity under the point; it emits `tapped`. |
-| `tap_miss` | topmost disabled entity under the point, if any | — | x, y, under_disabled | A tap hit nothing enabled. |
+| `tap` | the entity hit (none for a ground tap) | — | x, y, signal; cell (ground taps) | A tap hit the topmost enabled entity under the point; it emits `tapped`. A tap that hits no entity but lands on a ground cell is a ground tap when a [[connect]] listens to `from = "ground"`: the ground emits `tapped` with that `cell`. |
+| `tap_miss` | topmost disabled entity under the point, if any | — | x, y, under_disabled; cell (when over the ground) | A tap hit nothing enabled (and, over the ground, nothing listens to the ground's `tapped`). |
 | `moved` | the entity that moved | the pusher (when `cause` is `pushed`) | cause, from, to, by | One cell of movement. `cause` is the direction, `patrol`, `wander` or `pushed` (a pushable moved by a mover; logged just before the mover's own move). |
-| `blocked` | the mover | the blocker (for `solid` and `actor`), the pushable that would not move (for `push`) | cause, from, to, reason, frames_left; beyond, push_blocked, push_blocked_by (for `push`) | A move was refused. `reason`: solid, actor, edge, area, cooldown, or push (the pushable in the way could not move: `push_blocked` says why). |
+| `blocked` | the mover (none for a spawn) | the blocker (for `solid` and `actor`), the pushable that would not move (for `push`), the entity in the way (for `occupied`) | cause, from, to, reason, frames_left; beyond, push_blocked, push_blocked_by (for `push`); prefab, at, cell, terrain (for a spawn) | A move or a placement was refused. For moves, `reason`: solid, actor, edge, area, cooldown, or push (the pushable in the way could not move: `push_blocked` says why). For a `spawn` (`cause = "spawn"`): edge (a cell outside the ground), terrain (a cell whose terrain has `build = false`) or occupied (an enabled entity covers a cell); `cell` is the cell that failed. |
 | `trigger` | the trigger | the actor that entered or left | signal, by | The trigger's cell became occupied or empty; it emits `signal`. |
 | `signal` | the emitter | — | signal, connections | A signal was dispatched to this many `[[connect]]` tables (0 = nothing listens). |
 | `action` | the target | the emitter | signal, action, before, after, changed; prop, value (add/set); when (each condition, held, seen) | A connection's action ran on its target: enable, disable, toggle, or add/set a prop (`before`/`after` are the enabled state or the prop's values). It is logged even when nothing changes (`enable` on an enabled entity: "stays enabled", `changed = false`), so `[[expect]] event = "action"` counts every time the connection fired. |
-| `skipped` | the target | the emitter | signal, action, prop, when (each condition, held, seen) | A connection's signal arrived, but a `when` condition did not hold, so nothing was done. The message names the first failing condition and what was seen. |
+| `skipped` | the target (none for `spawn`) | the emitter | signal, action, prop, prefab, cell, when (each condition, held, seen) | A connection's signal arrived, but a `when` condition did not hold, so nothing was done. The message names the first failing condition and what was seen. |
+| `spawned` | the new entity | the emitter of the signal (none for a ground tap) | prefab, cell, cells | A `spawn` action placed a new copy of `prefab` with its back corner on `cell`, covering `cells`. It gets the next free id (`#N (prefab)` in messages) and emits `spawned` if a [[connect]] listens (`from_prefab`). |
 | `error` | the emitter | — | code, signal | A runtime error, such as more than 1000 signals in one step (E0301). |
 | `custom` | set by game code | set by game code | set by game code | Logged by Rust game code. |
 
 
 **Drawing.** Ground first, then tiles, then blocks, sprites and labels back to front by `x + y`, then
-height, then part (block, sprite, label), then file order (later entities on top). Screen entities
+height, then part (block, sprite, label), then file order (later entities on top). A multi-cell block is
+drawn one cell-slice at a time, each sorted by its own cell, so it looks like one box and still sorts
+correctly against smaller things around it. Screen entities
 (`screen_pos`) are drawn after the whole world, in file order, and ignore the camera.
 Blocks shade their left and right faces automatically. A sprite's bottom edge stands on its cell's center.

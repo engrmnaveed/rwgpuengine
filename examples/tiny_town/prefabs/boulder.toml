@@ -1,0 +1,3 @@
+doc = "A boulder already on the island: nothing can be built on its cell."
+block = { color = "#80868f", height = 0.4 }
+solid = true

@@ -1,0 +1,3 @@
+doc = "A toolbar button (give it `screen_pos`, a `sprite` color and the label text)."
+sprite = { shape = "rect", color = "#555555", size = [136, 44] }
+label = { text = "?", scale = 2, offset = [12, 14] }

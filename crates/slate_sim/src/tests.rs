@@ -139,14 +139,17 @@ fn taps_emit_tapped_and_misses_explain_themselves() {
     step(
         &mut w,
         InputFrame {
-            taps: vec![Tap { x: 1.0, y: 2.0, hit: Some(bell), under_disabled: vec![] }],
+            taps: vec![Tap { x: 1.0, y: 2.0, hit: Some(bell), under_disabled: vec![], ground: None }],
             ..Default::default()
         },
     );
     assert_eq!(kinds(&w), vec!["tap", "signal"]);
     step(
         &mut w,
-        InputFrame { taps: vec![Tap { x: 3.0, y: 4.0, hit: None, under_disabled: vec![gate] }], ..Default::default() },
+        InputFrame {
+            taps: vec![Tap { x: 3.0, y: 4.0, hit: None, under_disabled: vec![gate], ground: None }],
+            ..Default::default()
+        },
     );
     let miss = w.events.all().last().unwrap();
     assert_eq!(miss.kind, EventKind::TapMiss);
@@ -498,7 +501,7 @@ prop = "v"
 "##;
     let mut w = world(scene, 1);
     let n = w.find("n").unwrap();
-    let tap = Tap { x: 0.0, y: 0.0, hit: Some(n), under_disabled: vec![] };
+    let tap = Tap { x: 0.0, y: 0.0, hit: Some(n), under_disabled: vec![], ground: None };
     step(&mut w, InputFrame { taps: vec![tap.clone()], ..InputFrame::default() });
     assert!(w.events.all().iter().any(|e| e.kind == EventKind::Error), "{:?}", kinds(&w));
     // A `when` bound stops it instead.
@@ -537,7 +540,7 @@ value = true
 "##;
     let mut w = world(scene, 1);
     let n = w.find("n").unwrap();
-    let tap = Tap { x: 0.0, y: 0.0, hit: Some(n), under_disabled: vec![] };
+    let tap = Tap { x: 0.0, y: 0.0, hit: Some(n), under_disabled: vec![], ground: None };
     step(&mut w, InputFrame { taps: vec![tap], ..InputFrame::default() });
     let e = w.get(n).unwrap();
     assert_eq!(e.props.get("speed"), Some(&PropValue::Float(-0.5)));
@@ -695,8 +698,211 @@ fn a_crate_on_a_plate_satisfies_occupied_conditions_from_frame_0() {
     .replace("name = \"crate\"\npos = [1, 1]", "name = \"crate\"\npos = [2, 1]");
     let mut w = world(&scene, 1);
     let bell = w.find("bell").unwrap();
-    let tap = Tap { x: 0.0, y: 0.0, hit: Some(bell), under_disabled: vec![] };
+    let tap = Tap { x: 0.0, y: 0.0, hit: Some(bell), under_disabled: vec![], ground: None };
     step(&mut w, InputFrame { taps: vec![tap], ..InputFrame::default() });
     assert_eq!(w.get(bell).unwrap().props.get("rung"), Some(&PropValue::Int(1)));
     assert!(w.by_name("door").unwrap().enabled, "occupied at frame 0: no `pressed` (documented)");
+}
+
+// ---------------------------------------------------------------------------
+// Builder kit (ADR 0013)
+
+const TOWN: &str = r##"
+[ground]
+map = ["gggw", "gggw", "gggs"]
+
+[[terrain]]
+char = "g"
+name = "grass"
+
+[[terrain]]
+char = "w"
+name = "water"
+build = false
+
+[[terrain]]
+char = "s"
+name = "sand"
+build = false
+
+[[entity]]
+name = "town"
+props = { coins = 7, built = 0 }
+
+[[entity]]
+name = "rock"
+pos = [0, 2]
+block = {}
+solid = true
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "house"
+when = [{ entity = "town", prop = "coins", at_least = 3 }]
+
+[[connect]]
+from_prefab = "house"
+signal = "spawned"
+to = "town"
+action = "add"
+prop = "coins"
+value = -3
+
+[[connect]]
+from_prefab = "house"
+signal = "tapped"
+to = "self"
+action = "disable"
+"##;
+
+fn town() -> World {
+    let mut vfs = Vfs::new();
+    vfs.insert("scenes/main.toml", TOWN);
+    vfs.insert("prefabs/house.toml", "footprint = [2, 2]\nblock = {}\nsolid = true\n");
+    let mut loader = SceneLoader::new(&vfs);
+    let def = loader.load_scene("scenes/main.toml").unwrap_or_else(|| panic!("{:#?}", loader.diags));
+    World::new(&def, 1)
+}
+
+fn ground_tap(cell: [i32; 2]) -> InputFrame {
+    InputFrame {
+        taps: vec![Tap { x: 0.0, y: 0.0, hit: None, under_disabled: vec![], ground: Some(cell) }],
+        ..Default::default()
+    }
+}
+
+fn last(w: &World, kind: EventKind) -> String {
+    w.events.all().iter().rev().find(|e| e.kind == kind).map(|e| e.message.clone()).unwrap_or_default()
+}
+
+#[test]
+fn placement_rules_edge_terrain_occupied() {
+    let w = town();
+    // Grass with room: the 2 x 2 footprint grows toward +x and +y.
+    assert_eq!(w.can_place("house", [0, 0]), Ok(vec![[0, 0], [1, 0], [0, 1], [1, 1]]));
+    // Reaches the water at (3, 0).
+    let r = w.can_place("house", [2, 0]).unwrap_err();
+    assert_eq!((r.reason, r.cell, r.terrain.as_deref()), ("terrain", [3, 0], Some("water")));
+    // Covers the rock at (0, 2).
+    let r = w.can_place("house", [0, 1]).unwrap_err();
+    assert_eq!((r.reason, r.cell, r.by), ("occupied", [0, 2], Some(1)));
+    // Off the bottom edge.
+    let r = w.can_place("house", [1, 2]).unwrap_err();
+    assert_eq!((r.reason, r.cell), ("edge", [1, 3]));
+}
+
+#[test]
+fn ground_taps_spawn_pay_and_get_the_next_id() {
+    let mut w = town();
+    w.tick(&ground_tap([0, 0]), &mut NoSystems);
+    assert_eq!(w.entities.len(), 3);
+    let house = &w.entities[2];
+    assert_eq!((house.prefab.as_deref(), house.cell(), house.footprint), (Some("house"), [0, 0], [2, 2]));
+    assert_eq!(w.by_name("town").unwrap().props.get("coins"), Some(&PropValue::Int(4)));
+    assert!(last(&w, EventKind::Spawned).contains("#2 (house) was spawned at (0, 0)"));
+    // The house now blocks its four cells for movers and placements.
+    assert!(w.blocker_at([1, 1], 99).is_some());
+    // A refused placement costs nothing and says why.
+    w.tick(&ground_tap([1, 1]), &mut NoSystems);
+    assert_eq!(w.entities.len(), 3);
+    assert!(
+        last(&w, EventKind::Blocked).contains("cell (1, 1) is taken by #2 (house)"),
+        "{}",
+        last(&w, EventKind::Blocked)
+    );
+    assert_eq!(w.by_name("town").unwrap().props.get("coins"), Some(&PropValue::Int(4)));
+    // Water.
+    w.tick(&ground_tap([3, 1]), &mut NoSystems);
+    assert!(last(&w, EventKind::Blocked).contains("is water"));
+    // A second house: 1 coin left; a third is skipped by the `when`.
+    w.tick(&ground_tap([1, 2]), &mut NoSystems); // edge
+    assert!(last(&w, EventKind::Blocked).contains("outside the 4x3 ground"));
+    w.tick(&ground_tap([2, 1]), &mut NoSystems); // (3, 1) is water
+    w.tick(&ground_tap([2, 0]), &mut NoSystems); // water too
+    assert_eq!(w.entities.len(), 3);
+}
+
+#[test]
+fn from_prefab_and_self_target_the_emitter() {
+    let mut w = town();
+    w.tick(&ground_tap([0, 0]), &mut NoSystems);
+    let tap_house = InputFrame {
+        taps: vec![Tap { x: 0.0, y: 0.0, hit: Some(2), under_disabled: vec![], ground: None }],
+        ..Default::default()
+    };
+    w.tick(&tap_house, &mut NoSystems);
+    assert!(!w.entities[2].enabled, "the tapped house disables itself");
+    // Its cells are free again.
+    assert!(w.can_place("house", [0, 0]).is_ok());
+}
+
+#[test]
+fn ground_taps_without_listeners_are_misses_with_the_cell() {
+    let mut w = world(SCENE, 1);
+    w.tick(&ground_tap([3, 3]), &mut NoSystems);
+    let e = w.events.all().iter().find(|e| e.kind == EventKind::TapMiss).expect("tap_miss");
+    assert!(e.message.contains("ground cell (3, 3)"), "{}", e.message);
+    assert_eq!(e.data.get("cell").map(|c| c.to_compact()), Some("[3,3]".into()));
+}
+
+#[test]
+fn multi_cell_triggers_watch_every_cell() {
+    let scene = r##"
+[ground]
+size = [4, 4]
+
+[[entity]]
+name = "player"
+pos = [0, 0]
+sprite = {}
+mover = { step_frames = 1 }
+
+[[entity]]
+name = "pad"
+pos = [1, 0]
+footprint = [2, 1]
+tile = {}
+trigger = {}
+
+[[entity]]
+name = "lamp"
+pos = [3, 3]
+sprite = {}
+enabled = false
+
+[[connect]]
+from = "pad"
+signal = "pressed"
+to = "lamp"
+action = "enable"
+"##;
+    let mut w = world(scene, 1);
+    w.tick(&press(Action::Right), &mut NoSystems);
+    assert!(w.by_name("lamp").unwrap().enabled, "entering the first cell presses it");
+    w.tick(&press(Action::Right), &mut NoSystems);
+    w.tick(&press(Action::Right), &mut NoSystems);
+    assert_eq!(w.by_name("player").unwrap().cell(), [3, 0]);
+    let released = w.events.all().iter().filter(|e| e.kind == EventKind::Trigger).count();
+    assert_eq!(released, 2, "one press when entering (1, 0), one release when leaving (2, 0)");
+}
+
+#[test]
+fn spawning_is_deterministic_and_hashed() {
+    let run = || {
+        let mut w = town();
+        w.tick(&ground_tap([0, 0]), &mut NoSystems);
+        w.tick(&ground_tap([2, 1]), &mut NoSystems);
+        w.state_hash()
+    };
+    assert_eq!(run(), run());
+    let mut w = town();
+    let before = w.state_hash();
+    w.tick(&InputFrame::default(), &mut NoSystems);
+    let idle = w.state_hash();
+    let mut w2 = town();
+    w2.tick(&ground_tap([0, 0]), &mut NoSystems);
+    assert_ne!(idle, w2.state_hash(), "a spawned entity changes the hash");
+    assert_ne!(before, idle);
 }

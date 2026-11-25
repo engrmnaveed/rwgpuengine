@@ -68,20 +68,18 @@ Deliberate gaps in v0.1 — each waits for a reference game that needs it (guard
 - **Data logic is deliberately small** (M1.6, [ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)):
   `add`/`set` constants on props, `when` conditions that compare with constants, `changed` signals. No
   expressions, timers or random choices in data; anything beyond that is Rust game code (M4).
-- **Single-cell objects only**: draw order is per cell (`x + y`); multi-cell buildings need M3 sorting.
 - **CPU rendering only** (deterministic, fine at 640×480; GPU via wgpu later — Q4).
 - **No native window**: humans use the web player (`slate serve`).
 - **Prefab components can't omit required keys**: a prefab with `patrol = { step_frames = 30 }` fails
   because `patrol.path` is required; put the patrol in the scene. Fix: validate required keys after merge.
 - **Adjacent same-colored blocks merge visually** (no outlines yet; the cold agent noticed it too).
-- **Taps on bare ground hit nothing** (no "tap a cell" event yet; needed for tap-to-move / builders).
 - **`slate serve` is single-threaded and dev-only**; there is no `export web` for static hosting yet (Q11).
 - **Game code in the browser**: the web player runs data-only projects; Rust `Game` code runs natively.
 
 ## Next
 
-Data logic v1 is built and accepted with caveats (M1.6, [ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md),
-[run #5](experiments/2026-11-25-cold-agent-5.md)): the logic is fully supported, and 10 min 2 s missed the
-5-minute target. Objects that hold plates are built ([ADR 0012](decisions/0012-pushable-entities-hold-plates.md)), and
-[run #6](experiments/2026-11-25-cold-agent-6.md) built the vault task as the full puzzle in 7 min 41 s. Next:
-M2/M3 once Q3 picks the first reference game.
+Data logic v1 (M1.6, [ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)) and pushable
+crates ([ADR 0012](decisions/0012-pushable-entities-hold-plates.md)) are built and accepted by cold-agent runs
+#5 and #6. Q3 is decided: the first reference game is the isometric builder Tiny Town, and builder kit v1 is
+built ([ADR 0013](decisions/0013-first-reference-game-isometric-builder.md), M3.1). Next: cold-agent run #7 on a
+builder task.

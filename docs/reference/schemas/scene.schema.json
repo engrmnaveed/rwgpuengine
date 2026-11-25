@@ -62,12 +62,20 @@
           },
           "minItems": 2,
           "maxItems": 2,
-          "description": "Number of cells [x, y]."
+          "description": "Number of cells [x, y]. Required unless `map` is given (then it is the map's size)."
+        },
+        "map": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Rows of terrain characters, all the same length: row y, character x is cell [x, y]. Every character must be declared by a `[[terrain]]` `char`."
         },
         "color": {
           "type": "string",
           "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
-          "description": "Floor color. Default: \"#6fa86a\"."
+          "description": "Floor color (without `map`). Default: \"#6fa86a\"."
         },
         "alt_color": {
           "type": "string",
@@ -75,8 +83,42 @@
           "description": "Color of every other cell. Default: `color`, slightly darker."
         }
       },
-      "required": ["size"],
       "additionalProperties": false
+    },
+    "terrain": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "A kind of ground for `[ground] map`: its character, look, and whether things can be built on it. Spawned entities (`action = \"spawn\"`) can only be placed where every cell of their footprint is buildable.",
+        "properties": {
+          "char": {
+            "type": "string",
+            "description": "The single character that marks this terrain in `[ground] map`, e.g. \"g\" or \"~\"."
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_/-]+$",
+            "description": "Name used in messages and `inspect`, e.g. `water`. Default: the character."
+          },
+          "color": {
+            "type": "string",
+            "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+            "description": "Cell color. Default: \"#6fa86a\"."
+          },
+          "alt_color": {
+            "type": "string",
+            "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+            "description": "Color of every other cell (checkerboard). Default: `color`, slightly darker."
+          },
+          "build": {
+            "type": "boolean",
+            "description": "Spawned entities can be placed on it. false for water, rock, roads you must keep clear. Default: true."
+          }
+        },
+        "required": ["char"],
+        "additionalProperties": false
+      },
+      "description": "Kinds of ground used by `[ground] map`, one `[[terrain]]` table each (grass, water, ...)."
     },
     "entity": {
       "type": "array",
@@ -116,6 +158,15 @@
             "minItems": 1,
             "description": "Place one copy on each listed cell instead of `pos`. Cannot be used with `name`."
           },
+          "footprint": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "Cells covered [along x, along y], from `pos` toward +x and +y: `[2, 2]` at pos [3, 4] covers [3, 4], [4, 4], [3, 5] and [4, 5]. Blocks and tiles fill the whole area; a sprite or label stands at its middle. It blocks, counts for triggers and is tapped on every covered cell. Only things that stay put can be bigger than one cell (no mover, patrol, wander, pushable or screen_pos). Default: [1, 1]."
+          },
           "enabled": {
             "type": "boolean",
             "description": "Disabled entities are not drawn, not solid, cannot be tapped and run no behaviors. Default: true."
@@ -147,7 +198,12 @@
               "color": {
                 "type": "string",
                 "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
-                "description": "Top face color. Default: \"#9aa0a6\"."
+                "description": "Wall color; the top face too unless `top` is given. Default: \"#9aa0a6\"."
+              },
+              "top": {
+                "type": "string",
+                "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+                "description": "Top face color (a roof, the water in a well). Default: `color`."
               },
               "height": {
                 "type": "number",
@@ -349,26 +405,31 @@
       "type": "array",
       "items": {
         "type": "object",
-        "description": "When entity `from` emits `signal`, apply `action` to entity `to`, if every `when` condition holds. Every entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` emits `changed`.",
+        "description": "When `from` emits `signal`, apply `action` to `to`, if every `when` condition holds. Every entity emits `tapped` when tapped; triggers emit `on_enter`/`on_exit`; an entity whose prop is changed by `add`/`set` emits `changed`; a spawned entity emits `spawned`. `from = \"ground\"` listens to taps on ground cells that hit no entity; `from_prefab` listens to every entity made from a prefab, and `to = \"self\"` then targets the one that emitted.",
         "properties": {
           "from": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_/-]+$",
-            "description": "Name of the emitting entity."
+            "description": "Name of the emitting entity, or `ground` for taps on empty ground cells (signal `tapped`). Use exactly one of `from` and `from_prefab`."
+          },
+          "from_prefab": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_/-]+$",
+            "description": "Listen to every entity made from this prefab, placed in the scene or spawned later: `from_prefab = \"coin\"` instead of one [[connect]] per coin."
           },
           "signal": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_/-]+$",
-            "description": "Signal name, e.g. `pressed`, `released`, `tapped`, `changed`."
+            "description": "Signal name, e.g. `pressed`, `released`, `tapped`, `changed`, `spawned`."
           },
           "to": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_/-]+$",
-            "description": "Name of the target entity."
+            "description": "Name of the target entity, or `self` for the entity that emitted (with `from_prefab`). Required for every action except `spawn`."
           },
           "action": {
-            "enum": ["enable", "disable", "toggle", "add", "set"],
-            "description": "enable, disable or toggle the target; or `add` a number to / `set` one of its props."
+            "enum": ["enable", "disable", "toggle", "add", "set", "spawn"],
+            "description": "enable, disable or toggle the target; `add` a number to / `set` one of its props; or `spawn` a new copy of `prefab` where the signal happened."
           },
           "prop": {
             "type": "string",
@@ -378,6 +439,11 @@
           "value": {
             "type": ["boolean", "number", "string"],
             "description": "With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), of the prop's type."
+          },
+          "prefab": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_/-]+$",
+            "description": "With `spawn`: the prefab to place. It goes on the tapped cell (`from = \"ground\"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`)."
           },
           "when": {
             "type": "array",
@@ -422,7 +488,7 @@
             "description": "Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`."
           }
         },
-        "required": ["from", "signal", "to", "action"],
+        "required": ["signal", "action"],
         "additionalProperties": false
       },
       "description": "Signal wiring, one `[[connect]]` table each."

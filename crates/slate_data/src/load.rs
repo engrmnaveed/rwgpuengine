@@ -13,7 +13,10 @@ use slate_core::diag::{self, Diagnostic, SourceFile, Span};
 use slate_core::hash::Hasher64;
 use slate_core::text::did_you_mean;
 
-use crate::defs::{self, CondTest, ConnectAction, EntityDef, LabelPart, Origin, PlaytestDef, ProjectDef, SceneDef};
+use crate::defs::{
+    self, CondTest, ConnectAction, ConnectFrom, EntityDef, GroundDef, LabelPart, Origin, PlaytestDef, ProjectDef,
+    SceneDef,
+};
 use crate::node::{Node, Table, parse_toml};
 use crate::schema::{self, Checker, Fields};
 
@@ -232,7 +235,7 @@ impl<'a> SceneLoader<'a> {
         let (src, root, ok) = parse_checked(self.vfs, path, &schema::SCENE_FILE, &mut self.diags)?;
         let empty = Table::default();
         let meta = Fields::new(root.table("scene").unwrap_or(&empty), &schema::SCENE);
-        let ground = root.table("ground").filter(|g| g.has("size")).map(defs::decode_ground);
+        let ground = self.load_ground(&root, &src);
         let camera = defs::decode_camera(root.table("camera"));
 
         // Entities.
@@ -305,55 +308,185 @@ impl<'a> SceneLoader<'a> {
         // Connections.
         let connect_nodes: Vec<(&Node, &Table)> =
             root.array("connect").unwrap_or(&[]).iter().filter_map(|n| Some((n, n.as_table()?))).collect();
-        // Entities whose props a connection changes: they emit `changed`.
-        let changed_by_connect: BTreeSet<String> = connect_nodes
-            .iter()
-            .map(|(_, t)| defs::decode_connect(t))
-            .filter(|c| c.action.changes_prop())
-            .map(|c| c.to)
-            .collect();
+        let decoded: Vec<defs::ConnectDef> = connect_nodes.iter().map(|(_, t)| defs::decode_connect(t)).collect();
+        // Who emits `changed` (a connection changes their props) and which
+        // prefabs get spawned (their copies emit `spawned`).
+        let mut changed_names: BTreeSet<String> = BTreeSet::new();
+        let mut changed_prefabs: BTreeSet<String> = BTreeSet::new();
+        for c in decoded.iter().filter(|c| c.action.changes_prop()) {
+            match (c.to.as_deref(), &c.from) {
+                (Some("self"), ConnectFrom::Entity(n)) => {
+                    changed_names.insert(n.clone());
+                }
+                (Some("self"), ConnectFrom::Prefab(p)) => {
+                    changed_prefabs.insert(p.clone());
+                }
+                (Some(n), _) => {
+                    changed_names.insert(n.to_string());
+                }
+                _ => {}
+            }
+        }
+        let spawned: BTreeSet<String> =
+            decoded.iter().filter(|c| c.action == ConnectAction::Spawn).filter_map(|c| c.prefab.clone()).collect();
+        // Prefabs that `spawn` places (one each, in first-use order).
+        let mut templates: Vec<EntityDef> = Vec::new();
         let mut connections = Vec::new();
-        for &(node, t) in &connect_nodes {
-            let c = defs::decode_connect(t);
-            for (key, name) in [("from", &c.from), ("to", &c.to)] {
-                if !name.is_empty() && !names.contains_key(name) {
-                    let hint = did_you_mean(name, names.keys().map(String::as_str))
-                        .unwrap_or_else(|| format!("give an entity `name = \"{name}\"`"));
+        for (&(node, t), c) in connect_nodes.iter().zip(decoded) {
+            let span = node.span;
+            let unknown_entity = |key: &str, name: &str| {
+                let hint = did_you_mean(name, names.keys().map(String::as_str))
+                    .unwrap_or_else(|| format!("give an entity `name = \"{name}\"`"));
+                Diagnostic::new(&codes::UNKNOWN_ENTITY, format!("[[connect]] `{key}` names unknown entity `{name}`"))
+                    .at(&src, t.value_span(key, span))
+                    .hint(hint)
+            };
+            // The source: one entity, every copy of a prefab, or the ground.
+            let source: Option<EntityDef> = match (t.has("from"), t.has("from_prefab")) {
+                (true, true) => {
                     self.diags.push(
-                        Diagnostic::new(
-                            &codes::UNKNOWN_ENTITY,
-                            format!("[[connect]] `{key}` names unknown entity `{name}`"),
-                        )
-                        .at(&src, t.value_span(key, node.span))
-                        .hint(hint),
+                        Diagnostic::new(&codes::INVALID_VALUE, "[[connect]] has both `from` and `from_prefab`")
+                            .at(&src, t.key_span("from_prefab", span))
+                            .hint("use `from` for one entity, `from_prefab` for every copy of a prefab"),
                     );
+                    None
                 }
-            }
-            if let Some(from) = entities.iter().find(|e| e.name.as_deref() == Some(c.from.as_str())) {
-                let emits: Vec<String> = std::iter::once("tapped".to_string())
-                    .chain(from.trigger.iter().flat_map(|tr| [tr.on_enter.clone(), tr.on_exit.clone()]))
-                    .chain(changed_by_connect.contains(&c.from).then(|| "changed".to_string()))
-                    .collect();
-                if !emits.contains(&c.signal) {
-                    let hint = did_you_mean(&c.signal, emits.iter().map(String::as_str)).or_else(|| {
-                        (c.signal == "changed").then(|| {
-                            format!(
-                                "`{}` emits `changed` only when a [[connect]] `add`s to or `set`s one of its props",
-                                c.from
-                            )
-                        })
+                (false, false) => {
+                    self.diags.push(
+                        Diagnostic::new(&codes::MISSING_KEY, "[[connect]] needs `from` or `from_prefab`")
+                            .at(&src, span)
+                            .hint("`from = \"<entity name>\"`, `from = \"ground\"` (taps on the ground) or `from_prefab = \"<prefab>\"`"),
+                    );
+                    None
+                }
+                _ => match &c.from {
+                    ConnectFrom::Ground => None,
+                    ConnectFrom::Entity(name) => match entities.iter().find(|e| e.name.as_deref() == Some(name)) {
+                        Some(e) => Some(e.clone()),
+                        None => {
+                            self.diags.push(unknown_entity("from", name));
+                            None
+                        }
+                    },
+                    ConnectFrom::Prefab(p) => self.prefab_def(p, &src, t.value_span("from_prefab", span)),
+                },
+            };
+            // Signals the source can emit (W0203).
+            let emits: Option<Vec<String>> = match &c.from {
+                ConnectFrom::Ground => Some(vec!["tapped".to_string()]),
+                ConnectFrom::Entity(n) => source.as_ref().map(|e| {
+                    let mut v = vec!["tapped".to_string()];
+                    v.extend(e.trigger.iter().flat_map(|tr| [tr.on_enter.clone(), tr.on_exit.clone()]));
+                    if changed_names.contains(n) {
+                        v.push("changed".into());
+                    }
+                    v
+                }),
+                ConnectFrom::Prefab(p) => source.as_ref().map(|e| {
+                    let mut v = vec!["tapped".to_string()];
+                    v.extend(e.trigger.iter().flat_map(|tr| [tr.on_enter.clone(), tr.on_exit.clone()]));
+                    let named_copy_changes = entities.iter().any(|x| {
+                        x.prefab.as_deref() == Some(p) && x.name.as_ref().is_some_and(|n| changed_names.contains(n))
                     });
+                    if changed_prefabs.contains(p) || named_copy_changes {
+                        v.push("changed".into());
+                    }
+                    if spawned.contains(p) {
+                        v.push("spawned".into());
+                    }
+                    v
+                }),
+            };
+            if let Some(emits) = emits
+                && !emits.contains(&c.signal)
+            {
+                let who = match &c.from {
+                    ConnectFrom::Entity(n) => format!("`{n}`"),
+                    ConnectFrom::Prefab(p) => format!("prefab `{p}`"),
+                    ConnectFrom::Ground => "the ground".to_string(),
+                };
+                let hint =
+                    did_you_mean(&c.signal, emits.iter().map(String::as_str)).or_else(|| match c.signal.as_str() {
+                        "changed" => Some(format!(
+                            "{who} emits `changed` only when a [[connect]] `add`s to or `set`s one of its props"
+                        )),
+                        "spawned" => Some(format!("{who} emits `spawned` only for copies made by a `spawn` action")),
+                        _ => None,
+                    });
+                self.diags.push(
+                    Diagnostic::new(
+                        &codes::SIGNAL_NEVER_EMITTED,
+                        format!("{who} never emits `{}` (it emits: {})", c.signal, emits.join(", ")),
+                    )
+                    .at(&src, t.value_span("signal", span))
+                    .maybe_hint(hint),
+                );
+            }
+            // The target.
+            let mut target: Option<EntityDef> = None;
+            if c.action == ConnectAction::Spawn {
+                if t.has("to") {
                     self.diags.push(
-                        Diagnostic::new(
-                            &codes::SIGNAL_NEVER_EMITTED,
-                            format!("`{}` never emits `{}` (it emits: {})", c.from, c.signal, emits.join(", ")),
-                        )
-                        .at(&src, t.value_span("signal", node.span))
-                        .maybe_hint(hint),
+                        Diagnostic::new(&codes::INVALID_VALUE, "`spawn` has no target: it places a new entity")
+                            .at(&src, t.key_span("to", span))
+                            .hint("remove `to`; the new copy goes on the tapped cell or the emitter's cell"),
                     );
                 }
+                match &c.prefab {
+                    None => self.diags.push(
+                        Diagnostic::new(&codes::MISSING_KEY, "`action = \"spawn\"` needs `prefab`")
+                            .at(&src, t.value_span("action", span))
+                            .hint("add `prefab = \"...\"`: the prefab file (prefabs/<name>.toml) to place"),
+                    ),
+                    Some(p) => {
+                        let at = t.value_span("prefab", span);
+                        if let Some(def) = self.prefab_def(p, &src, at) {
+                            check_entity(&def, &Table::default(), at, &src, &mut self.diags);
+                            if def.screen_pos.is_some() {
+                                self.diags.push(
+                                    Diagnostic::new(
+                                        &codes::INVALID_VALUE,
+                                        format!("prefab `{p}` has `screen_pos`, so it cannot be spawned in the world"),
+                                    )
+                                    .at(&src, at),
+                                );
+                            }
+                            if !templates.iter().any(|t| t.prefab.as_deref() == Some(p.as_str())) {
+                                templates.push(def);
+                            }
+                        }
+                    }
+                }
+            } else {
+                if t.has("prefab") {
+                    self.diags.push(
+                        Diagnostic::new(&codes::INVALID_VALUE, "`prefab` only applies to `action = \"spawn\"`")
+                            .at(&src, t.key_span("prefab", span))
+                            .hint("remove `prefab`, or use `action = \"spawn\"`"),
+                    );
+                }
+                match c.to.as_deref() {
+                    None => self.diags.push(
+                        Diagnostic::new(&codes::MISSING_KEY, format!("`action = \"{}\"` needs `to`", c.action.name()))
+                            .at(&src, span)
+                            .hint("add `to = \"<entity name>\"`, or `to = \"self\"` for the entity that emitted"),
+                    ),
+                    Some("self") if c.from == ConnectFrom::Ground => self.diags.push(
+                        Diagnostic::new(
+                            &codes::INVALID_VALUE,
+                            "`to = \"self\"` with `from = \"ground\"`: the ground is not an entity",
+                        )
+                        .at(&src, t.value_span("to", span))
+                        .hint("name the entity to change, or use `action = \"spawn\"` to place one on the tapped cell"),
+                    ),
+                    Some("self") => target = source.clone(),
+                    Some(name) => match entities.iter().find(|e| e.name.as_deref() == Some(name)) {
+                        Some(e) => target = Some(e.clone()),
+                        None => self.diags.push(unknown_entity("to", name)),
+                    },
+                }
             }
-            check_connect_logic(&c, t, node.span, &entities, &src, &mut self.diags);
+            check_connect_logic(&c, t, span, target.as_ref(), &entities, &src, &mut self.diags);
             connections.push(c);
         }
 
@@ -361,30 +494,33 @@ impl<'a> SceneLoader<'a> {
         let mut solid_cells: BTreeMap<[i32; 2], usize> = BTreeMap::new();
         let allows = |e: &defs::EntityDef, code: &str| e.allow.iter().any(|a| a.eq_ignore_ascii_case(code));
         for (i, e) in entities.iter().enumerate() {
-            let cell = e.cell();
+            let cells = e.cells();
             if e.enabled && e.blocks() {
-                if let Some(&j) = solid_cells.get(&cell) {
-                    let other = &entities[j];
-                    if allows(e, codes::SOLID_OVERLAP.code) || allows(other, codes::SOLID_OVERLAP.code) {
-                        continue;
+                for &cell in &cells {
+                    if let Some(&j) = solid_cells.get(&cell) {
+                        let other = &entities[j];
+                        if allows(e, codes::SOLID_OVERLAP.code) || allows(other, codes::SOLID_OVERLAP.code) {
+                            continue;
+                        }
+                        self.diags.push(
+                            Diagnostic::new(
+                                &codes::SOLID_OVERLAP,
+                                format!("two solid entities on cell [{}, {}]", cell[0], cell[1]),
+                            )
+                            .at(&src, e.origin.span)
+                            .note(format!("the other one is at {}:{}", other.origin.file, other.origin.line)),
+                        );
+                        break;
                     }
-                    self.diags.push(
-                        Diagnostic::new(
-                            &codes::SOLID_OVERLAP,
-                            format!("two solid entities on cell [{}, {}]", cell[0], cell[1]),
-                        )
-                        .at(&src, e.origin.span)
-                        .note(format!("the other one is at {}:{}", other.origin.file, other.origin.line)),
-                    );
-                } else {
                     solid_cells.insert(cell, i);
                 }
             }
+            let cell = e.cell();
             if e.enabled
                 && e.is_actor()
                 && !allows(e, codes::ACTOR_IN_SOLID.code)
                 && let Some(wall) =
-                    entities.iter().find(|o| o.enabled && o.blocks() && !o.is_actor() && o.cell() == cell)
+                    entities.iter().find(|o| o.enabled && o.blocks() && !o.is_actor() && o.cells().contains(&cell))
             {
                 let what =
                     |x: &defs::EntityDef| x.name.as_deref().map_or("an entity".to_string(), |n| format!("`{n}`"));
@@ -405,17 +541,18 @@ impl<'a> SceneLoader<'a> {
             }
             if let Some(g) = &ground
                 && e.screen_pos.is_none()
-                && (cell[0] < 0 || cell[1] < 0 || cell[0] >= g.size[0] || cell[1] >= g.size[1])
+                && let Some(out) = cells.iter().find(|c| !g.contains(**c))
                 && !allows(e, codes::OUTSIDE_GROUND.code)
             {
+                let whose = if out == &cell { String::new() } else { " (part of its footprint)".to_string() };
                 self.diags.push(
                     Diagnostic::new(
                         &codes::OUTSIDE_GROUND,
                         format!(
-                            "{} is on cell [{}, {}], outside the {}x{} ground",
+                            "{} is on cell [{}, {}]{whose}, outside the {}x{} ground",
                             e.name.as_deref().map_or("entity".to_string(), |n| format!("`{n}`")),
-                            cell[0],
-                            cell[1],
+                            out[0],
+                            out[1],
                             g.size[0],
                             g.size[1]
                         ),
@@ -439,7 +576,160 @@ impl<'a> SceneLoader<'a> {
             ground,
             entities,
             connections,
+            templates,
         })
+    }
+
+    /// A prefab decoded as an entity at [0, 0, 0], reporting E0201 at `at`
+    /// when it does not exist. `None` if missing or invalid.
+    fn prefab_def(&mut self, name: &str, src: &SourceFile, at: Span) -> Option<EntityDef> {
+        if !self.prefab_exists(name) {
+            let names = self.prefab_names();
+            let hint = did_you_mean(name, names.iter().map(String::as_str))
+                .unwrap_or_else(|| format!("create prefabs/{name}.toml"));
+            self.diags.push(
+                Diagnostic::new(&codes::UNKNOWN_PREFAB, format!("unknown prefab `{name}`")).at(src, at).hint(hint),
+            );
+            return None;
+        }
+        let mut table = self.prefab(name)?;
+        table.set_str("prefab", name);
+        let origin = Origin { file: src.path.clone(), line: src.locate(at.start).0, span: at };
+        Some(defs::decode_entity(&table, [0.0, 0.0, 0.0], origin))
+    }
+
+    /// `[ground]` with an optional terrain `map`. Problems are reported; the
+    /// ground is still returned when it has a usable size.
+    fn load_ground(&mut self, root: &Table, src: &SourceFile) -> Option<GroundDef> {
+        let g = root.table("ground")?;
+        let gspan = root.value_span("ground", Span::default());
+        let mut terrains: Vec<defs::TerrainDef> = Vec::new();
+        for node in root.array("terrain").unwrap_or(&[]) {
+            let Some(t) = node.as_table() else { continue };
+            let raw = t.str("char").unwrap_or_default();
+            let at = t.value_span("char", node.span);
+            if raw.chars().count() != 1 || raw.chars().all(char::is_whitespace) {
+                self.diags.push(
+                    Diagnostic::new(
+                        &codes::INVALID_VALUE,
+                        format!("[[terrain]] `char` must be one visible character, found {raw:?}"),
+                    )
+                    .at(src, at)
+                    .hint("for example `char = \"g\"` for grass or `char = \"~\"` for water"),
+                );
+                continue;
+            }
+            let def = defs::decode_terrain(t);
+            if let Some(first) = terrains.iter().find(|x| x.ch == def.ch) {
+                self.diags.push(
+                    Diagnostic::new(
+                        &codes::INVALID_VALUE,
+                        format!("terrain char {raw:?} is declared twice (`{}` and `{}`)", first.name, def.name),
+                    )
+                    .at(src, at)
+                    .hint("give each terrain its own character"),
+                );
+                continue;
+            }
+            terrains.push(def);
+        }
+        let Some(map_node) = g.get("map") else {
+            if !g.has("size") {
+                self.diags.push(
+                    Diagnostic::new(&codes::MISSING_KEY, "[ground] needs `size` or `map`")
+                        .at(src, gspan)
+                        .hint("`size = [8, 8]` for plain ground, or `map = [\"...\", ...]` with [[terrain]] tables"),
+                );
+                return None;
+            }
+            return Some(defs::decode_plain_ground(g));
+        };
+        let rows: Vec<(String, Span)> =
+            map_node.as_array().unwrap_or(&[]).iter().filter_map(|n| Some((n.as_str()?.to_string(), n.span))).collect();
+        let width = rows.first().map_or(0, |(r, _)| r.chars().count());
+        let mut ok = width > 0;
+        if width == 0 {
+            self.diags
+                .push(Diagnostic::new(&codes::INVALID_VALUE, "`map` rows must not be empty").at(src, map_node.span));
+        }
+        let declared = || {
+            if terrains.is_empty() {
+                "no terrain is declared yet".to_string()
+            } else {
+                let list: Vec<String> =
+                    terrains.iter().map(|t| format!("{:?} ({})", t.ch.to_string(), t.name)).collect();
+                format!("declared: {}", list.join(", "))
+            }
+        };
+        let mut cells = Vec::with_capacity(width * rows.len());
+        for (y, (row, at)) in rows.iter().enumerate() {
+            let n = row.chars().count();
+            if n != width {
+                ok = false;
+                self.diags.push(
+                    Diagnostic::new(
+                        &codes::INVALID_VALUE,
+                        format!("`map` row {y} has {n} characters, but row 0 has {width}"),
+                    )
+                    .at(src, *at)
+                    .hint("every row must have the same length: the map is a rectangle"),
+                );
+                continue;
+            }
+            for (x, ch) in row.chars().enumerate() {
+                match terrains.iter().position(|t| t.ch == ch) {
+                    Some(i) => cells.push(i as u8),
+                    None => {
+                        ok = false;
+                        let col = Span::new(at.start + 1 + row.char_indices().nth(x).map_or(0, |(b, _)| b), 0);
+                        let col = Span::new(col.start, col.start + ch.len_utf8());
+                        self.diags.push(
+                            Diagnostic::new(
+                                &codes::UNKNOWN_TERRAIN,
+                                format!("`map` cell [{x}, {y}] is {:?}, which no [[terrain]] declares", ch.to_string()),
+                            )
+                            .at(src, col)
+                            .note(declared())
+                            .hint(format!(
+                                "add [[terrain]] with `char = {:?}`, or use a declared character",
+                                ch.to_string()
+                            )),
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+        let size = [width as i32, rows.len() as i32];
+        if g.has("size") {
+            let given = Fields::new(g, &schema::GROUND).cell("size");
+            if given != size {
+                self.diags.push(
+                    Diagnostic::new(
+                        &codes::INVALID_VALUE,
+                        format!(
+                            "`size = [{}, {}]` does not match the map, which is {} x {}",
+                            given[0], given[1], size[0], size[1]
+                        ),
+                    )
+                    .at(src, g.value_span("size", gspan))
+                    .hint("remove `size`: a map sets the ground's size"),
+                );
+            }
+        }
+        for key in ["color", "alt_color"] {
+            if g.has(key) {
+                self.diags.push(
+                    Diagnostic::new(&codes::INVALID_VALUE, format!("`{key}` does not apply with `map`"))
+                        .at(src, g.key_span(key, gspan))
+                        .hint("set colors on the [[terrain]] tables"),
+                );
+            }
+        }
+        if !ok || terrains.len() > 255 {
+            return None;
+        }
+        Some(GroundDef { size, terrains, cells, has_map: true })
     }
 }
 
@@ -447,6 +737,49 @@ impl<'a> SceneLoader<'a> {
 /// screen entities.
 fn check_entity(def: &EntityDef, t: &Table, span: Span, src: &SourceFile, diags: &mut Vec<Diagnostic>) {
     let who = def.name.as_deref().map_or("this entity".to_string(), |n| format!("`{n}`"));
+    if let Some(name) = def.name.as_deref()
+        && schema::RESERVED_NAMES.contains(&name)
+    {
+        let means = if name == "ground" {
+            "[[connect]] `from = \"ground\"` means taps on the ground"
+        } else {
+            "[[connect]] `to = \"self\"` means the entity that emitted"
+        };
+        diags.push(
+            Diagnostic::new(&codes::INVALID_VALUE, format!("`{name}` is a reserved name: {means}"))
+                .at(src, t.value_span("name", span))
+                .hint("choose another name"),
+        );
+    }
+    if def.footprint != [1, 1] {
+        let fixed: Vec<&str> = [
+            ("mover", def.mover.is_some()),
+            ("patrol", def.patrol.is_some()),
+            ("wander", def.wander.is_some()),
+            ("pushable", def.pushable),
+            ("screen_pos", def.screen_pos.is_some()),
+        ]
+        .into_iter()
+        .filter(|(_, has)| *has)
+        .map(|(k, _)| k)
+        .collect();
+        if !fixed.is_empty() {
+            diags.push(
+                Diagnostic::new(
+                    &codes::INVALID_VALUE,
+                    format!(
+                        "{who} has `footprint = [{}, {}]`; only things that stay put can cover several cells, so it \
+                         cannot have `{}`",
+                        def.footprint[0],
+                        def.footprint[1],
+                        fixed.join("`, `")
+                    ),
+                )
+                .at(src, t.key_span("footprint", span))
+                .hint("remove `footprint`, or the behavior"),
+            );
+        }
+    }
     if let Some(label) = &def.label {
         let at = t.table("label").map_or(span, |l| l.value_span("text", t.value_span("label", span)));
         match defs::parse_label(&label.text) {
@@ -547,21 +880,29 @@ fn check_connect_logic(
     c: &defs::ConnectDef,
     t: &Table,
     span: Span,
+    target: Option<&EntityDef>,
     entities: &[EntityDef],
     src: &SourceFile,
     diags: &mut Vec<Diagnostic>,
 ) {
     let by_name = |n: &str| entities.iter().find(|e| e.name.as_deref() == Some(n));
     let action = c.action.name();
+    // How the target is named in messages: `hud`, or the prefab for `self`.
+    let to_label = match (c.to.as_deref(), &c.from) {
+        (Some("self"), ConnectFrom::Prefab(p)) => format!("{p} (self)"),
+        (Some("self"), ConnectFrom::Entity(n)) => n.clone(),
+        (Some(n), _) => n.to_string(),
+        (None, _) => "the target".to_string(),
+    };
     if c.action.changes_prop() {
         match &c.prop {
             None => diags.push(
                 Diagnostic::new(&codes::MISSING_KEY, format!("`action = \"{action}\"` needs `prop`"))
                     .at(src, t.value_span("action", span))
-                    .hint(format!("add `prop = \"...\"`: a prop declared in `{}`'s props", c.to)),
+                    .hint(format!("add `prop = \"...\"`: a prop declared in `{to_label}`'s props")),
             ),
             Some(prop) => {
-                if let Some(target) = by_name(&c.to) {
+                if let Some(target) = target {
                     match target.prop(prop) {
                         None => diags.push(unknown_prop(
                             target,
@@ -578,7 +919,7 @@ fn check_connect_logic(
                                         &codes::PROP_TYPE,
                                         format!(
                                             "`add` needs a number prop, but `{}`.{prop} is {}",
-                                            c.to,
+                                            to_label,
                                             current.type_name()
                                         ),
                                     )
@@ -591,7 +932,7 @@ fn check_connect_logic(
                                         format!(
                                             "`value = {}` cannot be added to `{}`.{prop}, which is {}",
                                             v.literal(),
-                                            c.to,
+                                            to_label,
                                             current.type_name()
                                         ),
                                     )
@@ -610,7 +951,7 @@ fn check_connect_logic(
                                             "`value = {}` is {}, but `{}`.{prop} is {}",
                                             v.literal(),
                                             v.type_name(),
-                                            c.to,
+                                            to_label,
                                             current.type_name()
                                         ),
                                     )
@@ -798,11 +1139,46 @@ fn load_playtest_lenient(vfs: &Vfs, path: &str) -> (Option<PlaytestDef>, Vec<Dia
     for node in root.array("expect").unwrap_or(&[]) {
         let Some(t) = node.as_table() else { continue };
         let line = src.locate(node.span.start).0;
+        if t.has("count") && !t.has("prefab") {
+            diags.push(
+                Diagnostic::new(&codes::INVALID_VALUE, "`count` only applies with `prefab`")
+                    .at(&src, t.key_span("count", node.span))
+                    .hint("add `prefab = \"...\"` to count its copies; count events with `event` and `at_least`/`at_most`"),
+            );
+            continue;
+        }
+        if t.has("prefab") {
+            let extra: Vec<&str> =
+                ["entity", "enabled", "solid", "props", "text", "event"].into_iter().filter(|k| t.has(k)).collect();
+            if !extra.is_empty() {
+                diags.push(
+                    Diagnostic::new(
+                        &codes::INVALID_VALUE,
+                        format!("[[expect]] with `prefab` counts copies; it cannot use `{}`", extra.join("`, `")),
+                    )
+                    .at(&src, node.span)
+                    .hint("a prefab expectation takes `count` and optionally `pos`; split the rest into another [[expect]]"),
+                );
+                continue;
+            }
+            for key in ["other", "at_most", "at_least", "signal", "reason"] {
+                if t.has(key) {
+                    diags.push(
+                        Diagnostic::new(&codes::INVALID_VALUE, format!("`{key}` only applies to event expectations"))
+                            .at(&src, t.key_span(key, node.span))
+                            .hint("use `count` to check how many copies exist"),
+                    );
+                }
+            }
+            expects.push(defs::decode_expect(t, node.span, line));
+            continue;
+        }
         let state_keys: Vec<&str> =
             ["pos", "enabled", "solid", "props", "text"].into_iter().filter(|k| t.has(k)).collect();
         if !t.has("event") && (!t.has("entity") || state_keys.is_empty()) {
             diags.push(Diagnostic::new(&codes::INVALID_VALUE, "[[expect]] checks nothing").at(&src, node.span).hint(
-                "use `entity` with `pos`/`enabled`/`solid`/`props`/`text`, or `event` (optionally with `entity`/`signal`)",
+                "use `entity` with `pos`/`enabled`/`solid`/`props`/`text`, `prefab` with `count`, or `event` (optionally \
+                 with `entity`/`signal`)",
             ));
             continue;
         }
@@ -942,6 +1318,18 @@ pub fn check_project(vfs: &Vfs) -> CheckReport {
         let Some(scene) = scene else { continue };
         let names: Vec<&str> = scene.entities.iter().filter_map(|e| e.name.as_deref()).collect();
         for exp in &def.expects {
+            if let Some(p) = &exp.prefab
+                && !loader.prefab_exists(p)
+            {
+                let all = loader.prefab_names();
+                let hint = did_you_mean(p, all.iter().map(String::as_str))
+                    .unwrap_or_else(|| format!("there is no prefabs/{p}.toml"));
+                diagnostics.push(
+                    Diagnostic::new(&codes::UNKNOWN_PREFAB, format!("[[expect]] counts unknown prefab `{p}`"))
+                        .at(&def.src, exp.span)
+                        .hint(hint),
+                );
+            }
             if let Some(name) = &exp.other
                 && !names.contains(&name.as_str())
             {

@@ -133,13 +133,15 @@ Flags:
   --component NAME   Only entities with this component (sprite, trigger, ...).
   --events           Include the event log: what happened and what was refused, and why.
   --since N          With --events: only events from frame N on.
+  --place PREFAB[@X,Y] Can I build here? With a cell: whether a `spawn` of PREFAB fits there at this frame, and why not. Without: every cell where it fits.
   --json             Print one JSON object on stdout instead of text.
 
-Answers what exists, where it is, and why something happened. The text table is a summary (cell, components, solid, cooldown, patrol target, screen rectangle, tap point); --json has every component and all runtime state. `tap` is a pixel where a tap is guaranteed to hit the entity.
+Answers what exists, where it is, and why something happened. The text table is a summary (cell, components, solid, cooldown, patrol target, screen rectangle, tap point); --json has every component and all runtime state, plus `ground` (size, and the map and terrain legend for terrain maps). `tap` is a pixel where a tap is guaranteed to hit the entity. `--place` applies the same rules as the `spawn` action (inside the ground, buildable terrain, nothing enabled standing there).
 
 Examples:
   slate inspect --json
   slate inspect --input tests/walkthrough.toml --frame 60 --entity player --events
+  slate inspect --input tests/build.toml --frame 120 --place house@3,2
 ```
 
 ## slate test

@@ -439,3 +439,166 @@ fn pushables_are_checked() {
     assert_eq!(codes(&project(&[("scenes/main.toml", on_wall)])), vec!["W0201"]);
     assert_eq!(codes(&project(&[("scenes/main.toml", scene("screen_pos = [1, 1]"))])), vec!["E0105"]);
 }
+
+// ---------------------------------------------------------------------------
+// Builder kit (ADR 0013): terrain maps, footprints, spawn, prefab sources
+
+const HOUSE: &str = "footprint = [2, 2]\nblock = { color = \"#eee\", top = \"#c33\" }\nsolid = true\n";
+
+fn builder_with(extra: &str) -> Vec<&'static str> {
+    let scene = format!(
+        r##"
+[ground]
+map = ["ggw", "ggw", "sgg"]
+
+[[terrain]]
+char = "g"
+name = "grass"
+
+[[terrain]]
+char = "w"
+name = "water"
+build = false
+
+[[terrain]]
+char = "s"
+name = "sand"
+build = false
+
+[[entity]]
+name = "town"
+props = {{ coins = 5 }}
+{extra}
+"##
+    );
+    codes(&project(&[("prefabs/house.toml", HOUSE), ("scenes/main.toml", &scene)]))
+}
+
+#[test]
+fn a_valid_builder_scene_has_no_diagnostics() {
+    let extra = r##"
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "house"
+when = [{ entity = "town", prop = "coins", at_least = 3 }]
+
+[[connect]]
+from_prefab = "house"
+signal = "spawned"
+to = "town"
+action = "add"
+prop = "coins"
+value = -3
+
+[[connect]]
+from_prefab = "house"
+signal = "tapped"
+to = "self"
+action = "disable"
+"##;
+    assert_eq!(builder_with(extra), Vec::<&str>::new());
+}
+
+#[test]
+fn terrain_maps_are_checked() {
+    let scene = |ground: &str| {
+        let text = format!("{ground}\n[[terrain]]\nchar = \"g\"\n\n[[terrain]]\nchar = \"w\"\nbuild = false\n");
+        codes(&project(&[("scenes/main.toml", &text)]))
+    };
+    assert_eq!(scene("[ground]\nmap = [\"gg\", \"gw\"]"), Vec::<&str>::new());
+    // An undeclared character, a ragged row, a size that disagrees, colors with a map.
+    assert_eq!(scene("[ground]\nmap = [\"gx\", \"gw\"]"), vec!["E0208"]);
+    assert_eq!(scene("[ground]\nmap = [\"gg\", \"g\"]"), vec!["E0105"]);
+    assert_eq!(scene("[ground]\nmap = [\"gg\", \"gw\"]\nsize = [3, 2]"), vec!["E0105"]);
+    assert_eq!(scene("[ground]\nmap = [\"gg\", \"gw\"]\ncolor = \"#fff\""), vec!["E0105"]);
+    // Neither size nor map.
+    assert_eq!(scene("[ground]\ncolor = \"#fff\""), vec!["E0104"]);
+    // Terrain chars must be single and unique.
+    let vfs = project(&[(
+        "scenes/main.toml",
+        "[ground]\nmap = [\"g\"]\n[[terrain]]\nchar = \"g\"\n[[terrain]]\nchar = \"g\"\n[[terrain]]\nchar = \"ab\"\n",
+    )]);
+    assert_eq!(codes(&vfs), vec!["E0105", "E0105"]);
+}
+
+#[test]
+fn spawn_and_prefab_sources_are_checked() {
+    // spawn without a prefab, with a target, with an unknown prefab.
+    let spawn = |keys: &str| {
+        builder_with(&format!("[[connect]]\nfrom = \"ground\"\nsignal = \"tapped\"\naction = \"spawn\"\n{keys}"))
+    };
+    assert_eq!(spawn(""), vec!["E0104"]);
+    assert_eq!(spawn("prefab = \"house\"\nto = \"town\""), vec!["E0105"]);
+    assert_eq!(spawn("prefab = \"hosue\""), vec!["E0201"]);
+    // The ground only emits `tapped`, and is not an entity.
+    assert_eq!(
+        builder_with("[[connect]]\nfrom = \"ground\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\""),
+        vec!["W0203"]
+    );
+    assert_eq!(
+        builder_with("[[connect]]\nfrom = \"ground\"\nsignal = \"tapped\"\nto = \"self\"\naction = \"disable\""),
+        vec!["E0105"]
+    );
+    // from and from_prefab: exactly one.
+    assert_eq!(builder_with("[[connect]]\nsignal = \"tapped\"\nto = \"town\"\naction = \"disable\""), vec!["E0104"]);
+    assert_eq!(
+        builder_with(
+            "[[connect]]\nfrom = \"town\"\nfrom_prefab = \"house\"\nsignal = \"tapped\"\nto = \"town\"\naction = \"disable\""
+        ),
+        vec!["E0105"]
+    );
+    // A prefab that is never spawned never emits `spawned`.
+    assert_eq!(
+        builder_with("[[connect]]\nfrom_prefab = \"house\"\nsignal = \"spawned\"\nto = \"town\"\naction = \"disable\""),
+        vec!["W0203"]
+    );
+    // `to = "self"` with add needs the prop on the prefab.
+    assert_eq!(
+        builder_with(
+            "[[connect]]\nfrom_prefab = \"house\"\nsignal = \"tapped\"\nto = \"self\"\naction = \"add\"\nprop = \"level\""
+        ),
+        vec!["E0206"]
+    );
+    // Non-spawn actions need `to`; `prefab` is only for spawn.
+    assert_eq!(builder_with("[[connect]]\nfrom = \"town\"\nsignal = \"tapped\"\naction = \"disable\""), vec!["E0104"]);
+    assert_eq!(
+        builder_with(
+            "[[connect]]\nfrom = \"town\"\nsignal = \"tapped\"\nto = \"town\"\naction = \"disable\"\nprefab = \"house\""
+        ),
+        vec!["E0105"]
+    );
+}
+
+#[test]
+fn footprints_and_reserved_names_are_checked() {
+    // A moving thing cannot be multi-cell; reserved names.
+    assert_eq!(builder_with("[[entity]]\npos = [0, 0]\nfootprint = [2, 1]\nmover = {}\nsprite = {}"), vec!["E0105"]);
+    assert_eq!(builder_with("[[entity]]\nname = \"ground\"\npos = [0, 0]\ntile = {}"), vec!["E0105"]);
+    assert_eq!(builder_with("[[entity]]\nname = \"self\"\npos = [0, 0]\ntile = {}"), vec!["E0105"]);
+    // Footprints count for overlaps and the ground's edge.
+    assert_eq!(
+        builder_with(
+            "[[entity]]\nprefab = \"house\"\npos = [0, 0]\n\n[[entity]]\npos = [1, 1]\nblock = {}\nsolid = true"
+        ),
+        vec!["W0201"]
+    );
+    assert_eq!(builder_with("[[entity]]\nprefab = \"house\"\npos = [2, 2]"), vec!["W0202"]);
+}
+
+#[test]
+fn prefab_expectations_are_checked() {
+    let vfs = |expect: &str| {
+        project(&[
+            ("prefabs/house.toml", HOUSE),
+            ("scenes/main.toml", "[ground]\nsize = [4, 4]\n"),
+            ("tests/t.toml", &format!("[test]\nscene = \"scenes/main.toml\"\nframes = 10\n\n[[expect]]\n{expect}\n")),
+        ])
+    };
+    assert_eq!(codes(&vfs("prefab = \"house\"\ncount = 0")), Vec::<&str>::new());
+    assert_eq!(codes(&vfs("prefab = \"house\"\npos = [1, 1]")), Vec::<&str>::new());
+    assert_eq!(codes(&vfs("prefab = \"hous\"\ncount = 1")), vec!["E0201"]);
+    assert_eq!(codes(&vfs("count = 1")), vec!["E0105"]);
+    assert_eq!(codes(&vfs("prefab = \"house\"\nenabled = true")), vec!["E0105"]);
+}

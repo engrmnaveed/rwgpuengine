@@ -4,14 +4,50 @@
     {
       "name": "slate-web-iso-garden",
       "runtimeExecutable": "cargo",
-      "runtimeArgs": ["run", "--quiet", "--bin", "slate", "--", "serve", "examples/iso_garden", "--port", "4410"],
+      "runtimeArgs": [
+        "run",
+        "--quiet",
+        "--bin",
+        "slate",
+        "--",
+        "serve",
+        "examples/iso_garden",
+        "--port",
+        "4410"
+      ],
       "port": 4410
     },
     {
       "name": "slate-web-coin-vault",
       "runtimeExecutable": "cargo",
-      "runtimeArgs": ["run", "--quiet", "--bin", "slate", "--", "serve", "examples/coin_vault", "--port", "4411"],
+      "runtimeArgs": [
+        "run",
+        "--quiet",
+        "--bin",
+        "slate",
+        "--",
+        "serve",
+        "examples/coin_vault",
+        "--port",
+        "4411"
+      ],
       "port": 4411
+    },
+    {
+      "name": "slate-web-tiny-town",
+      "runtimeExecutable": "cargo",
+      "runtimeArgs": [
+        "run",
+        "--quiet",
+        "--bin",
+        "slate",
+        "--",
+        "serve",
+        "examples/tiny_town",
+        "--port",
+        "4412"
+      ],
+      "port": 4412
     }
   ]
 }

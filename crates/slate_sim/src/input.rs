@@ -55,6 +55,8 @@ pub struct Tap {
     /// Disabled entities under the point, topmost first. Reported when a tap
     /// misses, to answer "why didn't my button fire?".
     pub under_disabled: Vec<EntityId>,
+    /// The ground cell under the point, when no enabled entity was hit.
+    pub ground: Option<[i32; 2]>,
 }
 
 /// Everything the simulation sees as input for one step.

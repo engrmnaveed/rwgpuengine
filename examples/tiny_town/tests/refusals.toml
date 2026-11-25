@@ -1,0 +1,116 @@
+[test]
+doc = "Placements that must be refused (water, beach, taken cells) and a purchase the player cannot afford."
+frames = 130
+
+[[input]]
+frame = 0
+tap = [448, 256]          # ground (7, 2): water
+
+[[input]]
+frame = 10
+tap = [256, 192]          # ground (2, 3): the house would cover the boulder on (3, 3)
+
+[[input]]
+frame = 20
+tap = [192, 160]          # ground (0, 3): sand
+
+[[input]]
+frame = 30
+tap = [448, 224]          # ground (6, 1): grass, but the house would reach the water on (7, 1)
+
+[[input]]
+frame = 40
+tap = [320, 224]          # ground (4, 3): a house, 9 coins left
+
+[[input]]
+frame = 50
+tap = [255, 224]          # ground (3, 4): the house would cover (4, 4), taken by the first house
+
+[[input]]
+frame = 60
+tap = [384, 192]          # ground (4, 1): a house, 6 coins left
+
+[[input]]
+frame = 70
+tap = [224, 208]          # ground (2, 4): a house, 3 coins left
+
+[[input]]
+frame = 80
+tap = [255, 442]          # Tree button
+
+[[input]]
+frame = 90
+tap = [480, 272]          # ground (8, 2): a tree, 2 left
+
+[[input]]
+frame = 100
+tap = [448, 288]          # ground (8, 3): a tree, 1 left
+
+[[input]]
+frame = 110
+tap = [352, 304]          # ground (7, 5): a tree, 0 left
+
+[[input]]
+frame = 120
+tap = [416, 304]          # ground (8, 4): no coins left, so nothing happens
+
+# The four refused houses: three because of terrain, one because a cell was taken.
+[[expect]]
+frame = 40
+event = "blocked"
+reason = "terrain"
+at_least = 3
+at_most = 3
+
+[[expect]]
+frame = 40
+event = "blocked"
+reason = "occupied"
+at_least = 1
+at_most = 1
+
+[[expect]]
+frame = 40
+prefab = "house"
+count = 0
+
+[[expect]]
+frame = 40
+entity = "town"
+props = { coins = 12 }
+
+[[expect]]
+frame = 60
+event = "blocked"
+reason = "occupied"
+at_least = 2
+at_most = 2
+
+[[expect]]
+frame = 60
+prefab = "house"
+pos = [3, 4]
+count = 0
+
+# The end: 3 houses and 3 trees spent all 12 coins; the last tap bought nothing.
+[[expect]]
+prefab = "house"
+count = 3
+
+[[expect]]
+prefab = "tree"
+count = 3
+
+[[expect]]
+prefab = "tree"
+pos = [8, 4]
+count = 0
+
+[[expect]]
+entity = "town"
+props = { coins = 0 }
+
+[[expect]]
+event = "spawned"
+at_least = 6
+at_most = 6

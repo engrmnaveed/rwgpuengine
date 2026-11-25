@@ -98,6 +98,8 @@ pub struct SceneDef {
     pub ground: Option<GroundDef>,
     pub entities: Vec<EntityDef>,
     pub connections: Vec<ConnectDef>,
+    /// Prefabs named by `spawn` actions, decoded at [0, 0, 0], in first-use order.
+    pub templates: Vec<EntityDef>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -106,11 +108,56 @@ pub struct CameraDef {
     pub offset: [f32; 2],
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct GroundDef {
     pub size: [i32; 2],
+    /// At least one. Without `map`, a single buildable terrain from `color`.
+    pub terrains: Vec<TerrainDef>,
+    /// Terrain index of every cell, row by row: `cells[y * size_x + x]`.
+    pub cells: Vec<u8>,
+    /// The ground was written as a `map` (it is then part of the state hash
+    /// and of `inspect`).
+    pub has_map: bool,
+}
+
+/// A kind of ground cell (`[[terrain]]`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TerrainDef {
+    pub ch: char,
+    pub name: String,
     pub color: Rgba,
     pub alt_color: Rgba,
+    /// Spawned entities can be placed on it.
+    pub build: bool,
+}
+
+impl GroundDef {
+    /// Plain ground of one buildable terrain.
+    pub fn plain(size: [i32; 2], color: Rgba, alt_color: Rgba) -> GroundDef {
+        let terrain = TerrainDef { ch: '.', name: "ground".into(), color, alt_color, build: true };
+        let n = (size[0].max(0) as usize) * (size[1].max(0) as usize);
+        GroundDef { size, terrains: vec![terrain], cells: vec![0; n], has_map: false }
+    }
+
+    pub fn contains(&self, c: [i32; 2]) -> bool {
+        c[0] >= 0 && c[1] >= 0 && c[0] < self.size[0] && c[1] < self.size[1]
+    }
+
+    /// The terrain of a cell, `None` outside the ground.
+    pub fn terrain_at(&self, c: [i32; 2]) -> Option<&TerrainDef> {
+        if !self.contains(c) {
+            return None;
+        }
+        let i = c[1] as usize * self.size[0] as usize + c[0] as usize;
+        self.terrains.get(*self.cells.get(i)? as usize)
+    }
+
+    /// The map rows as text (`inspect`).
+    pub fn rows(&self) -> Vec<String> {
+        (0..self.size[1])
+            .map(|y| (0..self.size[0]).map(|x| self.terrain_at([x, y]).map_or('?', |t| t.ch)).collect())
+            .collect()
+    }
 }
 
 /// Where a definition came from, for messages.
@@ -126,6 +173,8 @@ pub struct EntityDef {
     pub name: Option<String>,
     pub prefab: Option<String>,
     pub pos: [f32; 3],
+    /// Cells covered along +x and +y from `pos` (at least [1, 1]).
+    pub footprint: [i32; 2],
     pub enabled: bool,
     pub solid: bool,
     /// Movers push it; triggers count it.
@@ -165,6 +214,22 @@ impl EntityDef {
     pub fn blocks(&self) -> bool {
         self.solid || self.pushable
     }
+
+    /// Every cell the entity covers, x first then y.
+    pub fn cells(&self) -> Vec<[i32; 2]> {
+        footprint_cells(self.cell(), self.footprint)
+    }
+}
+
+/// The cells of a `footprint` whose back corner (lowest x and y) is `at`.
+pub fn footprint_cells(at: [i32; 2], footprint: [i32; 2]) -> Vec<[i32; 2]> {
+    let mut out = Vec::with_capacity((footprint[0].max(1) * footprint[1].max(1)) as usize);
+    for dy in 0..footprint[1].max(1) {
+        for dx in 0..footprint[0].max(1) {
+            out.push([at[0] + dx, at[1] + dy]);
+        }
+    }
+    out
 }
 
 /// Round half up with exact float ops (deterministic on every platform).
@@ -180,6 +245,8 @@ pub struct TileDef {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BlockDef {
     pub color: Rgba,
+    /// Top face color (defaults to `color`).
+    pub top: Rgba,
     pub height: f32,
 }
 
@@ -418,6 +485,8 @@ pub enum ConnectAction {
     Add,
     /// Set the target's prop to `value`.
     Set,
+    /// Place a new copy of a prefab where the signal happened.
+    Spawn,
 }
 
 impl ConnectAction {
@@ -428,6 +497,7 @@ impl ConnectAction {
             ConnectAction::Toggle => "toggle",
             ConnectAction::Add => "add",
             ConnectAction::Set => "set",
+            ConnectAction::Spawn => "spawn",
         }
     }
 
@@ -436,18 +506,50 @@ impl ConnectAction {
     }
 }
 
+/// Who a `[[connect]]` listens to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConnectFrom {
+    /// One entity, by name.
+    Entity(String),
+    /// Every entity made from this prefab.
+    Prefab(String),
+    /// Taps on ground cells that hit no entity.
+    Ground,
+}
+
+impl ConnectFrom {
+    /// `'plate'`, `every 'coin'`, `the ground`, for messages.
+    pub fn describe(&self) -> String {
+        match self {
+            ConnectFrom::Entity(n) => format!("'{n}'"),
+            ConnectFrom::Prefab(p) => format!("every '{p}'"),
+            ConnectFrom::Ground => "the ground".into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ConnectDef {
-    pub from: String,
+    pub from: ConnectFrom,
     pub signal: String,
-    pub to: String,
+    /// `None` for `spawn`; `Some("self")` targets the emitter.
+    pub to: Option<String>,
     pub action: ConnectAction,
     /// With add/set: the target's prop.
     pub prop: Option<String>,
     /// With add/set: the value (add defaults to 1).
     pub value: Option<PropValue>,
+    /// With spawn: the prefab to place.
+    pub prefab: Option<String>,
     /// All must hold when the signal arrives.
     pub when: Vec<ConditionDef>,
+}
+
+impl ConnectDef {
+    /// The target entity's name, unless it is `self` or absent.
+    pub fn to_name(&self) -> Option<&str> {
+        self.to.as_deref().filter(|t| *t != "self")
+    }
 }
 
 /// One `when` item.
@@ -531,6 +633,9 @@ pub struct ExpectDef {
     pub props: Vec<(String, PropValue)>,
     /// Expected label text as shown.
     pub text: Option<String>,
+    /// Count enabled entities of this prefab (at `pos`, if given).
+    pub prefab: Option<String>,
+    pub count: Option<u64>,
     pub event: Option<String>,
     pub signal: Option<String>,
     /// With `event = "blocked"`: solid, actor, edge, area or cooldown.
@@ -587,10 +692,24 @@ pub(crate) fn decode_camera(t: Option<&Table>) -> CameraDef {
     CameraDef { center: c.opt_vec2("center"), offset: c.vec2("offset") }
 }
 
-pub(crate) fn decode_ground(t: &Table) -> GroundDef {
+/// Plain ground from `size` and `color` (maps are built by the loader).
+pub(crate) fn decode_plain_ground(t: &Table) -> GroundDef {
     let g = Fields::new(t, &schema::GROUND);
     let color = g.color("color");
-    GroundDef { size: g.cell("size"), color, alt_color: g.opt_color("alt_color").unwrap_or(color.scale(9, 10)) }
+    GroundDef::plain(g.cell("size"), color, g.opt_color("alt_color").unwrap_or(color.scale(9, 10)))
+}
+
+pub(crate) fn decode_terrain(t: &Table) -> TerrainDef {
+    let f = Fields::new(t, &schema::TERRAIN);
+    let ch = f.str("char").chars().next().unwrap_or('?');
+    let color = f.color("color");
+    TerrainDef {
+        ch,
+        name: f.opt_str("name").unwrap_or_else(|| ch.to_string()),
+        color,
+        alt_color: f.opt_color("alt_color").unwrap_or(color.scale(9, 10)),
+        build: f.bool("build"),
+    }
 }
 
 /// Decode an entity from its merged (prefab + overrides) table.
@@ -601,13 +720,18 @@ pub(crate) fn decode_entity(t: &Table, pos: [f32; 3], origin: Origin) -> EntityD
         name: f.opt_str("name"),
         prefab: f.opt_str("prefab"),
         pos,
+        footprint: {
+            let [w, h] = f.cell("footprint");
+            [w.max(1), h.max(1)]
+        },
         enabled: f.bool("enabled"),
         solid: f.bool("solid"),
         pushable: f.bool("pushable"),
         tile: comp("tile").map(|t| TileDef { color: Fields::new(t, &schema::TILE).color("color") }),
         block: comp("block").map(|t| {
             let b = Fields::new(t, &schema::BLOCK);
-            BlockDef { color: b.color("color"), height: b.num("height") as f32 }
+            let color = b.color("color");
+            BlockDef { color, top: b.opt_color("top").unwrap_or(color), height: b.num("height") as f32 }
         }),
         sprite: comp("sprite").map(|t| {
             let s = Fields::new(t, &schema::SPRITE);
@@ -676,6 +800,7 @@ pub(crate) fn decode_connect(t: &Table) -> ConnectDef {
         "disable" => ConnectAction::Disable,
         "add" => ConnectAction::Add,
         "set" => ConnectAction::Set,
+        "spawn" => ConnectAction::Spawn,
         _ => ConnectAction::Toggle,
     };
     let mut value = t.get("value").and_then(scalar);
@@ -687,13 +812,20 @@ pub(crate) fn decode_connect(t: &Table) -> ConnectDef {
         .and_then(Node::as_array)
         .map(|items| items.iter().filter_map(|n| n.as_table().map(decode_condition)).collect())
         .unwrap_or_default();
+    let from = match (c.opt_str("from"), c.opt_str("from_prefab")) {
+        (Some(f), _) if f == "ground" => ConnectFrom::Ground,
+        (Some(f), _) => ConnectFrom::Entity(f),
+        (None, Some(p)) => ConnectFrom::Prefab(p),
+        (None, None) => ConnectFrom::Entity(String::new()),
+    };
     ConnectDef {
-        from: c.str("from"),
+        from,
         signal: c.str("signal"),
-        to: c.str("to"),
+        to: c.opt_str("to"),
         action,
         prop: c.opt_str("prop"),
         value,
+        prefab: c.opt_str("prefab"),
         when,
     }
 }
@@ -739,6 +871,8 @@ pub(crate) fn decode_expect(t: &Table, span: Span, line: usize) -> ExpectDef {
         solid: e.table.bool("solid"),
         props: e.table("props").map(decode_props).unwrap_or_default(),
         text: e.opt_str("text"),
+        prefab: e.opt_str("prefab"),
+        count: e.opt_int("count").map(|v| v as u64),
         event: e.opt_str("event"),
         signal: e.opt_str("signal"),
         reason: e.opt_str("reason"),

@@ -328,3 +328,89 @@ fn font_sheet() {
     let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/font-sheet.png");
     std::fs::write(&out, png).unwrap();
 }
+
+// ---------------------------------------------------------------------------
+// Builder kit (ADR 0013): terrain, multi-cell boxes, ground picking
+
+#[test]
+fn a_multi_cell_block_looks_like_one_box() {
+    // One 2 x 2 block draws the same pixels as four 1 x 1 blocks of the same
+    // color and height (its slices hide each other's inner faces exactly).
+    let big = "[ground]\nsize = [4, 4]\n\n[[entity]]\npos = [1, 1]\nfootprint = [2, 2]\nblock = { color = \"#c08040\", height = 1.5 }\n";
+    let four = "[ground]\nsize = [4, 4]\n\n[[entity]]\ncells = [[1, 1], [2, 1], [1, 2], [2, 2]]\nblock = { color = \"#c08040\", height = 1.5 }\n";
+    let img = |scene: &str| {
+        let (world, view, def) = setup(scene);
+        rasterize(&build(&world, &view, def.ground.as_ref(), false)).0.image_hash()
+    };
+    assert_eq!(img(big), img(four));
+}
+
+#[test]
+fn things_in_front_of_a_big_box_cover_it_and_things_behind_are_covered() {
+    let scene = r##"
+[ground]
+size = [5, 5]
+
+[[entity]]
+name = "house"
+pos = [1, 1]
+footprint = [2, 2]
+block = { color = "#cccccc", top = "#aa2222", height = 1 }
+
+[[entity]]
+name = "front"
+pos = [3, 2]
+sprite = { color = "#00ff00", size = [10, 40] }
+
+[[entity]]
+name = "back"
+pos = [0, 0]
+sprite = { color = "#0000ff", size = [10, 60] }
+"##;
+    let (world, view, def) = setup(scene);
+    let list = build(&world, &view, def.ground.as_ref(), false);
+    let (frame, stats) = rasterize(&list);
+    let report = build_report(&world, &list, &frame, &stats);
+    let vis = |n: &str| report.entities.iter().find(|e| e.label == n).map(|e| e.visible_px * 100 / e.drawn_px.max(1));
+    assert_eq!(vis("front"), Some(100), "the sprite at +x of the house is drawn over it");
+    assert!(vis("back").unwrap() < 100, "the sprite behind the house is partly hidden");
+    // The roof color is the top face.
+    let [x, y] = view.project_px(1.5, 1.5, 1.0);
+    assert_eq!(frame.pixel(x as u32, y as u32).to_hex(), "#aa2222");
+}
+
+#[test]
+fn terrain_colors_and_ground_taps() {
+    let scene = r##"
+[ground]
+map = ["gw", "gg"]
+
+[[terrain]]
+char = "g"
+color = "#00aa00"
+alt_color = "#00aa00"
+
+[[terrain]]
+char = "w"
+color = "#0000aa"
+alt_color = "#0000aa"
+build = false
+
+[[entity]]
+name = "rock"
+pos = [0, 1]
+block = { height = 3 }
+"##;
+    let (world, view, def) = setup(scene);
+    let list = build(&world, &view, def.ground.as_ref(), true);
+    let (frame, _) = rasterize(&build(&world, &view, def.ground.as_ref(), false));
+    let [wx, wy] = view.project_px(1.0, 0.0, 0.0);
+    assert_eq!(frame.pixel(wx as u32, wy as u32).to_hex(), "#0000aa");
+    // A tap on bare ground reports the cell; one on the rock hits the rock.
+    let t = pick(&list, wx as f32 + 0.5, wy as f32 + 0.5);
+    assert_eq!((t.hit, t.ground), (None, Some([1, 0])));
+    let p = crate::pick::ground_tap_point(&list, [1, 1]).expect("visible cell");
+    assert_eq!(pick(&list, p[0] as f32 + 0.5, p[1] as f32 + 0.5).ground, Some([1, 1]));
+    // The cell under the tall rock has no free pixel.
+    assert_eq!(crate::pick::ground_tap_point(&list, [0, 1]), None);
+}

@@ -29,7 +29,7 @@ impl View {
     pub fn new(project: &ProjectDef, scene: &SceneDef) -> View {
         let d = project.display;
         let iso = project.iso;
-        let center = scene.camera.center.unwrap_or_else(|| match scene.ground {
+        let center = scene.camera.center.unwrap_or_else(|| match &scene.ground {
             Some(g) => [(g.size[0] - 1) as f32 / 2.0, (g.size[1] - 1) as f32 / 2.0],
             None => [0.0, 0.0],
         });

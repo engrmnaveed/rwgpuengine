@@ -237,7 +237,11 @@ impl Session {
         let mut out = dump::world_summary(&self.world)
             .with("scene", self.scene.path.as_str())
             .with("input", self.playtest.as_ref().map(|p| p.path.clone()))
+            .with("ground", dump::ground_json(&self.world))
             .with("entities", entities);
+        if let Some(q) = &opts.place {
+            out.set("place", self.place_json(q));
+        }
         let game = self.game.inspect(&self.world);
         if !game.is_null() {
             out.set("game", game);
@@ -272,6 +276,94 @@ impl Session {
     pub fn hash_hex(&self) -> String {
         hash::hex(self.state_hash())
     }
+
+    /// "Can I build here?": where `prefab` can be spawned right now, or
+    /// whether it fits at one cell and why not.
+    pub fn place_json(&self, q: &PlaceQuery) -> Json {
+        let w = &self.world;
+        let list = self.draw_list(true);
+        let tap = |cell: [i32; 2]| pick::ground_tap_point(&list, cell).map(Json::from);
+        if w.template(&q.prefab).is_none() {
+            let mut known: Vec<&str> = w.templates.iter().filter_map(|t| t.prefab.as_deref()).collect();
+            known.sort_unstable();
+            return Json::object().with("prefab", q.prefab.as_str()).with("ok", false).with(
+                "message",
+                format!(
+                    "no [[connect]] in this scene spawns `{}` (spawned prefabs: {})",
+                    q.prefab,
+                    if known.is_empty() { "none".to_string() } else { known.join(", ") }
+                ),
+            );
+        }
+        match q.at {
+            Some(cell) => match w.can_place(&q.prefab, cell) {
+                Ok(cells) => Json::object()
+                    .with("prefab", q.prefab.as_str())
+                    .with("at", cell)
+                    .with("ok", true)
+                    .with("cells", Json::Arr(cells.into_iter().map(Json::from).collect()))
+                    .with("tap", tap(cell))
+                    .with("message", format!("`{}` fits at ({}, {})", q.prefab, cell[0], cell[1])),
+                Err(r) => Json::object()
+                    .with("prefab", q.prefab.as_str())
+                    .with("at", cell)
+                    .with("ok", false)
+                    .with("reason", r.reason)
+                    .with("cell", r.cell)
+                    .with("blocked_by", r.by.and_then(|id| w.get(id)).map(slate_sim::Entity::label))
+                    .with("tap", tap(cell))
+                    .with("message", format!("`{}` does not fit at ({}, {}): {}", q.prefab, cell[0], cell[1], r.why)),
+            },
+            None => {
+                let size = w.bounds.unwrap_or([0, 0]);
+                let mut free = Vec::new();
+                for y in 0..size[1] {
+                    for x in 0..size[0] {
+                        if w.can_place(&q.prefab, [x, y]).is_ok() {
+                            free.push(Json::object().with("cell", [x, y]).with("tap", tap([x, y])));
+                        }
+                    }
+                }
+                Json::object()
+                    .with("prefab", q.prefab.as_str())
+                    .with("ok", !free.is_empty())
+                    .with("count", free.len())
+                    .with("free", free)
+                    .with(
+                        "message",
+                        "cells where the prefab's back corner can go right now; `tap` is a screen pixel that taps \
+                         that ground cell (a playtest `[[input]] tap`)",
+                    )
+            }
+        }
+    }
+}
+
+/// `inspect --place <prefab>[@x,y]`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlaceQuery {
+    pub prefab: String,
+    pub at: Option<[i32; 2]>,
+}
+
+impl PlaceQuery {
+    /// `house` or `house@3,4`.
+    pub fn parse(s: &str) -> Result<PlaceQuery, String> {
+        let (prefab, at) = match s.split_once('@') {
+            None => (s, None),
+            Some((p, c)) => {
+                let nums: Vec<Option<i32>> = c.split(',').map(|v| v.trim().parse().ok()).collect();
+                match nums.as_slice() {
+                    [Some(x), Some(y)] => (p, Some([*x, *y])),
+                    _ => return Err(format!("`{c}` is not a cell; write `{p}@3,4`")),
+                }
+            }
+        };
+        if prefab.is_empty() {
+            return Err("missing prefab name; write `house` or `house@3,4`".into());
+        }
+        Ok(PlaceQuery { prefab: prefab.to_string(), at })
+    }
 }
 
 /// Filters for [`Session::inspect`].
@@ -284,6 +376,8 @@ pub struct InspectOptions {
     pub events: bool,
     /// Only events from this frame on.
     pub since: u64,
+    /// Answer "can I build here?" for a spawned prefab.
+    pub place: Option<PlaceQuery>,
 }
 
 fn screen_json(list: &DrawList, id: u32) -> Json {

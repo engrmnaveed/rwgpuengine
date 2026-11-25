@@ -1,0 +1,327 @@
+# Tiny Town: tap a tool in the toolbar, then tap the island to build.
+# A house costs 3 coins, a tree 1, a well 2; you start with 12. The job:
+# 2 houses, 3 trees and a well (11 coins). "Clear" removes what you tap and
+# gives its coins back.
+#
+# Grid: +x runs down-right on screen, +y down-left. The map is 10 x 8: row y,
+# character x. Houses are 2 x 2 and grow from the tapped cell toward +x and +y.
+
+[scene]
+name = "Tiny Town"
+doc = "Reference game 1: build a small town with a coin budget."
+
+[ground]
+map = [
+  "~~~ssss~~~",
+  "~ssgggg~s~",
+  "~sggggg~g~",
+  "sgggggg~gs",
+  "sggggg~~gs",
+  "~sgggg~gg~",
+  "~ssggg~gs~",
+  "~~~sss~~~~",
+]
+
+[[terrain]]
+char = "g"
+name = "grass"
+color = "#6fa86a"
+alt_color = "#67a062"
+
+[[terrain]]
+char = "s"
+name = "sand"
+color = "#e3cf94"
+alt_color = "#dcc78a"
+build = false          # no building on the beach
+
+[[terrain]]
+char = "~"
+name = "water"
+color = "#3d7fc4"
+alt_color = "#3a79bb"
+build = false
+
+# ---- things already on the island
+
+[[entity]]
+prefab = "boulder"
+cells = [[3, 3], [5, 5]]
+
+# ---- HUD
+
+[[entity]]
+name = "town"
+screen_pos = [10, 10]
+sprite = { shape = "rect", color = "#00000088", size = [210, 48] }
+label = { text = "Coins: {coins}\nTool: {tool}", scale = 2, offset = [8, 6] }
+props = { coins = 12, tool = "house" }
+
+[[entity]]
+name = "job"
+screen_pos = [430, 10]
+sprite = { shape = "rect", color = "#00000088", size = [200, 68] }
+label = { text = "Houses {houses}/2\nTrees  {trees}/3\nWells  {wells}/1", scale = 2, offset = [8, 6] }
+props = { houses = 0, trees = 0, wells = 0 }
+
+[[entity]]
+name = "banner"
+screen_pos = [116, 392]
+label = { text = "{msg}", color = "#f2e9a0", scale = 2 }
+props = { msg = "Build 2 houses, 3 trees and a well" }
+
+# ---- toolbar
+
+[[entity]]
+name = "btn_house"
+prefab = "button"
+screen_pos = [28, 420]
+sprite = { color = "#c0533a" }
+label = { text = "House 3" }
+
+[[entity]]
+name = "btn_tree"
+prefab = "button"
+screen_pos = [178, 420]
+sprite = { color = "#2f8a3e" }
+label = { text = "Tree 1" }
+
+[[entity]]
+name = "btn_well"
+prefab = "button"
+screen_pos = [328, 420]
+sprite = { color = "#4f7fb0" }
+label = { text = "Well 2" }
+
+[[entity]]
+name = "btn_clear"
+prefab = "button"
+screen_pos = [478, 420]
+sprite = { color = "#8a6d4b" }
+label = { text = "Clear" }
+
+# ---- choosing a tool
+
+[[connect]]
+from = "btn_house"
+signal = "tapped"
+to = "town"
+action = "set"
+prop = "tool"
+value = "house"
+
+[[connect]]
+from = "btn_tree"
+signal = "tapped"
+to = "town"
+action = "set"
+prop = "tool"
+value = "tree"
+
+[[connect]]
+from = "btn_well"
+signal = "tapped"
+to = "town"
+action = "set"
+prop = "tool"
+value = "well"
+
+[[connect]]
+from = "btn_clear"
+signal = "tapped"
+to = "town"
+action = "set"
+prop = "tool"
+value = "clear"
+
+# ---- building: a tap on the ground spawns the chosen prefab there, if the
+# player can pay for it (the spawn itself checks terrain and free cells)
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "house"
+when = [{ entity = "town", prop = "tool", equals = "house" }, { entity = "town", prop = "coins", at_least = 3 }]
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "tree"
+when = [{ entity = "town", prop = "tool", equals = "tree" }, { entity = "town", prop = "coins", at_least = 1 }]
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "well"
+when = [{ entity = "town", prop = "tool", equals = "well" }, { entity = "town", prop = "coins", at_least = 2 }]
+
+# ---- paying and counting: only for what was really placed
+
+[[connect]]
+from_prefab = "house"
+signal = "spawned"
+to = "town"
+action = "add"
+prop = "coins"
+value = -3
+
+[[connect]]
+from_prefab = "house"
+signal = "spawned"
+to = "job"
+action = "add"
+prop = "houses"
+
+[[connect]]
+from_prefab = "tree"
+signal = "spawned"
+to = "town"
+action = "add"
+prop = "coins"
+value = -1
+
+[[connect]]
+from_prefab = "tree"
+signal = "spawned"
+to = "job"
+action = "add"
+prop = "trees"
+
+[[connect]]
+from_prefab = "well"
+signal = "spawned"
+to = "town"
+action = "add"
+prop = "coins"
+value = -2
+
+[[connect]]
+from_prefab = "well"
+signal = "spawned"
+to = "job"
+action = "add"
+prop = "wells"
+
+# ---- clearing: with the Clear tool, a tapped building disappears and its
+# coins come back
+
+[[connect]]
+from_prefab = "house"
+signal = "tapped"
+to = "self"
+action = "disable"
+when = [{ entity = "town", prop = "tool", equals = "clear" }]
+
+[[connect]]
+from_prefab = "house"
+signal = "tapped"
+to = "town"
+action = "add"
+prop = "coins"
+value = 3
+when = [{ entity = "town", prop = "tool", equals = "clear" }]
+
+[[connect]]
+from_prefab = "house"
+signal = "tapped"
+to = "job"
+action = "add"
+prop = "houses"
+value = -1
+when = [{ entity = "town", prop = "tool", equals = "clear" }]
+
+[[connect]]
+from_prefab = "tree"
+signal = "tapped"
+to = "self"
+action = "disable"
+when = [{ entity = "town", prop = "tool", equals = "clear" }]
+
+[[connect]]
+from_prefab = "tree"
+signal = "tapped"
+to = "town"
+action = "add"
+prop = "coins"
+value = 1
+when = [{ entity = "town", prop = "tool", equals = "clear" }]
+
+[[connect]]
+from_prefab = "tree"
+signal = "tapped"
+to = "job"
+action = "add"
+prop = "trees"
+value = -1
+when = [{ entity = "town", prop = "tool", equals = "clear" }]
+
+[[connect]]
+from_prefab = "well"
+signal = "tapped"
+to = "self"
+action = "disable"
+when = [{ entity = "town", prop = "tool", equals = "clear" }]
+
+[[connect]]
+from_prefab = "well"
+signal = "tapped"
+to = "town"
+action = "add"
+prop = "coins"
+value = 2
+when = [{ entity = "town", prop = "tool", equals = "clear" }]
+
+[[connect]]
+from_prefab = "well"
+signal = "tapped"
+to = "job"
+action = "add"
+prop = "wells"
+value = -1
+when = [{ entity = "town", prop = "tool", equals = "clear" }]
+
+# ---- the job: the banner says when the town is ready (and stops saying it
+# if something is cleared again)
+
+[[connect]]
+from = "job"
+signal = "changed"
+to = "banner"
+action = "set"
+prop = "msg"
+value = "Tiny Town is ready!"
+when = [
+  { entity = "job", prop = "houses", at_least = 2 },
+  { entity = "job", prop = "trees", at_least = 3 },
+  { entity = "job", prop = "wells", at_least = 1 },
+]
+
+[[connect]]
+from = "job"
+signal = "changed"
+to = "banner"
+action = "set"
+prop = "msg"
+value = "Build 2 houses, 3 trees and a well"
+when = [{ entity = "job", prop = "houses", at_most = 1 }]
+
+[[connect]]
+from = "job"
+signal = "changed"
+to = "banner"
+action = "set"
+prop = "msg"
+value = "Build 2 houses, 3 trees and a well"
+when = [{ entity = "job", prop = "trees", at_most = 2 }]
+
+[[connect]]
+from = "job"
+signal = "changed"
+to = "banner"
+action = "set"
+prop = "msg"
+value = "Build 2 houses, 3 trees and a well"
+when = [{ entity = "job", prop = "wells", at_most = 0 }]

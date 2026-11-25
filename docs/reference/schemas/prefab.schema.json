@@ -9,6 +9,15 @@
       "type": "string",
       "description": "What the prefab is."
     },
+    "footprint": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Cells covered [along x, along y], from `pos` toward +x and +y: `[2, 2]` at pos [3, 4] covers [3, 4], [4, 4], [3, 5] and [4, 5]. Blocks and tiles fill the whole area; a sprite or label stands at its middle. It blocks, counts for triggers and is tapped on every covered cell. Only things that stay put can be bigger than one cell (no mover, patrol, wander, pushable or screen_pos). Default: [1, 1]."
+    },
     "enabled": {
       "type": "boolean",
       "description": "Disabled entities are not drawn, not solid, cannot be tapped and run no behaviors. Default: true."
@@ -40,7 +49,12 @@
         "color": {
           "type": "string",
           "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
-          "description": "Top face color. Default: \"#9aa0a6\"."
+          "description": "Wall color; the top face too unless `top` is given. Default: \"#9aa0a6\"."
+        },
+        "top": {
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+          "description": "Top face color (a roof, the water in a well). Default: `color`."
         },
         "height": {
           "type": "number",

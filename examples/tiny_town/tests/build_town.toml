@@ -1,0 +1,92 @@
+[test]
+doc = "The whole job: 2 houses, 3 trees and a well for 11 of the 12 coins; the banner says the town is ready."
+frames = 120
+
+# Houses (the House tool is selected at the start).
+[[input]]
+frame = 0
+tap = [384, 192]          # ground (4, 1)
+
+[[input]]
+frame = 10
+tap = [224, 208]          # ground (2, 4)
+
+[[input]]
+frame = 20
+tap = [255, 442]          # Tree button
+
+# Trees on the east bank.
+[[input]]
+frame = 30
+tap = [480, 272]          # ground (8, 2)
+
+[[input]]
+frame = 40
+tap = [448, 288]          # ground (8, 3)
+
+[[input]]
+frame = 50
+tap = [352, 304]          # ground (7, 5)
+
+[[input]]
+frame = 60
+tap = [405, 442]          # Well button
+
+[[input]]
+frame = 70
+tap = [320, 256]          # ground (5, 4)
+
+# After the two houses: 6 coins left, the job is not done yet.
+[[expect]]
+frame = 20
+entity = "town"
+props = { coins = 6 }
+
+[[expect]]
+frame = 20
+prefab = "house"
+count = 2
+
+[[expect]]
+frame = 20
+prefab = "house"
+pos = [4, 1]
+
+[[expect]]
+frame = 20
+entity = "banner"
+text = "Build 2 houses, 3 trees and a well"
+
+# The end: everything built, 1 coin left, nothing refused.
+[[expect]]
+prefab = "tree"
+count = 3
+
+[[expect]]
+prefab = "well"
+count = 1
+
+[[expect]]
+entity = "town"
+props = { coins = 1 }
+text = "Coins: 1\nTool: well"
+
+[[expect]]
+entity = "job"
+props = { houses = 2, trees = 3, wells = 1 }
+
+[[expect]]
+entity = "banner"
+text = "Tiny Town is ready!"
+
+[[expect]]
+event = "spawned"
+at_least = 6
+at_most = 6
+
+[[expect]]
+event = "blocked"
+at_most = 0
+
+[[shot]]
+reference = "tests/refs/build_town.png"

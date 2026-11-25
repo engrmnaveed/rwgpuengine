@@ -3,6 +3,35 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Q3 decided: the isometric builder; builder kit v1 and Tiny Town (M3.1)
+
+- The owner picked the isometric builder as reference game 1. Tiny Town ([spec](games/tiny-town.md)): tap a
+  tool, tap the island, build 2 houses, 3 trees and a well within 12 coins, with Clear to take things back.
+  Built entirely in data; 3 playtests (`build_town`, `refusals`, `clear`). Two mutation checks (an
+  affordability rule, a refund value) fail exactly the playtests that cover them.
+- Builder kit v1 ([ADR 0013](decisions/0013-first-reference-game-isometric-builder.md)):
+  - terrain maps (`[ground] map` + `[[terrain]]` with `build`);
+  - ground taps (`from = "ground"`);
+  - `spawn` with placement rules, refusals logged as `blocked` (`edge`/`terrain`/`occupied`);
+  - multi-cell `footprint`, drawn as per-cell slices;
+  - `from_prefab` and `to = "self"`, `block.top`;
+  - `[[expect]] prefab` + `count`;
+  - `slate inspect --place house[@x,y]`, with a guaranteed tap pixel per cell.
+- Found while building:
+  - **Data-only entities blocked building at [0, 0].** A props-only `town` entity sits at the default
+    position and counted as occupying it. Now only entities that are drawn, solid, pushable, actors or
+    triggers take up cells (a sim test caught it).
+  - **Hidden cells can't be tapped.** A cell hidden behind a house has no tap pixel, correctly: a player
+    can't tap it either. `--place` says so instead of handing out a pixel that would hit the house.
+  - **Agents needed tap pixels for ground cells.** They had them for entities only; `--place` now gives them.
+- Determinism: `build_town` reaches state `537ae6f9300e9b67` and image `58bd8a0dbea14409` natively and in
+  the browser. Older scenes keep their hashes and images. Live tapping in the web player builds as expected.
+- wasm: 586,226 → 640,798 bytes (+9.3%, budget 700,000). Replacing a `BTreeMap<String, EntityDef>` with a
+  `Vec` saved 15 KB of generic code. `opt-level = "z"` measures 600,909 but is not adopted until frame time is
+  measured.
+- The scene has 26 connections, 9 of them for clear/refund. That is the evidence to watch for grouped
+  connections or per-prefab costs.
+
 ## 2026-11-25 — Cold-agent test #6: the vault task with no stand-ins
 
 - On the pushable build, the agent built the full puzzle: three coins counted on a HUD, two crates pushed onto

@@ -1,0 +1,62 @@
+[test]
+doc = "Clear gives the coins back and frees the cells: a house is built, cleared, and built again on the same spot."
+frames = 60
+
+[[input]]
+frame = 0
+tap = [384, 192]          # ground (4, 1): a house, 9 coins left
+
+[[input]]
+frame = 10
+tap = [541, 441]          # Clear button
+
+[[input]]
+frame = 20
+tap = [384, 160]          # the house's roof: cleared, 12 coins again
+
+[[input]]
+frame = 30
+tap = [118, 441]          # House button
+
+[[input]]
+frame = 40
+tap = [384, 192]          # ground (4, 1) again: a new house
+
+[[expect]]
+frame = 10
+entity = "town"
+props = { coins = 9 }
+
+[[expect]]
+frame = 30
+prefab = "house"
+count = 0
+
+[[expect]]
+frame = 30
+entity = "town"
+props = { coins = 12 }
+
+[[expect]]
+frame = 30
+entity = "job"
+props = { houses = 0 }
+
+[[expect]]
+prefab = "house"
+pos = [4, 1]
+count = 1
+
+[[expect]]
+entity = "town"
+props = { coins = 9 }
+text = "Coins: 9\nTool: house"
+
+[[expect]]
+event = "spawned"
+at_least = 2
+at_most = 2
+
+[[shot]]
+frame = 30
+reference = "tests/refs/cleared.png"

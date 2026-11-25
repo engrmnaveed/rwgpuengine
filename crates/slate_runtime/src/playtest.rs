@@ -141,6 +141,53 @@ fn check_expect(session: &Session, def: &PlaytestDef, exp: &ExpectDef, frame: u6
         return Some(d);
     }
 
+    if let Some(prefab) = &exp.prefab {
+        let copies: Vec<&slate_sim::Entity> =
+            world.entities.iter().filter(|e| e.enabled && e.prefab.as_deref() == Some(prefab.as_str())).collect();
+        let at = exp.pos.map(|p| [slate_data::round_cell(p[0]), slate_data::round_cell(p[1])]);
+        let matching: Vec<&&slate_sim::Entity> = copies.iter().filter(|e| at.is_none_or(|c| e.cell() == c)).collect();
+        let n = matching.len() as u64;
+        let held = match exp.count {
+            Some(want) => n == want,
+            None => n >= 1,
+        };
+        if held {
+            return None;
+        }
+        let want = match exp.count {
+            Some(c) => format!("{c}"),
+            None => "at least 1".to_string(),
+        };
+        let place = at.map_or(String::new(), |c| format!(" at ({}, {})", c[0], c[1]));
+        let mut d = Diagnostic::new(
+            &codes::EXPECT_FAILED,
+            format!("expected {want} enabled `{prefab}`{place} at frame {frame}, found {n}"),
+        )
+        .at(&def.src, exp.span)
+        .hint(inspect_hint(None));
+        let cells: Vec<String> =
+            copies.iter().map(|e| format!("{} at ({}, {})", e.label(), e.cell()[0], e.cell()[1])).collect();
+        if cells.is_empty() {
+            d = d.note(format!("no enabled `{prefab}` exists at frame {frame}"));
+        } else {
+            d = d.note(format!("enabled `{prefab}`: {}", cells.join(", ")));
+        }
+        let refused: Vec<_> = world
+            .events
+            .all()
+            .iter()
+            .filter(|e| {
+                e.frame < frame
+                    && e.kind == EventKind::Blocked
+                    && e.data.get("prefab").and_then(|v| v.as_str()) == Some(prefab.as_str())
+            })
+            .collect();
+        for ev in refused.iter().rev().take(3).rev() {
+            d = d.note(format!("[{}] {}", ev.frame, ev.message));
+        }
+        return Some(d);
+    }
+
     let name = exp.entity.as_deref()?;
     let Some(e) = world.by_name(name) else {
         return Some(
