@@ -7,6 +7,39 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-26 — The first CI run is green on Linux, Windows and macOS
+
+- The first run on GitHub (run 45679193089, on the published tip, 2026-11-25 UTC) passed on all three
+  systems at the first try: `cargo xtask ci` end to end, 135 tests on each, every budget, and the wasm check.
+  **Windows had never run the gate before.** Nothing needed fixing.
+
+  | runner | host | job time | CLI bytes | wasm bytes | render µs | paint µs | smoke ms | rebuild ms |
+  |---|---|---|---|---|---|---|---|---|
+  | `ubuntu-26.04` | `x86_64-unknown-linux-gnu` | 1 m 12 s | 2,178,568 | 585,725 | 6,042 | 174 | 21 | 1,452 |
+  | `windows-2025` | `x86_64-pc-windows-msvc` | 2 m 14 s | 2,113,024 | 586,069 | 7,187 | 191 | 68 | 3,038 |
+  | `macos-26-arm64` | `aarch64-apple-darwin` | 1 m 18 s | 1,912,320 | 585,749 | 3,752 | 106 | 32 | 1,335 |
+
+- **Windows is a sixth target with the same results.** The smoke chain ends in state `94fd42c60d7a4c92` on
+  all three runners, and all nine example playtests reach the same state and image hashes there as on the
+  reference machine (`82c150f3d192812e` and `58bd8a0dbea14409` for Tiny Town's `build_town`). On each runner
+  the wasm module, built on that runner and run under its Node (24 on Linux and macOS, 22 on Windows),
+  reached the native command's hashes for all nine.
+- **The time scale earns its place.** One 640 × 480 reference frame took 6,042 µs on the Linux runner and
+  7,187 µs on Windows, against an unscaled limit of 6,000: without `RWGPU_TIME_BUDGET_SCALE` both would have
+  failed with no regression. With the scale of 4 the worst measurement is at 30 % of its limit.
+- **Finding: the wasm module is not the same bytes on every build machine** (585,725, 586,069 and 585,749
+  on the runners, 585,789 on the reference machine), although it behaves identically. A build contains the
+  build machine's paths: the reference machine's module holds 21 strings under the builder's home directory,
+  next to rustc's and cargo's registry paths. Those paths differ in length per machine, which is the likely
+  cause of the size difference; that was not proven with a remapped build. So the `dist` build that remaps
+  paths, already owed before any binary release, covers the **web module** as well as the command: a web
+  export built today would show the paths of whoever built it.
+- CI change in this commit: `actions/checkout` v4 → v7. The run warned that v4 targets Node 20, which the
+  runners no longer use.
+- Not covered by CI: any GPU (the 3D spikes are not in the gate), Linux on arm64 and macOS on x86-64 (both
+  measured by hand earlier), and a browser (Node runs the wasm module; Chromium was measured by hand). The
+  runners' Node version is whatever the image ships.
+
 ## 2026-11-25 — Published: the first push to GitHub
 
 - The owner approved the rewrite and the push. The repository is public at

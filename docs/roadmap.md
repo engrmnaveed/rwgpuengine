@@ -19,8 +19,8 @@ decision in [open-questions.md](open-questions.md).
    said to continue.
 5. ~~Open-source readiness and the first public push~~: published on 2026-11-25 at
    <https://github.com/engrmnaveed/rwgpuengine>, licence Apache-2.0, with CI for Linux, Windows and macOS and
-   the wasm check in the gate. What is left of this step is a green run on all three systems; Windows had
-   never run the gate before the push.
+   the wasm check in the gate. The first run was green on all three systems, Windows included
+   ([log entry](progress-log.md#2026-11-26--the-first-ci-run-is-green-on-linux-windows-and-macos)).
 6. Then, in the order the proposal gives (its section 7): the GPU-free 3D core with a CPU reference
    renderer; wgpu players natively and on the web; the simulation at scale; shapes as text and the town
    reference game; Rust game code; templates per kind of game. Then demos, the MCP adapter and the desktop

@@ -49,8 +49,8 @@ error[E0103]: unknown key `sprit` in entity
 Coding agents are best at reading files and running commands. rwgpuengine makes those the engine's main
 interface: text files with a published schema, a CLI where every command speaks JSON, a deterministic
 headless core, a queryable world with an event log that says *why* things happened, and built-in visual
-checks. The same state hashes and the same pixels have been measured on macOS and Linux, on x86-64 and arm64,
-and in the browser, and the gate checks the web build against the native one. Read
+checks. The same state hashes and the same pixels have been measured on macOS, Linux and Windows, on x86-64 and
+arm64, and in the browser, and the gate checks the web build against the native one on every push. Read
 [docs/vision.md](docs/vision.md).
 
 ## Quick start (from source)

@@ -27,7 +27,7 @@ jobs:
       # The [time] budgets are written for the reference machine; runners are slower.
       RWGPU_TIME_BUDGET_SCALE: "4"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # rust-toolchain.toml pins the version, components and the wasm target;
       # rustup installs them on first use.
       - name: Install toolchain
