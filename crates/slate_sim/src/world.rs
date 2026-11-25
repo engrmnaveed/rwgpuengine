@@ -217,6 +217,16 @@ pub struct Act {
     pub value: Option<PropValue>,
     /// With spawn.
     pub prefab: Option<String>,
+    /// With spawn: who pays, from which prop, how much.
+    pub cost: Option<Cost>,
+}
+
+/// A spawn's price, with the payer resolved.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cost {
+    pub entity: EntityId,
+    pub prop: String,
+    pub amount: PropValue,
 }
 
 impl Connection {
@@ -378,12 +388,21 @@ impl World {
                             (_, Some(n)) => Target::Entity(*names.get(n)?),
                             (_, None) => return None,
                         };
+                        let cost = match &a.cost {
+                            Some(k) => Some(Cost {
+                                entity: *names.get(&k.entity)?,
+                                prop: k.prop.clone(),
+                                amount: k.amount.clone(),
+                            }),
+                            None => None,
+                        };
                         Some(Act {
                             to,
                             action: a.action,
                             prop: a.prop.clone(),
                             value: a.value.clone(),
                             prefab: a.prefab.clone(),
+                            cost,
                         })
                     })
                     .collect::<Option<Vec<_>>>()?;
@@ -976,7 +995,8 @@ impl World {
     /// Apply one action. Returns false only for a `spawn` that could not be placed.
     fn run_action(&mut self, a: &Act, ctx: &ActCtx) -> bool {
         if a.action == ConnectAction::Spawn {
-            return self.spawn(a.prefab.as_deref().unwrap_or_default(), ctx.cell, ctx.emitter, ctx.via, ctx.held);
+            let prefab = a.prefab.as_deref().unwrap_or_default();
+            return self.spawn(prefab, a.cost.as_ref(), ctx.cell, ctx.emitter, ctx.via, ctx.held);
         }
         let (to, target) = self.act_target(a, ctx.emitter);
         let Some(to) = to else { return true };
@@ -1135,9 +1155,18 @@ impl World {
         Ok(cells)
     }
 
-    /// Place a new copy of `prefab` at `at`, or log why not. The new entity
-    /// emits `spawned` if a connection listens. Returns whether it was placed.
-    fn spawn(&mut self, prefab: &str, at: [i32; 2], emitter: Option<EntityId>, via: &str, held: &[&str]) -> bool {
+    /// Place a new copy of `prefab` at `at` and pay its `cost`, or log why
+    /// not (funds are checked before the cell). The new entity emits
+    /// `spawned` if a connection listens. Returns whether it was placed.
+    fn spawn(
+        &mut self,
+        prefab: &str,
+        cost: Option<&Cost>,
+        at: [i32; 2],
+        emitter: Option<EntityId>,
+        via: &str,
+        held: &[&str],
+    ) -> bool {
         let when = if held.is_empty() { String::new() } else { format!("; when {} held", held.join(", ")) };
         let Some(template) = self.template(prefab).cloned() else {
             let msg = format!("could not spawn '{prefab}' at {} ({via}): no such prefab", fmt_cell(at));
@@ -1145,7 +1174,11 @@ impl World {
             self.log(EventKind::Error, None, emitter, msg, data);
             return false;
         };
-        match self.can_place(prefab, at) {
+        let placed = match self.can_afford(cost, at) {
+            Err(r) => Err(r),
+            Ok(()) => self.can_place(prefab, at),
+        };
+        match placed {
             Err(r) => {
                 let msg = format!("'{prefab}' could not be placed at {} ({via}): {}{when}", fmt_cell(at), r.why);
                 let mut data = Json::object()
@@ -1156,6 +1189,9 @@ impl World {
                     .with("cell", r.cell);
                 if let Some(t) = &r.terrain {
                     data.set("terrain", t.as_str());
+                }
+                if let (Some(k), "funds") = (cost, r.reason) {
+                    data.set("cost", self.cost_json(k));
                 }
                 // The source of the signal says so, if anything listens.
                 let listened = self.is_listened(emitter, "refused");
@@ -1181,9 +1217,28 @@ impl World {
                 def.pos = [at[0] as f32, at[1] as f32, def.pos[2]];
                 self.entities.push(make_entity(id, &def));
                 let who = self.describe(id);
-                let msg = format!("{who} was spawned at {} ({via}){when}", fmt_cell(at));
                 let cells_json: Vec<Json> = cells.iter().map(|c| Json::from(*c)).collect();
-                let data = Json::object().with("prefab", prefab).with("cell", at).with("cells", cells_json);
+                let mut data = Json::object().with("prefab", prefab).with("cell", at).with("cells", cells_json);
+                let mut paid = String::new();
+                let mut payer_changed = None;
+                if let Some(k) = cost
+                    && let Some((before, after)) = self.pay(k)
+                {
+                    let owner = self.get(k.entity).map_or_else(|| format!("#{}", k.entity), Entity::label);
+                    paid = format!(
+                        "; paid {} from '{owner}'.{} ({} -> {})",
+                        k.amount.display(),
+                        k.prop,
+                        before.literal(),
+                        after.literal()
+                    );
+                    data.set(
+                        "paid",
+                        self.cost_json(k).with("before", prop_json(&before)).with("after", prop_json(&after)),
+                    );
+                    payer_changed = Some(k.entity);
+                }
+                let msg = format!("{who} was spawned at {} ({via}){paid}{when}", fmt_cell(at));
                 self.log(EventKind::Spawned, Some(id), emitter, msg, data);
                 if !self.entities[id as usize].counts.is_empty() {
                     self.counters.push(id);
@@ -1191,11 +1246,49 @@ impl World {
                 if self.is_listened(Some(id), "spawned") {
                     self.emit(id, "spawned");
                 }
+                // Paying changed the payer's prop.
+                if let Some(p) = payer_changed
+                    && self.is_listened(Some(p), "changed")
+                {
+                    self.emit(p, "changed");
+                }
                 let why = format!("{who} was spawned");
                 self.refresh_counts(&why);
                 true
             }
         }
+    }
+
+    /// Is there enough to pay `cost` (none: always) for a copy at `at`?
+    fn can_afford(&self, cost: Option<&Cost>, at: [i32; 2]) -> Result<(), Refusal> {
+        let Some(k) = cost else { return Ok(()) };
+        let have = self.get(k.entity).and_then(|e| e.props.get(&k.prop)).cloned();
+        let need = k.amount.as_num().unwrap_or(0.0);
+        if have.as_ref().and_then(PropValue::as_num).is_some_and(|h| h >= need) {
+            return Ok(());
+        }
+        let owner = self.get(k.entity).map_or_else(|| format!("#{}", k.entity), Entity::label);
+        let shown = have.map_or("unset".to_string(), |v| v.literal());
+        let why = format!("it costs {} and '{owner}'.{} is {shown}", k.amount.display(), k.prop);
+        Err(Refusal { reason: "funds", cell: at, by: Some(k.entity), terrain: None, why })
+    }
+
+    /// Take `cost` from the payer. Returns the prop before and after.
+    fn pay(&mut self, k: &Cost) -> Option<(PropValue, PropValue)> {
+        let current = self.entities.get_mut(k.entity as usize)?.props.get_mut(&k.prop)?;
+        let before = current.clone();
+        let after = match (&before, &k.amount) {
+            (PropValue::Int(a), PropValue::Int(b)) => PropValue::Int(a.saturating_sub(*b)),
+            (PropValue::Float(a), b) => PropValue::Float(a - b.as_num().unwrap_or(0.0)),
+            _ => before.clone(),
+        };
+        *current = after.clone();
+        Some((before, after))
+    }
+
+    fn cost_json(&self, k: &Cost) -> Json {
+        let owner = self.get(k.entity).map_or_else(|| format!("#{}", k.entity), Entity::label);
+        Json::object().with("entity", owner.as_str()).with("prop", k.prop.as_str()).with("amount", prop_json(&k.amount))
     }
 
     /// Apply `add`/`set`. Returns the message part, before, value and after.

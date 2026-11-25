@@ -316,6 +316,10 @@ impl<'a> SceneLoader<'a> {
         let mut changed_names: BTreeSet<String> = BTreeSet::new();
         let mut changed_prefabs: BTreeSet<String> = BTreeSet::new();
         for (c, a) in decoded.iter().flat_map(|c| c.actions.iter().map(move |a| (c, a))) {
+            // Paying a `cost` changes the payer's prop.
+            if let Some(cost) = &a.cost {
+                changed_names.insert(cost.entity.clone());
+            }
             if !a.action.changes_prop() {
                 continue;
             }
@@ -475,7 +479,7 @@ impl<'a> SceneLoader<'a> {
                 }
                 (false, true) => {
                     let mut ok = true;
-                    for key in ["to", "prop", "value", "prefab"].into_iter().filter(|k| t.has(k)) {
+                    for key in ["to", "prop", "value", "prefab", "cost"].into_iter().filter(|k| t.has(k)) {
                         ok = false;
                         self.diags.push(
                             Diagnostic::new(
@@ -648,12 +652,15 @@ impl<'a> SceneLoader<'a> {
                     }
                 }
             }
+            if let Some(cost) = &a.cost {
+                check_cost(cost, t, span, entities, src, &mut self.diags);
+            }
         } else {
-            if t.has("prefab") {
+            for key in ["prefab", "cost"].into_iter().filter(|k| t.has(k)) {
                 self.diags.push(
-                    Diagnostic::new(&codes::INVALID_VALUE, "`prefab` only applies to `action = \"spawn\"`")
-                        .at(src, t.key_span("prefab", span))
-                        .hint("remove `prefab`, or use `action = \"spawn\"`"),
+                    Diagnostic::new(&codes::INVALID_VALUE, format!("`{key}` only applies to `action = \"spawn\"`"))
+                        .at(src, t.key_span(key, span))
+                        .hint(format!("remove `{key}`, or use `action = \"spawn\"`")),
                 );
             }
             match a.to.as_deref() {
@@ -1014,6 +1021,84 @@ fn unknown_prop(def: &EntityDef, name: &str, what: &str, src: &SourceFile, at: S
     Diagnostic::new(&codes::UNKNOWN_PROP, format!("{what} names prop `{name}`, but `{who}` has no such prop"))
         .at(src, at)
         .hint(hint)
+}
+
+/// A spawn's `cost`: an existing entity, a number prop it declares (not a
+/// count), and an amount above 0 that fits the prop's type.
+fn check_cost(
+    cost: &defs::CostDef,
+    t: &Table,
+    span: Span,
+    entities: &[EntityDef],
+    src: &SourceFile,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let table = t.table("cost");
+    let at = |key: &str| table.map_or(span, |c| c.value_span(key, t.value_span("cost", span)));
+    let Some(payer) = entities.iter().find(|e| e.name.as_deref() == Some(cost.entity.as_str())) else {
+        let names = entities.iter().filter_map(|e| e.name.as_deref());
+        let hint = did_you_mean(&cost.entity, names)
+            .unwrap_or_else(|| format!("give the paying entity `name = \"{}\"`", cost.entity));
+        diags.push(
+            Diagnostic::new(&codes::UNKNOWN_ENTITY, format!("`cost` names unknown entity `{}`", cost.entity))
+                .at(src, at("entity"))
+                .hint(hint),
+        );
+        return;
+    };
+    let prop = cost.prop.as_str();
+    let Some(current) = payer.prop(prop) else {
+        diags.push(unknown_prop(payer, prop, "`cost`", src, at("prop")));
+        return;
+    };
+    if let Some(prefab) = payer.counted(prop) {
+        diags.push(
+            Diagnostic::new(
+                &codes::INVALID_VALUE,
+                format!("`cost` cannot pay from `{}`.{prop}: it counts `{prefab}` copies", cost.entity),
+            )
+            .at(src, at("prop"))
+            .hint("pay from a prop declared in `props`, e.g. `props = { coins = 10 }`"),
+        );
+        return;
+    }
+    if current.as_num().is_none() {
+        diags.push(
+            Diagnostic::new(
+                &codes::PROP_TYPE,
+                format!("`cost` needs a number prop, but `{}`.{prop} is {}", cost.entity, current.type_name()),
+            )
+            .at(src, at("prop")),
+        );
+        return;
+    }
+    if !table.is_some_and(|c| c.has("amount")) {
+        return; // already reported as missing
+    }
+    if cost.amount.as_num().is_none_or(|n| n <= 0.0) {
+        diags.push(
+            Diagnostic::new(
+                &codes::INVALID_VALUE,
+                format!("`cost` amount must be above 0, found {}", cost.amount.literal()),
+            )
+            .at(src, at("amount"))
+            .hint("for something free, leave `cost` out"),
+        );
+    } else if !current.accepts(&cost.amount) {
+        diags.push(
+            Diagnostic::new(
+                &codes::PROP_TYPE,
+                format!(
+                    "`cost` amount {} cannot be paid from `{}`.{prop}, which is {}",
+                    cost.amount.literal(),
+                    cost.entity,
+                    current.type_name()
+                ),
+            )
+            .at(src, at("amount"))
+            .hint("integer props pay whole numbers; declare `0.0` for decimals"),
+        );
+    }
 }
 
 /// Checks on one `add`/`set` action that need its target's definition.

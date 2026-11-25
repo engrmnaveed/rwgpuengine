@@ -158,8 +158,9 @@ When `from` emits `signal`, apply `action` to `to` (or each of `actions`, in ord
 | `prop` | name | — | With `add`/`set`: the target's prop (declared in its `props`). |
 | `value` | bool \| number \| string | — | With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), of the prop's type. |
 | `prefab` | name | — | With `spawn`: the prefab to place. It goes on the tapped cell (`from = "ground"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`) and the source of the signal (the ground, for ground taps) emits `refused` on that cell, if a [[connect]] listens. |
+| `cost` | table: cost | — | With `spawn`: the price, paid from a prop only if the copy is placed: `cost = { entity = "town", prop = "coins", amount = 3 }`. If the prop is below `amount`, nothing is placed or paid (`blocked`, reason `funds`, checked before the cell) and the signal's source emits `refused` with reason `funds`. |
 | `when` | [{ condition }, ...] | — | Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). They are checked once, before the first action. For OR, write one `[[connect]]` per alternative. Item keys: `slate explain condition`. |
-| `actions` | [{ action }, ...] | — | Several actions for the same signal and `when`, run in order: `actions = [{ action = "set", to = "town", prop = "tool", value = "tree" }, { action = "set", to = "hint", prop = "msg", value = "" }]`. Each item has the keys `action`, `to`, `prop`, `value` and `prefab` (`slate explain action`), which then cannot be on the [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run. |
+| `actions` | [{ action }, ...] | — | Several actions for the same signal and `when`, run in order: `actions = [{ action = "set", to = "town", prop = "tool", value = "tree" }, { action = "set", to = "hint", prop = "msg", value = "" }]`. Each item has the keys `action`, `to`, `prop`, `value`, `prefab` and `cost` (`slate explain action`), which then cannot be on the [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run. |
 
 ### `connect action`
 
@@ -172,6 +173,7 @@ One item of a `[[connect]]` `actions` list: the same keys as a single-action [[c
 | `prop` | name | — | With `add`/`set`: the target's prop (declared in its `props`). |
 | `value` | bool \| number \| string | — | With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), of the prop's type. |
 | `prefab` | name | — | With `spawn`: the prefab to place. It goes on the tapped cell (`from = "ground"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`) and the source of the signal (the ground, for ground taps) emits `refused` on that cell, if a [[connect]] listens. |
+| `cost` | table: cost | — | With `spawn`: the price, paid from a prop only if the copy is placed: `cost = { entity = "town", prop = "coins", amount = 3 }`. If the prop is below `amount`, nothing is placed or paid (`blocked`, reason `funds`, checked before the cell) and the signal's source emits `refused` with reason `funds`. |
 
 ### `when condition`
 
@@ -186,7 +188,7 @@ One item of a `[[connect]]` `when` list, checked against the current state when 
 | `equals` | bool \| number \| string | — | With `prop`: the prop has exactly this value. |
 | `at_least` | number | — | With `prop`: the number prop is ≥ this. |
 | `at_most` | number | — | With `prop`: the number prop is ≤ this. |
-| `reason` | edge \| terrain \| occupied | — | Only with `signal = "refused"`, and alone: the spawn was refused for this reason (outside the ground, terrain with `build = false`, or a taken cell). |
+| `reason` | edge \| terrain \| occupied \| funds | — | Only with `signal = "refused"`, and alone: the spawn was refused for this reason (outside the ground, terrain with `build = false`, a taken cell, or too little to pay its `cost`). |
 
 
 ## Prefabs: prefabs/<name>.toml
@@ -356,7 +358,7 @@ A check at `frame`. Entity state (`entity` with `pos`/`enabled`/`solid`/`props`/
 | `event` | input \| tap \| tap_miss \| moved \| blocked \| trigger \| signal \| action \| skipped \| spawned \| counted \| error \| custom | — | Count events of this kind that happened before `frame`. |
 | `other` | name | — | With `event`: only events whose other party is this entity (the blocker of `blocked`, the actor of `trigger`, the emitter of `action`). |
 | `signal` | name | — | With `event`: only count events about this signal. |
-| `reason` | solid \| actor \| edge \| area \| cooldown \| push \| terrain \| occupied | — | With `event = "blocked"`: only count refusals for this reason (e.g. `solid`, not `cooldown`; `push` = a pushable could not be pushed; `terrain`/`occupied`/`edge` = a spawn could not be placed). |
+| `reason` | solid \| actor \| edge \| area \| cooldown \| push \| terrain \| occupied \| funds | — | With `event = "blocked"`: only count refusals for this reason (e.g. `solid`, not `cooldown`; `push` = a pushable could not be pushed; `terrain`/`occupied`/`edge` = a spawn could not be placed; `funds` = it could not be paid for). |
 | `changed` | bool | — | With `event = "action"`: `true` counts only actions that really changed something (a door that opened, a prop with a new value), `false` only those that changed nothing (`enable` on an enabled entity, `set` to the same value). Without it, every time the connection fired counts. |
 | `at_least` | integer ≥ 0 | `1` | With `event`: minimum number of matching events (0 when only `at_most` is given). |
 | `at_most` | integer ≥ 0 | — | With `event`: maximum number of matching events. `at_most = 0` asserts it never happened. |
@@ -415,11 +417,13 @@ cell.
 **Spawning.** `action = "spawn"` with `prefab` places a new copy of the prefab where the signal happened: on
 the tapped cell for `from = "ground"`, else on the emitter's cell (its back corner there). Every covered cell
 must be inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there,
-solid, an actor or a trigger (data-only entities with just props take no space). Otherwise nothing is placed
-and a `blocked` event (`cause = "spawn"`, reason `edge`, `terrain` or `occupied`) names the cell that failed;
-then the source of the signal (the ground, for ground taps; else the emitter) emits `refused` on that cell if
-a connection listens, and `when = [{ reason = "terrain" }]` picks one reason. A spawn stopped by its own
-`when` is `skipped`, not refused, and emits nothing.
+solid, an actor or a trigger (data-only entities with just props take no space). A spawn with
+`cost = { entity = "town", prop = "coins", amount = 3 }` also needs that prop to be at least `amount` (checked
+first, before the cell) and pays it only when the copy is placed. Otherwise nothing is placed or paid and a
+`blocked` event (`cause = "spawn"`, reason `funds`, `edge`, `terrain` or `occupied`) says why; then the source
+of the signal (the ground, for ground taps; else the emitter) emits `refused` on that cell if a connection
+listens, and `when = [{ reason = "terrain" }]` picks one reason. A spawn stopped by its own `when` is
+`skipped`, not refused, and emits nothing.
 A new copy gets the next id (`#12 (house)`), has no name, and emits `spawned` if a connection listens.
 `from_prefab = "house"` listens to every copy of a prefab, placed or spawned, and `to = "self"` targets the
 copy that emitted. `slate inspect --place house@3,4` answers "can I build here?" at any frame (with a pixel
@@ -468,12 +472,12 @@ Every event has `frame` (the step that produced it: `[N]` happened in step N, so
 | `tap` | the entity hit (none for a ground tap) | — | x, y, signal; cell (ground taps) | A tap hit the topmost enabled entity under the point; it emits `tapped`. A tap that hits no entity but lands on a ground cell is a ground tap when a [[connect]] listens to `from = "ground"`: the ground emits `tapped` with that `cell`. |
 | `tap_miss` | topmost disabled entity under the point, if any | — | x, y, under_disabled; cell (when over the ground) | A tap hit nothing enabled (and, over the ground, nothing listens to the ground's `tapped`). |
 | `moved` | the entity that moved | the pusher (when `cause` is `pushed`) | cause, from, to, by | One cell of movement. `cause` is the direction, `patrol`, `wander` or `pushed` (a pushable moved by a mover; logged just before the mover's own move). |
-| `blocked` | the mover (none for a spawn) | the blocker (for `solid` and `actor`), the pushable that would not move (for `push`), the entity in the way (for `occupied`) | cause, from, to, reason, frames_left; beyond, push_blocked, push_blocked_by (for `push`); prefab, at, cell, terrain (for a spawn) | A move or a placement was refused. For moves, `reason`: solid, actor, edge, area, cooldown, or push (the pushable in the way could not move: `push_blocked` says why). For a `spawn` (`cause = "spawn"`): edge (a cell outside the ground), terrain (a cell whose terrain has `build = false`) or occupied (an enabled entity covers a cell); `cell` is the cell that failed. When a [[connect]] listens, the source of the spawn's signal (the ground, for ground taps) then emits `refused` on `at` (`signal = "refused"` here). |
+| `blocked` | the mover (none for a spawn) | the blocker (for `solid` and `actor`), the pushable that would not move (for `push`), the entity in the way (for `occupied`), the payer (for `funds`) | cause, from, to, reason, frames_left; beyond, push_blocked, push_blocked_by (for `push`); prefab, at, cell, terrain, cost (for a spawn) | A move or a placement was refused. For moves, `reason`: solid, actor, edge, area, cooldown, or push (the pushable in the way could not move: `push_blocked` says why). For a `spawn` (`cause = "spawn"`): funds (the payer of its `cost` has too little; checked first, `other` = the payer, `cost` = what it needed), edge (a cell outside the ground), terrain (a cell whose terrain has `build = false`) or occupied (an enabled entity covers a cell); `cell` is the cell that failed. When a [[connect]] listens, the source of the spawn's signal (the ground, for ground taps) then emits `refused` on `at` (`signal = "refused"` here). |
 | `trigger` | the trigger | the actor that entered or left | signal, by | The trigger's cell became occupied or empty; it emits `signal`. |
 | `signal` | the emitter | — | signal, connections; reason (for `refused`) | A signal was dispatched to this many `[[connect]]` tables (0 = nothing listens). A `refused` signal carries the spawn's `reason` (edge, terrain or occupied), which `when = [{ reason = ... }]` tests. |
 | `action` | the target | the emitter | signal, action, before, after, changed; prop, value (add/set); when (each condition, held, seen) | A connection's action ran on its target: enable, disable, toggle, or add/set a prop (`before`/`after` are the enabled state or the prop's values). It is logged even when nothing changes (`enable` on an enabled entity: "stays enabled", `changed = false`), so `[[expect]] event = "action"` counts every time the connection fired; add `changed = true` to count only real changes. |
 | `skipped` | the target (none for `spawn`) | the emitter | signal, action, prop, prefab, cell, when (each condition, held, seen); stopped_by | A connection's signal arrived, but a `when` condition did not hold, so nothing was done. The message names the first failing condition and what was seen. One event per action of an `actions` list; an action after a `spawn` that could not be placed is skipped too (`stopped_by = "refused spawn"`). |
-| `spawned` | the new entity | the emitter of the signal (none for a ground tap) | prefab, cell, cells | A `spawn` action placed a new copy of `prefab` with its back corner on `cell`, covering `cells`. It gets the next free id (`#N (prefab)` in messages) and emits `spawned` if a [[connect]] listens (`from_prefab`). |
+| `spawned` | the new entity | the emitter of the signal (none for a ground tap) | prefab, cell, cells; paid (entity, prop, amount, before, after) with a `cost` | A `spawn` action placed a new copy of `prefab` with its back corner on `cell`, covering `cells`. It gets the next free id (`#N (prefab)` in messages) and emits `spawned` if a [[connect]] listens (`from_prefab`). |
 | `counted` | the entity whose `counts` prop changed | — | prop, prefab, before, after | A `counts` prop now has a new number of enabled `prefab` copies, because a copy was spawned, disabled or enabled. The message says which; the entity then emits `changed` if a [[connect]] listens (once when several of its counts change together). |
 | `error` | the emitter | — | code, signal | A runtime error, such as more than 1000 signals in one step (E0301). |
 | `custom` | set by game code | set by game code | set by game code | Logged by Rust game code. |

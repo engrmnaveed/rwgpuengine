@@ -453,6 +453,28 @@
             "pattern": "^[A-Za-z0-9_/-]+$",
             "description": "With `spawn`: the prefab to place. It goes on the tapped cell (`from = \"ground\"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`) and the source of the signal (the ground, for ground taps) emits `refused` on that cell, if a [[connect]] listens."
           },
+          "cost": {
+            "type": "object",
+            "description": "With `spawn`: the price, paid from a prop only if the copy is placed: `cost = { entity = \"town\", prop = \"coins\", amount = 3 }`. If the prop is below `amount`, nothing is placed or paid (`blocked`, reason `funds`, checked before the cell) and the signal's source emits `refused` with reason `funds`.",
+            "properties": {
+              "entity": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_/-]+$",
+                "description": "The entity that pays, by name (a HUD or a hidden data entity)."
+              },
+              "prop": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_/-]+$",
+                "description": "Its number prop to pay from (not a `counts` prop)."
+              },
+              "amount": {
+                "type": "number",
+                "description": "How much a copy costs (more than 0; an integer for an integer prop)."
+              }
+            },
+            "required": ["entity", "prop", "amount"],
+            "additionalProperties": false
+          },
           "when": {
             "type": "array",
             "items": {
@@ -490,8 +512,8 @@
                   "description": "With `prop`: the number prop is ≤ this."
                 },
                 "reason": {
-                  "enum": ["edge", "terrain", "occupied"],
-                  "description": "Only with `signal = \"refused\"`, and alone: the spawn was refused for this reason (outside the ground, terrain with `build = false`, or a taken cell)."
+                  "enum": ["edge", "terrain", "occupied", "funds"],
+                  "description": "Only with `signal = \"refused\"`, and alone: the spawn was refused for this reason (outside the ground, terrain with `build = false`, a taken cell, or too little to pay its `cost`)."
                 }
               },
               "additionalProperties": false
@@ -526,12 +548,34 @@
                   "type": "string",
                   "pattern": "^[A-Za-z0-9_/-]+$",
                   "description": "With `spawn`: the prefab to place. It goes on the tapped cell (`from = \"ground\"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`) and the source of the signal (the ground, for ground taps) emits `refused` on that cell, if a [[connect]] listens."
+                },
+                "cost": {
+                  "type": "object",
+                  "description": "With `spawn`: the price, paid from a prop only if the copy is placed: `cost = { entity = \"town\", prop = \"coins\", amount = 3 }`. If the prop is below `amount`, nothing is placed or paid (`blocked`, reason `funds`, checked before the cell) and the signal's source emits `refused` with reason `funds`.",
+                  "properties": {
+                    "entity": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_/-]+$",
+                      "description": "The entity that pays, by name (a HUD or a hidden data entity)."
+                    },
+                    "prop": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_/-]+$",
+                      "description": "Its number prop to pay from (not a `counts` prop)."
+                    },
+                    "amount": {
+                      "type": "number",
+                      "description": "How much a copy costs (more than 0; an integer for an integer prop)."
+                    }
+                  },
+                  "required": ["entity", "prop", "amount"],
+                  "additionalProperties": false
                 }
               },
               "required": ["action"],
               "additionalProperties": false
             },
-            "description": "Several actions for the same signal and `when`, run in order: `actions = [{ action = \"set\", to = \"town\", prop = \"tool\", value = \"tree\" }, { action = \"set\", to = \"hint\", prop = \"msg\", value = \"\" }]`. Each item has the keys `action`, `to`, `prop`, `value` and `prefab` (`slate explain action`), which then cannot be on the [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run."
+            "description": "Several actions for the same signal and `when`, run in order: `actions = [{ action = \"set\", to = \"town\", prop = \"tool\", value = \"tree\" }, { action = \"set\", to = \"hint\", prop = \"msg\", value = \"\" }]`. Each item has the keys `action`, `to`, `prop`, `value`, `prefab` and `cost` (`slate explain action`), which then cannot be on the [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run."
           }
         },
         "required": ["signal"],

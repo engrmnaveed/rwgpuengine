@@ -559,6 +559,17 @@ pub struct ActionDef {
     pub value: Option<PropValue>,
     /// With spawn: the prefab to place.
     pub prefab: Option<String>,
+    /// With spawn: the price, paid only if the copy is placed.
+    pub cost: Option<CostDef>,
+}
+
+/// `cost = { entity = "town", prop = "coins", amount = 3 }` on a spawn.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CostDef {
+    pub entity: String,
+    pub prop: String,
+    /// Int or Float, as written.
+    pub amount: PropValue,
 }
 
 impl ActionDef {
@@ -874,7 +885,15 @@ pub(crate) fn decode_action(t: &Table) -> ActionDef {
     if action == ConnectAction::Add && value.is_none() {
         value = Some(PropValue::Int(1));
     }
-    ActionDef { action, to: c.opt_str("to"), prop: c.opt_str("prop"), value, prefab: c.opt_str("prefab") }
+    let cost = t.table("cost").map(|k| {
+        let f = Fields::new(k, &schema::COST);
+        CostDef {
+            entity: f.str("entity"),
+            prop: f.str("prop"),
+            amount: k.get("amount").and_then(scalar).unwrap_or(PropValue::Int(0)),
+        }
+    });
+    ActionDef { action, to: c.opt_str("to"), prop: c.opt_str("prop"), value, prefab: c.opt_str("prefab"), cost }
 }
 
 pub(crate) fn decode_condition(t: &Table) -> ConditionDef {

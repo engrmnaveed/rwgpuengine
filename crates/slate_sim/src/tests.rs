@@ -1229,3 +1229,104 @@ fn an_action_list_checks_its_when_once() {
     assert!(!w.get(lamp).unwrap().enabled);
     assert_eq!(prop(&w, "town", "note"), PropValue::Str("lamp".into()));
 }
+
+// ---------------------------------------------------------------------------
+// Spawn costs (ADR 0016)
+
+fn shop(coins: &str) -> World {
+    let scene = format!(
+        r##"
+[ground]
+map = ["gggw", "gggw", "gggg"]
+
+[[terrain]]
+char = "g"
+name = "grass"
+
+[[terrain]]
+char = "w"
+name = "water"
+build = false
+
+[[entity]]
+name = "town"
+props = {{ coins = {coins}, why = "", paid = 0 }}
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "hut"
+cost = {{ entity = "town", prop = "coins", amount = 3 }}
+
+[[connect]]
+from = "ground"
+signal = "refused"
+to = "town"
+action = "set"
+prop = "why"
+value = "funds"
+when = [{{ reason = "funds" }}]
+
+[[connect]]
+from = "ground"
+signal = "refused"
+to = "town"
+action = "set"
+prop = "why"
+value = "terrain"
+when = [{{ reason = "terrain" }}]
+
+[[connect]]
+from = "town"
+signal = "changed"
+to = "town"
+action = "set"
+prop = "paid"
+value = 1
+"##
+    );
+    let mut vfs = Vfs::new();
+    vfs.insert("scenes/main.toml", scene.as_str());
+    vfs.insert("prefabs/hut.toml", "block = {}\nsolid = true\n");
+    let mut loader = SceneLoader::new(&vfs);
+    let def = loader.load_scene("scenes/main.toml").unwrap_or_else(|| panic!("{:#?}", loader.diags));
+    World::new(&def, 1)
+}
+
+#[test]
+fn a_spawn_pays_its_cost_only_when_placed() {
+    let mut w = shop("7");
+    // Water: refused for terrain, nothing paid.
+    w.tick(&ground_tap([3, 0]), &mut NoSystems);
+    assert_eq!(
+        (prop(&w, "town", "coins"), prop(&w, "town", "why")),
+        (PropValue::Int(7), PropValue::Str("terrain".into()))
+    );
+    // Grass: placed and paid in the same step; the payer emits `changed`.
+    w.tick(&ground_tap([0, 0]), &mut NoSystems);
+    assert_eq!(prop(&w, "town", "coins"), PropValue::Int(4));
+    assert_eq!(prop(&w, "town", "paid"), PropValue::Int(1));
+    let spawned = last(&w, EventKind::Spawned);
+    assert!(spawned.contains("; paid 3 from 'town'.coins (7 -> 4)"), "{spawned}");
+    let e = w.events.all().iter().rev().find(|e| e.kind == EventKind::Spawned).unwrap();
+    assert_eq!(e.data.pointer("paid/after").map(|v| v.to_compact()), Some("4".into()));
+}
+
+#[test]
+fn too_little_to_pay_is_a_funds_refusal_checked_before_the_cell() {
+    let mut w = shop("2");
+    // Even over water the reason is funds: nothing could be built anywhere.
+    w.tick(&ground_tap([3, 0]), &mut NoSystems);
+    assert_eq!(prop(&w, "town", "why"), PropValue::Str("funds".into()));
+    let blocked = last(&w, EventKind::Blocked);
+    assert!(blocked.contains("it costs 3 and 'town'.coins is 2"), "{blocked}");
+    let e = w.events.all().iter().rev().find(|e| e.kind == EventKind::Blocked).unwrap();
+    assert_eq!(e.data.get("reason").and_then(|v| v.as_str()), Some("funds"));
+    assert_eq!(e.other, w.find("town"), "the payer is the other party");
+    assert_eq!((w.entities.len(), prop(&w, "town", "coins")), (1, PropValue::Int(2)));
+    // A decimal purse pays decimals.
+    let mut w = shop("3.5");
+    w.tick(&ground_tap([0, 0]), &mut NoSystems);
+    assert_eq!(prop(&w, "town", "coins"), PropValue::Float(0.5));
+}

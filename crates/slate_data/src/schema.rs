@@ -113,9 +113,10 @@ pub const EVENT_KINDS: &[&str] = &[
 pub const SPRITE_SHAPES: &[&str] = &["circle", "rect", "diamond"];
 pub const PATROL_MODES: &[&str] = &["loop", "pingpong"];
 /// Why a move was refused (the `reason` of `blocked` events).
-pub const BLOCK_REASONS: &[&str] = &["solid", "actor", "edge", "area", "cooldown", "push", "terrain", "occupied"];
+pub const BLOCK_REASONS: &[&str] =
+    &["solid", "actor", "edge", "area", "cooldown", "push", "terrain", "occupied", "funds"];
 /// Why a `spawn` could not be placed (the `reason` of `refused` signals).
-pub const REFUSE_REASONS: &[&str] = &["edge", "terrain", "occupied"];
+pub const REFUSE_REASONS: &[&str] = &["edge", "terrain", "occupied", "funds"];
 /// Names that refer to something other than an entity in `[[connect]]`.
 pub const RESERVED_NAMES: &[&str] = &["ground", "self"];
 
@@ -572,6 +573,7 @@ pub static CONNECT: Spec = Spec {
         F_CONNECT_PROP,
         F_CONNECT_VALUE,
         F_CONNECT_PREFAB,
+        F_CONNECT_COST,
         opt(
             "when",
             Ty::List(&CONDITION),
@@ -587,7 +589,7 @@ pub static CONNECT: Spec = Spec {
             "Several actions for the same signal and `when`, run in order: \
              `actions = [{ action = \"set\", to = \"town\", prop = \"tool\", value = \"tree\" }, \
              { action = \"set\", to = \"hint\", prop = \"msg\", value = \"\" }]`. Each item has the keys \
-             `action`, `to`, `prop`, `value` and `prefab` (`slate explain action`), which then cannot be on the \
+             `action`, `to`, `prop`, `value`, `prefab` and `cost` (`slate explain action`), which then cannot be on the \
              [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run.",
         ),
     ],
@@ -607,6 +609,7 @@ pub static ACTION: Spec = Spec {
         F_CONNECT_PROP,
         F_CONNECT_VALUE,
         F_CONNECT_PREFAB,
+        F_CONNECT_COST,
     ],
 };
 
@@ -640,6 +643,30 @@ const F_CONNECT_PREFAB: Field = opt(
      cell, if a [[connect]] listens.",
 );
 
+const F_CONNECT_COST: Field = opt(
+    "cost",
+    Ty::Table(&COST),
+    None,
+    "With `spawn`: the price, paid from a prop only if the copy is placed: \
+     `cost = { entity = \"town\", prop = \"coins\", amount = 3 }`. If the prop is below `amount`, nothing is \
+     placed or paid (`blocked`, reason `funds`, checked before the cell) and the signal's source emits \
+     `refused` with reason `funds`.",
+);
+
+pub static COST: Spec = Spec {
+    id: "cost",
+    title: "spawn cost",
+    doc: "The price of a `spawn`: `amount` is taken from `entity`'s number prop `prop` when the copy is placed. \
+          Too little there and the spawn is refused with reason `funds` before the cell is checked; nothing is \
+          paid for a placement that is refused for any reason. Paying changes the prop, so its owner emits \
+          `changed`. Refunds are an `add` in the removal's `actions`.",
+    fields: &[
+        req("entity", Ty::Name, "The entity that pays, by name (a HUD or a hidden data entity)."),
+        req("prop", Ty::Name, "Its number prop to pay from (not a `counts` prop)."),
+        req("amount", ANY_NUM, "How much a copy costs (more than 0; an integer for an integer prop)."),
+    ],
+};
+
 pub static CONDITION: Spec = Spec {
     id: "condition",
     title: "when condition",
@@ -668,7 +695,7 @@ pub static CONDITION: Spec = Spec {
             Ty::Enum(REFUSE_REASONS),
             None,
             "Only with `signal = \"refused\"`, and alone: the spawn was refused for this reason (outside the ground, \
-             terrain with `build = false`, or a taken cell).",
+             terrain with `build = false`, a taken cell, or too little to pay its `cost`).",
         ),
     ],
 };
@@ -759,7 +786,8 @@ pub static EXPECT: Spec = Spec {
             Ty::Enum(BLOCK_REASONS),
             None,
             "With `event = \"blocked\"`: only count refusals for this reason (e.g. `solid`, not `cooldown`; `push` = a \
-             pushable could not be pushed; `terrain`/`occupied`/`edge` = a spawn could not be placed).",
+             pushable could not be pushed; `terrain`/`occupied`/`edge` = a spawn could not be placed; `funds` = it \
+             could not be paid for).",
         ),
         opt(
             "changed",
@@ -810,6 +838,7 @@ pub static ALL_SPECS: &[&Spec] = &[
     &ENTITY,
     &CONNECT,
     &ACTION,
+    &COST,
     &CONDITION,
     &PREFAB_FILE,
     &TILE,

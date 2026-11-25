@@ -110,7 +110,8 @@ templates (the prefabs `spawn` actions name, decoded at load time), so placement
 7. **signal dispatch** — FIFO through `[[connect]]` wiring, capped at 1000 per step (E0301). Each
    connection first checks its `when` conditions against the current state, once (logging `skipped` for each
    action if one fails), then applies its actions in order: `enable`/`disable`/`toggle`, `add`/`set` on a
-   prop, or `spawn`; a refused spawn stops the rest of its `actions` list (ADR 0015). A connection listens
+   prop, or `spawn`; a refused spawn stops the rest of its `actions` list (ADR 0015). A spawn with a `cost`
+   checks the payer's prop first (refusal reason `funds`) and pays only when the copy is placed (ADR 0016). A connection listens
    to one entity, every copy of a prefab (`from_prefab`), or the ground, and `to = "self"` targets the
    emitter. Each queued signal carries a cell (the tapped cell, or the emitter's), which `spawn` builds on
    after checking placement (inside the ground, buildable terrain, no entity taking up a cell). A prop that
@@ -178,7 +179,7 @@ Isometric projection: `sx = ox + (x − y)·tw/2`, `sy = oy + (x + y)·th/2 − 
 
 ## The web player
 
-ADR 0008. `slate_web` compiles to a wasm module with zero imports (664,154 bytes after M3.3; budget 700,000). `web/player.js` (no framework,
+ADR 0008. `slate_web` compiles to a wasm module with zero imports (674,719 bytes after M3.4; budget 700,000). `web/player.js` (no framework,
 no build step) loads it, fetches the project as a bundle (`path\0text\0…`), steps at the project's
 tick rate, and paints the CPU-rendered frame with `putImageData`. `slate serve` (std-only HTTP) rebuilds
 the bundle from disk per request; the page polls a content hash and reloads on change, showing

@@ -90,4 +90,5 @@ built ([ADR 0013](decisions/0013-first-reference-game-isometric-builder.md), M3.
 showed: a `refused` signal for placements and `counts` props
 ([ADR 0014](decisions/0014-refusal-signal-and-count-props.md), M3.2), accepted by run #8. Several actions per
 `[[connect]]` ([ADR 0015](decisions/0015-several-actions-per-connect.md), M3.3) cuts the wiring that run #8
-found to be the remaining cost.
+found to be the remaining cost. Spawn costs with a `funds` refusal
+([ADR 0016](decisions/0016-spawn-costs-and-funds-refusal.md), M3.4) remove the last ordering trap.

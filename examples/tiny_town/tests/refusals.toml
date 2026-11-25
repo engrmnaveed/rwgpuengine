@@ -100,21 +100,22 @@ prefab = "house"
 at_least = 5
 at_most = 5
 
-# The last tap (frame 120, Tree tool selected) is the only tree spawn stopped by
-# the coins condition: 8 earlier skips came from the House tool, then one more.
+# The last tap (frame 120, Tree tool selected) is the only tree refused for
+# coins: none before it, exactly one after.
 [[expect]]
 frame = 120
-event = "skipped"
+event = "blocked"
+reason = "funds"
 prefab = "tree"
-at_least = 8
-at_most = 8
+at_most = 0
 
 [[expect]]
 frame = 121
-event = "skipped"
+event = "blocked"
+reason = "funds"
 prefab = "tree"
-at_least = 9
-at_most = 9
+at_least = 1
+at_most = 1
 
 # The end: 3 houses and 3 trees spent all 12 coins; the last tap bought nothing.
 [[expect]]
@@ -166,8 +167,8 @@ frame = 60
 entity = "hint"
 text = "No room there!"
 
-# The tree at frame 110 spent the last coin: no "needs 1 coin" hint yet, since
-# that check runs before the payment (the next tap, at 120, earns it).
+# The tree at frame 110 spent the last coin, and the hint stays empty: only the
+# next tap (at 120) is refused for funds.
 [[expect]]
 frame = 120
 entity = "hint"

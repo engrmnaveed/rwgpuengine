@@ -82,10 +82,15 @@ Need: the first real game. Q3 is decided: the **isometric builder**, Tiny Town
 - Accepted by [cold-agent run #9](experiments/2026-11-25-cold-agent-9.md): run #8's task again, **24
   connections instead of 41**, 5 min 54 s, 0 warnings. Its findings are fixed (short flags, "action i of n" in
   list messages, `[[expect]] changed`, three recipe facts).
-- Next candidates, each asked for by **two** runs (#8 and #9):
-  - costs as data on the spawn with a refusal reason `funds`, so "not enough coins" is a real `refused` and
-    the file-order rule for coin messages goes away;
-  - a "not equal" / `in` condition, or an else branch (both runs added a flag prop).
+- **M3.4 — spawn costs: done 2026-11-25** ([ADR 0016](decisions/0016-spawn-costs-and-funds-refusal.md)).
+  `cost = { entity, prop, amount }` on a spawn is checked first and paid only if placed; too little is a
+  refusal with reason `funds`. Tiny Town's conditions no longer mention coins, and the file-order rule for
+  coin messages is gone. Asked for by runs #8 and #9.
+- Next candidates:
+  - a size pass before the next large feature: the wasm is 674,719 bytes (budget 700,000); `opt-level = "z"`
+    measured −40 KB, frame time not yet measured;
+  - a "not equal" / `in` condition, or an else branch (runs #8 and #9 both added a flag prop);
+  - a cold-agent run on M3.4.
 - Candidates, waiting for more evidence:
   - a tap on a building with a build tool emits `refused` (`occupied`) (run #9);
   - derived boolean props (`open = all(...)`) (runs #8, #9);
@@ -94,7 +99,6 @@ Need: the first real game. Q3 is decided: the **isometric builder**, Tiny Town
   - drag input (ADR 0010);
   - terrain that blocks walking;
   - rotation;
-  - `opt-level = "z"` for the web build (−40 KB measured, frame time not yet measured).
 
 ## M4 — Rust game code, fast
 

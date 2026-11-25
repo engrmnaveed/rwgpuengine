@@ -126,13 +126,15 @@ pub const EVENT_DOCS: &[EventDoc] = &[
         kind: EventKind::Blocked,
         subject: "the mover (none for a spawn)",
         other: "the blocker (for `solid` and `actor`), the pushable that would not move (for `push`), the entity \
-                in the way (for `occupied`)",
+                in the way (for `occupied`), the payer (for `funds`)",
         fields: "cause, from, to, reason, frames_left; beyond, push_blocked, push_blocked_by (for `push`); \
-                 prefab, at, cell, terrain (for a spawn)",
+                 prefab, at, cell, terrain, cost (for a spawn)",
         meaning: "A move or a placement was refused. For moves, `reason`: solid, actor, edge, area, cooldown, or \
                   push (the pushable in the way could not move: `push_blocked` says why). For a `spawn` \
-                  (`cause = \"spawn\"`): edge (a cell outside the ground), terrain (a cell whose terrain has \
-                  `build = false`) or occupied (an enabled entity covers a cell); `cell` is the cell that failed. \
+                  (`cause = \"spawn\"`): funds (the payer of its `cost` has too little; checked first, `other` = \
+                  the payer, `cost` = what it needed), edge (a cell outside the ground), terrain (a cell whose \
+                  terrain has `build = false`) or occupied (an enabled entity covers a cell); `cell` is the cell \
+                  that failed. \
                   When a [[connect]] listens, the source of the spawn's signal (the ground, for ground taps) then \
                   emits `refused` on `at` (`signal = \"refused\"` here).",
     },
@@ -177,7 +179,7 @@ pub const EVENT_DOCS: &[EventDoc] = &[
         kind: EventKind::Spawned,
         subject: "the new entity",
         other: "the emitter of the signal (none for a ground tap)",
-        fields: "prefab, cell, cells",
+        fields: "prefab, cell, cells; paid (entity, prop, amount, before, after) with a `cost`",
         meaning: "A `spawn` action placed a new copy of `prefab` with its back corner on `cell`, covering `cells`. \
                   It gets the next free id (`#N (prefab)` in messages) and emits `spawned` if a [[connect]] \
                   listens (`from_prefab`).",

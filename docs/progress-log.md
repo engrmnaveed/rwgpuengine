@@ -3,6 +3,22 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Spawn costs and the `funds` refusal (M3.4)
+
+- Built what runs #8 and #9 both asked for ([ADR 0016](decisions/0016-spawn-costs-and-funds-refusal.md)):
+  `cost = { entity = "town", prop = "coins", amount = 3 }` on a spawn.
+  - It is checked first; too little is `blocked` + `refused` with reason `funds`, so "not enough coins" uses
+    the same path as water or a taken cell.
+  - It is paid only if the copy is placed; the `spawned` event shows `paid`, and the payer emits `changed`.
+- It replaces three hand-written parts per price: the coin condition, the payment, and the mirror "not
+  enough coins" connection that had to come first in the file. That ordering trap is gone.
+- Tiny Town: no condition mentions coins any more; 20 connections, 291 lines.
+  - Same state hashes and images, native = web.
+  - `refusals` proves the coin case as a `funds` refusal.
+  - Mutation checks fail as expected (a wrong price: all three tests; a misrouted message: `refusals`).
+- Wasm 674,719 bytes (+9.6 KB; 25 KB of headroom). A size pass is now a candidate before the next large
+  feature.
+
 ## 2026-11-25 — Cold-agent test #9: run #8's park with `actions`, 41 → 24 connections
 
 - Same task, word for word, as run #8, on the build with `actions` lists. Every requirement was supported

@@ -736,3 +736,47 @@ fn changed_filters_only_action_events() {
     assert_eq!(codes(&vfs("event = \"action\"\nchanged = true\nat_least = 0")), Vec::<&str>::new());
     assert_eq!(codes(&vfs("event = \"skipped\"\nchanged = true\nat_least = 0")), vec!["E0105"]);
 }
+
+// ---------------------------------------------------------------------------
+// Spawn costs (ADR 0016)
+
+fn costed(cost: &str, extra: &str) -> Vec<&'static str> {
+    builder_with(&format!(
+        "[[entity]]\nname = \"sign\"\nprops = {{ msg = \"\" }}\ncounts = {{ houses = \"house\" }}\n\n[[connect]]\n\
+         from = \"ground\"\nsignal = \"tapped\"\naction = \"spawn\"\nprefab = \"house\"\ncost = {cost}\n{extra}"
+    ))
+}
+
+#[test]
+fn spawn_costs_are_checked() {
+    let ok = "{ entity = \"town\", prop = \"coins\", amount = 3 }";
+    assert_eq!(costed(ok, ""), Vec::<&str>::new());
+    // The payer and its prop must exist, be a number and not a count.
+    assert_eq!(costed("{ entity = \"twon\", prop = \"coins\", amount = 3 }", ""), vec!["E0202"]);
+    assert_eq!(costed("{ entity = \"town\", prop = \"gold\", amount = 3 }", ""), vec!["E0206"]);
+    assert_eq!(costed("{ entity = \"sign\", prop = \"msg\", amount = 3 }", ""), vec!["E0207"]);
+    assert_eq!(costed("{ entity = \"sign\", prop = \"houses\", amount = 1 }", ""), vec!["E0105"]);
+    // The amount is above 0 and fits the prop.
+    assert_eq!(costed("{ entity = \"town\", prop = \"coins\", amount = 0 }", ""), vec!["E0105"]);
+    assert_eq!(costed("{ entity = \"town\", prop = \"coins\", amount = -2 }", ""), vec!["E0105"]);
+    assert_eq!(costed("{ entity = \"town\", prop = \"coins\", amount = 1.5 }", ""), vec!["E0207"]);
+    assert_eq!(costed("{ entity = \"town\", prop = \"coins\" }", ""), vec!["E0104"]);
+    // Only spawns cost something; in a list, `cost` goes in the spawn item.
+    assert_eq!(
+        builder_with(&format!(
+            "[[connect]]\nfrom = \"town\"\nsignal = \"tapped\"\nto = \"town\"\naction = \"disable\"\ncost = {ok}"
+        )),
+        vec!["E0105"]
+    );
+    assert_eq!(
+        builder_with(&format!(
+            "[[connect]]\nfrom = \"ground\"\nsignal = \"tapped\"\ncost = {ok}\nactions = [{{ action = \"spawn\", prefab = \"house\" }}]"
+        )),
+        vec!["E0105"]
+    );
+    // `funds` is a refusal reason; paying makes the payer emit `changed`.
+    let funds = "\n[[connect]]\nfrom = \"ground\"\nsignal = \"refused\"\nto = \"sign\"\naction = \"set\"\nprop = \"msg\"\n\
+                 value = \"too dear\"\nwhen = [{ reason = \"funds\" }]\n\n[[connect]]\nfrom = \"town\"\n\
+                 signal = \"changed\"\nto = \"sign\"\naction = \"set\"\nprop = \"msg\"\nvalue = \"paid\"";
+    assert_eq!(costed(ok, funds), Vec::<&str>::new());
+}
