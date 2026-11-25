@@ -7,6 +7,22 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-25 — Published: the first push to GitHub
+
+- The owner approved the rewrite and the push. The repository is public at
+  <https://github.com/engrmnaveed/rwgpuengine>; `main` holds everything up to here, and the tag
+  `baseline-2026-11-25` marks the first baseline.
+- **The history was rewritten once, before anything was public** (the audit's D3): every commit's author and
+  committer is the owner's GitHub login with GitHub's no-reply address; the `Co-Authored-By` lines the owner
+  asked to drop are gone from all messages; the direction PDF is in no commit ([vision.md](vision.md) restates
+  it). Dates and content are unchanged: the tree at the tip is the same, file for file, apart from the PDF. A
+  rehearsal in a scratch copy checked all of this first, and a backup of the original history is kept
+  outside the repository.
+- Commit hashes changed with the rewrite. Hashes quoted in earlier entries and in the experiment reports
+  (`a028bea`, `ae52e90`, `ffcb792`, `0304e59` and others) are the old ones; the tag still points at the same
+  baseline content.
+- Not done: the first CI run on Linux, Windows and macOS had not finished when this was written.
+
 ## 2026-11-25 — Open-source readiness, prepared up to the push
 
 - The owner said to continue after the 3D proposal, and created the public repository. First step of the

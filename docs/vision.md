@@ -1,8 +1,10 @@
 # Vision
 
-> Sources: *Agent-native Rust game engine: architecture direction* (Nov 24, 2026), the PDF at the repo root,
-> and the owner's **direction update of 2026-11-25**, recorded in the next section. Where the two differ, the
-> direction update wins. The rest of this page restates the PDF as text so agents and diffs can use it.
+> Sources: the owner's direction document, *Agent-native Rust game engine: architecture direction*
+> (Nov 24, 2026), and the owner's **direction update of 2026-11-25**, recorded in the next section. Where the
+> two differ, the direction update wins. The direction document is a PDF the owner keeps; it is not in this
+> repository, and the rest of this page restates all of it as text so agents and diffs can use it. Older
+> records call it "the direction PDF" or "the PDF at the repo root".
 
 ## Direction update — 2026-11-25 (owner)
 
