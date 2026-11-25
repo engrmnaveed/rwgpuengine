@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use slate_data::{Action, InputDef, InputKind, Vfs};
 
 use crate::playtest::run_playtest;
+use crate::present::Presenter;
 use crate::session::{DataOnly, InspectOptions, LiveInput, Script, Session, SessionConfig};
 
 fn example(name: &str) -> Vfs {
@@ -148,4 +149,44 @@ fn inspect_gives_tap_points_that_really_hit() {
     let (x, y) = (tap[0].as_i64().unwrap() as f32, tap[1].as_i64().unwrap() as f32);
     s.step(&LiveInput { taps: vec![(x, y)], ..Default::default() });
     assert_eq!(s.world.events.all()[0].entity, s.world.find("guard"));
+}
+
+#[test]
+fn a_presenter_shows_the_reference_pixels_and_repaints_only_on_change() {
+    // Every frame of every example playtest: whenever the presenter repaints,
+    // its pixels are the reference rasterizer's; whenever it does not, the
+    // reference picture has not changed either.
+    let (mut frames, mut repaints) = (0, 0);
+    for name in ["iso_garden", "coin_vault", "tiny_town"] {
+        let vfs = example(name);
+        for path in slate_data::check_project(&vfs).playtests {
+            let cfg = SessionConfig { script: Some(path.clone()), ..Default::default() };
+            let mut session = Session::load(&vfs, &cfg, Box::new(DataOnly)).unwrap();
+            let mut presenter = Presenter::new();
+            assert!(presenter.pixels().is_empty());
+            let mut last = Vec::new();
+            for frame in 0..=session.script_frames().unwrap() {
+                session.run_to(frame);
+                frames += 1;
+                if presenter.present(&session) {
+                    repaints += 1;
+                    last = session.render().0.rgba;
+                    assert!(presenter.pixels() == last, "{name}/{path} frame {frame}: repainted pixels differ");
+                } else if frame % 64 == 0 {
+                    // Sampled, because the reference rasterizer is slow.
+                    assert!(session.render().0.rgba == last, "{name}/{path} frame {frame}: a change was skipped");
+                }
+                assert!(!presenter.present(&session), "{name}/{path} frame {frame}: presenting twice repaints once");
+            }
+            // One-off painting gives the same picture, and a reset forces a repaint.
+            let mut once = vec![1, 2, 3];
+            session.paint(&mut once);
+            assert!(once == last, "{name}/{path}");
+            presenter.reset();
+            assert!(presenter.present(&session) && presenter.pixels() == once);
+        }
+    }
+    // 9 playtests, 1,569 frames; a frame in ten changes the picture.
+    assert_eq!(frames, 1569);
+    assert!(repaints >= 9 && repaints * 8 < frames, "{repaints} repaints in {frames} frames");
 }

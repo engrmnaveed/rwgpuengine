@@ -90,9 +90,12 @@ function step() {
 function draw() {
   const width = w.slate_width(), height = w.slate_height();
   if (!width) return;
-  const ptr = w.slate_render();
-  const pixels = new Uint8ClampedArray(w.memory.buffer, ptr, width * height * 4).slice();
-  ctx.putImageData(new ImageData(pixels, width, height), 0, 0);
+  // Most frames change nothing: slate_present repaints only when the picture
+  // did, and says so (it always does on the first frame after a start).
+  if (w.slate_present()) {
+    const pixels = new Uint8ClampedArray(w.memory.buffer, w.slate_pixels(), width * height * 4);
+    ctx.putImageData(new ImageData(pixels, width, height), 0, 0);
+  }
   $('frame').textContent = w.slate_frame();
   w.slate_hash();
   $('hash').textContent = out();

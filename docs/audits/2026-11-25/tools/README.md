@@ -6,7 +6,7 @@ again. They are not part of the engine or the gate. Run them from the repository
 
 | file | what it measures | how to run |
 |---|---|---|
-| `wasm_check.mjs` | State and image hashes of every playtest of a project in `slate_web.wasm` under Node, with no browser. `--bench` adds render time. | `node docs/audits/2026-11-25/tools/wasm_check.mjs target/wasm32-unknown-unknown/web/slate_web.wasm examples/tiny_town --bench` |
+| `wasm_check.mjs` | State and image hashes of every playtest of a project in `slate_web.wasm` under Node, with no browser. `--native <slate>` compares them with `slate shot` and exits 1 on a difference. `--bench` adds render time. | `node docs/audits/2026-11-25/tools/wasm_check.mjs target/wasm32-unknown-unknown/web/slate_web.wasm examples/tiny_town --native target/release/slate` |
 | `scale_town.py` | Copies a project with every pixel value multiplied by `k` (display, iso tiles, HUD, sprites, labels, taps). | `python3 docs/audits/2026-11-25/tools/scale_town.py examples/tiny_town /tmp/town_x2 2` |
 | `fuzz.py` | Breaks the example projects at random (seeded) and runs five commands on each; reports panics, hangs and output that is not JSON. | `python3 docs/audits/2026-11-25/tools/fuzz.py target/release/slate . /tmp/fuzzwork 400` |
 | `raster_spans_bench.rs` | Splits a frame into tick, draw-list build, rasterize and report; compares a span rasterizer prototype with the reference rasterizer, frame by frame. | Put it in a scratch crate as `src/main.rs` with path dependencies on `slate_core`, `slate_data`, `slate_sim`, `slate_render` and `slate_runtime`; then `cargo run --release -- examples/tiny_town`. |

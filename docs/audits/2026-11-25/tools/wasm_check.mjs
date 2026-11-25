@@ -1,10 +1,23 @@
 // Headless check: run slate_web.wasm under Node (V8) and print state and
 // image hashes for every playtest of an example, plus render timing.
-// usage: node wasm_check.mjs <wasm> <example dir> [--bench]
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+// usage: node wasm_check.mjs <wasm> <example dir> [--bench] [--native <slate binary>]
+//
+// `image` is slate_image_hash. On a build with the paint path (ADR 0018)
+// `shown` is the hash of the pixels a page gets from slate_present and
+// slate_render, computed here. `--native` runs `slate shot` for the same
+// playtest and frame and compares its state hash and its image hash (the
+// reference rasterizer's) with the wasm's: the real native-equals-web check.
+// `--bench` times slate_render: rasterize + report before ADR 0018, paint
+// after. Exits 1 if anything differs.
+import { readFileSync, readdirSync, statSync, mkdtempSync } from 'node:fs';
+import { join, relative, sep, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 
-const [wasmPath, dir, flag] = process.argv.slice(2);
+const [wasmPath, dir, ...flags] = process.argv.slice(2);
+const flag = flags.includes('--bench') ? '--bench' : '';
+const native = flags.includes('--native') ? resolve(flags[flags.indexOf('--native') + 1]) : null;
+let failed = false;
 const { instance } = await WebAssembly.instantiate(readFileSync(wasmPath), {});
 const w = instance.exports;
 const enc = new TextEncoder();
@@ -47,6 +60,31 @@ for (const t of tests) {
   w.slate_image_hash();
   const image = out();
   let line = `${t.replace('tests/', '').replace('.toml', '')} frames=${frames} state=${state} image=${image}`;
+  if (w.slate_present) {
+    // FNV-1a 64 of what slate_present / slate_render hand to the page.
+    const fnv = (ptr) => {
+      const px = new Uint8Array(w.memory.buffer, ptr, w.slate_width() * w.slate_height() * 4);
+      let h = 0xcbf29ce484222325n;
+      for (const b of px) h = ((h ^ BigInt(b)) * 0x100000001b3n) & 0xffffffffffffffffn;
+      return h.toString(16).padStart(16, '0');
+    };
+    const first = w.slate_present();
+    const presented = fnv(w.slate_pixels());
+    const again = w.slate_present();
+    const rendered = fnv(w.slate_render());
+    const ok = first === 1 && again === 0 && presented === image && rendered === image;
+    failed ||= !ok;
+    line += ` shown=${presented} ${ok ? 'SAME' : 'DIFFERENT'}`;
+  }
+  if (native) {
+    const png = join(mkdtempSync(join(tmpdir(), 'slate-check-')), 'shot.png');
+    const run = spawnSync(native, ['shot', '--input', t, '--frame', String(frames), '--out', png, '--json'], { cwd: dir });
+    let j = {};
+    try { j = JSON.parse(run.stdout.toString()); } catch (_) { /* reported below */ }
+    const ok = j.state_hash === state && j.image_hash === image;
+    failed ||= !ok;
+    line += ok ? ' native=EQUAL' : ` native=DIFFERENT (state ${j.state_hash} image ${j.image_hash})`;
+  }
   if (flag === '--bench') {
     for (let i = 0; i < 30; i++) w.slate_render();
     const batches = [];
@@ -60,3 +98,4 @@ for (const t of tests) {
   }
   console.log(line);
 }
+if (failed) process.exit(1);

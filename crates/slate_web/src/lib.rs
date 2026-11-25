@@ -20,7 +20,7 @@ use std::cell::RefCell;
 use slate_core::diag::Diagnostic;
 use slate_core::json::Json;
 use slate_data::Vfs;
-use slate_runtime::{DataOnly, InspectOptions, LiveInput, Session, SessionConfig};
+use slate_runtime::{DataOnly, InspectOptions, LiveInput, Presenter, Session, SessionConfig};
 use slate_sim::{ActionSet, dump};
 
 #[derive(Default)]
@@ -28,7 +28,8 @@ struct State {
     vfs: Option<Vfs>,
     session: Option<Session>,
     out: Vec<u8>,
-    pixels: Vec<u8>,
+    /// The picture the page shows (`slate_present`, `slate_render`).
+    presenter: Presenter,
 }
 
 thread_local! {
@@ -115,6 +116,7 @@ pub unsafe extern "C" fn slate_set_bundle(ptr: *const u8, len: usize) -> u32 {
         Ok(vfs) => {
             s.vfs = Some(vfs);
             s.session = None;
+            s.presenter.reset();
             0
         }
         Err(e) => {
@@ -149,6 +151,7 @@ pub unsafe extern "C" fn slate_start(
             script: Some(input).filter(|x| !x.is_empty()),
             seed: None,
         };
+        s.presenter.reset();
         match Session::load(vfs, &cfg, Box::new(DataOnly)) {
             Ok(session) => {
                 let warnings = diags_json(&session.warnings);
@@ -193,17 +196,37 @@ pub extern "C" fn slate_run_to(frame: u32) {
     })
 }
 
-/// Render the current frame; returns a pointer to width*height*4 RGBA bytes,
-/// valid until the next call.
+/// Paint the current frame; returns a pointer to width*height*4 RGBA bytes,
+/// valid until the next `slate_render`, `slate_present` or `slate_start`.
+/// It always paints. A page that draws every frame calls `slate_present`.
 #[unsafe(no_mangle)]
 pub extern "C" fn slate_render() -> *const u8 {
     with(|s| {
+        s.presenter.reset();
         if let Some(session) = &s.session {
-            let (frame, _) = session.render();
-            s.pixels = frame.rgba;
+            s.presenter.present(session);
         }
-        s.pixels.as_ptr()
+        s.presenter.pixels().as_ptr()
     })
+}
+
+/// Bring the pixel buffer up to date, repainting only if the picture
+/// changed. Returns 1 when the pixels at `slate_pixels` are new and the
+/// page should show them, 0 when they are the ones it already has. The first
+/// call after `slate_start` returns 1.
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_present() -> u32 {
+    with(|s| match &s.session {
+        Some(session) => s.presenter.present(session) as u32,
+        None => 0,
+    })
+}
+
+/// Pointer to the pixel buffer `slate_present` keeps: width*height*4 RGBA
+/// bytes, valid until the next `slate_render`, `slate_present` or `slate_start`.
+#[unsafe(no_mangle)]
+pub extern "C" fn slate_pixels() -> *const u8 {
+    with(|s| s.presenter.pixels().as_ptr())
 }
 
 #[unsafe(no_mangle)]
@@ -241,11 +264,21 @@ pub extern "C" fn slate_hash() -> u32 {
     })
 }
 
-/// Writes the image hash of the current frame to the output buffer.
+/// Writes the image hash of the current frame to the output buffer. It is
+/// the hash of the painted pixels, which equal the reference rasterizer's
+/// (`slate shot`); painting keeps that rasterizer and the frame report out
+/// of the web module (ADR 0018).
 #[unsafe(no_mangle)]
 pub extern "C" fn slate_image_hash() -> u32 {
     with(|s| {
-        let h = s.session.as_ref().map(|x| slate_core::hash::hex(x.render().0.image_hash())).unwrap_or_default();
+        let h = match &s.session {
+            Some(x) => {
+                let mut rgba = Vec::new();
+                x.paint(&mut rgba);
+                slate_core::hash::hex(slate_core::hash::fnv1a64(&rgba))
+            }
+            None => String::new(),
+        };
         set_out(s, h)
     })
 }
@@ -309,6 +342,59 @@ mod tests {
         assert_eq!(web_hash, native.hash_hex());
         assert_eq!(slate_width(), 640);
         assert!(!slate_render().is_null());
+    }
+
+    #[test]
+    fn present_repaints_only_when_the_picture_changes() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/iso_garden");
+        let vfs = Vfs::from_dir(&root).unwrap();
+        let bundle = vfs.to_bundle();
+        let input = "tests/walkthrough.toml";
+        let start = || {
+            // SAFETY: pointers come from live Rust strings.
+            unsafe {
+                assert_eq!(slate_set_bundle(bundle.as_ptr(), bundle.len()), 0);
+                assert_eq!(slate_start(std::ptr::null(), 0, input.as_ptr(), input.len()), 0, "{}", out());
+            }
+        };
+        let shown = || with(|s| s.presenter.pixels().to_vec());
+        let reference = || with(|s| s.session.as_ref().unwrap().render().0.rgba);
+        assert_eq!(slate_present(), 0, "no session yet");
+
+        start();
+        assert_eq!((slate_present(), slate_present()), (1, 0), "first frame once");
+        assert!(shown() == reference());
+        assert_eq!(slate_pixels(), with(|s| s.presenter.pixels().as_ptr()));
+
+        // The walkthrough's first input is at frame 10. Over the first 40
+        // frames some change the picture and most do not; a frame may be
+        // skipped only if the reference picture is the same.
+        let first = shown();
+        let (mut repaints, mut skips) = (0, 0);
+        for frame in 1..=40 {
+            let before = reference();
+            slate_run_to(frame);
+            if slate_present() == 1 {
+                repaints += 1;
+                assert!(shown() == reference(), "frame {frame}");
+            } else {
+                skips += 1;
+                assert!(reference() == before, "frame {frame}: a change was skipped");
+            }
+        }
+        assert!(repaints >= 1 && skips > repaints, "{repaints} repaints, {skips} skips");
+
+        // slate_render always paints, into the same buffer.
+        let moved = shown();
+        assert!(moved != first);
+        assert_eq!(slate_render(), slate_pixels());
+        assert!(shown() == moved);
+        assert_eq!(slate_present(), 0);
+
+        // A restart shows its first frame again.
+        start();
+        assert_eq!(slate_present(), 1);
+        assert!(shown() != moved && shown() == reference());
     }
 
     #[test]

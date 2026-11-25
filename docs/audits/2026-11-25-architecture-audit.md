@@ -118,6 +118,13 @@ What this changes:
 
 The prototype is 150 lines in a scratch crate. It is evidence, not a proposal to merge as it stands.
 
+> **Added later the same day.** The paint path was built ([ADR 0018](../decisions/0018-paint-path-for-players.md)).
+> Two things above no longer stand:
+> - The tablet estimate used native time × 1.2 for wasm. Measured, wasm paint at 2560 × 1920 is 0.91 ms on this
+>   machine, so the estimate is 4–6 ms on the tablet, not 3–4.5 ms.
+> - The owner decided that the target is 3D on the GPU (D8, below). The argument here that wgpu can wait is
+>   withdrawn; it only ever applied to flat 2D shapes.
+
 ### 3.3 Everything on screen is tied to one frame size
 
 The display is one fixed size (640 × 480 in every example). HUD positions, sprite sizes, label scale and
@@ -252,6 +259,10 @@ tokens read upfront against more tool calls.
 ## 7. Decisions for the owner
 
 Each has my recommendation. None is made.
+
+> **Answered by the owner on 2026-11-25**; see [open-questions.md](../open-questions.md). D8 was answered
+> against the recommendation: the GPU is a must, because the engine's target is 3D. That reopens D5, D6 and
+> D7 and replaces steps 5–9 of the plan in section 8.
 
 | # | decision | recommendation | why |
 |---|---|---|---|

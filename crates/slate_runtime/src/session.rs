@@ -10,7 +10,7 @@ use slate_core::text::did_you_mean;
 use slate_data::{
     InputDef, InputKind, PlaytestDef, ProjectDef, SceneDef, SceneLoader, Vfs, load_playtest, load_project,
 };
-use slate_render::{DrawList, Frame, FrameReport, View, build_report, draw, pick, rasterize};
+use slate_render::{DrawList, Frame, FrameReport, View, build_report, draw, paint, pick, rasterize};
 use slate_sim::{ActionSet, InputFrame, Systems, World, dump};
 
 /// Rust game code plugged into a session (ADR 0006: data first, code
@@ -201,12 +201,21 @@ impl Session {
         draw::build(&self.world, &self.view, self.scene.ground.as_ref(), include_disabled)
     }
 
-    /// Render the current frame and describe it.
+    /// Render the current frame and describe it: the reference pixels plus
+    /// the frame report (`slate shot`, playtest `[[shot]]`s).
     pub fn render(&self) -> (Frame, FrameReport) {
         let list = self.draw_list(false);
         let (frame, stats) = rasterize(&list);
         let report = build_report(&self.world, &list, &frame, &stats);
         (frame, report)
+    }
+
+    /// Paint the current frame's colors into `rgba`: the same pixels as
+    /// [`Session::render`], without the report, for showing the game. A
+    /// player that paints every frame should use a
+    /// [`Presenter`](crate::Presenter), which skips frames that did not change.
+    pub fn paint(&self, rgba: &mut Vec<u8>) {
+        paint(&self.draw_list(false), rgba);
     }
 
     pub fn state_hash(&self) -> u64 {

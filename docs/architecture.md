@@ -138,11 +138,10 @@ only IEEE-exact operations (clippy bans libm transcendental functions); `BTreeMa
 `HashMap`/`HashSet`); no wall-clock time in the engine; integer rasterization. `World::state_hash()` and
 `Frame::image_hash()` (FNV-1a 64) make equality a one-line check.
 
-Verified: the example walkthrough reaches state `469ae7c92124d43d` and image `bfca8c0b40af6828` both
-natively (aarch64-apple-darwin) and in the browser (wasm32); coin_vault's solve (props, conditions, text,
-HUD) reaches state `41f58b0904b83261` and image `f15c777308fdf361` on both; Tiny Town's `build_town`
-(terrain, ground taps, spawning, 2 × 2 houses) reaches state `537ae6f9300e9b67` and image `58bd8a0dbea14409` on
-both.
+Verified on 2026-11-25 ([audit](audits/2026-11-25-architecture-audit.md), section 3.1): all nine example
+playtests reach the same state hashes on aarch64 and x86-64 macOS, aarch64 and x86-64 Linux, and wasm32, and
+the wasm's pixels hash to native `slate shot`'s image hashes. The current fingerprints are in the
+[baseline](baselines/2026-11-25.md); this page does not repeat them, because copies go stale.
 
 ## Rendering
 
@@ -155,7 +154,12 @@ ADR 0007. The **draw list** is the central artifact:
   multi-cell entity sort with its front cell (ADR 0013). Text is drawn with an owned 5×8 pixel font (`font.rs`, printable ASCII); each glyph is a shape
   whose coverage is a bit test, so text is as deterministic, reportable and pickable as everything else.
 - `rasterize` fills shapes with exact integer coverage tests at pixel centers (doubled coordinates,
-  top-left fill rule) and integer shading/blending; it records which item owns each pixel.
+  top-left fill rule) and integer shading/blending; it records which item owns each pixel. It is the
+  **reference**: `slate shot`, playtest `[[shot]]`s and the frame report use it.
+- `paint` (ADR 0018) gives the same pixels from the same list, colors only, by solving the coverage rule for
+  whole runs of pixels: 55 µs against 2,256 µs for rasterize plus report on a Tiny Town frame. Players use it
+  through `slate_runtime::Presenter`, which repaints only when the draw list changed. Tests hold the two
+  pixel-identical on every frame of every example playtest.
 - `build_report` turns ownership into per-entity drawn/visible pixels and "covered by", and flags W0301
   off-screen, W0302 mostly-hidden sprites, W0303 clipped.
 - `pick` walks the same list front to back with the same coverage test, so taps hit exactly what is drawn;
@@ -179,9 +183,10 @@ Isometric projection: `sx = ox + (x − y)·tw/2`, `sy = oy + (x + y)·th/2 − 
 
 ## The web player
 
-ADR 0008. `slate_web` compiles to a wasm module with zero imports (643,317 bytes after the size pass, ADR 0017; budget 800,000). `web/player.js` (no framework,
-no build step) loads it, fetches the project as a bundle (`path\0text\0…`), steps at the project's
-tick rate, and paints the CPU-rendered frame with `putImageData`. `slate serve` (std-only HTTP) rebuilds
+ADR 0008. `slate_web` compiles to a wasm module with zero imports (585,725 bytes with the paint path,
+ADR 0018; budget 800,000). `web/player.js` (no framework, no build step) loads it, fetches the project as a
+bundle (`path\0text\0…`), steps at the project's tick rate, and asks `slate_present` each frame: only when
+the picture changed does it copy the pixels to the canvas with `putImageData`. `slate serve` (std-only HTTP) rebuilds
 the bundle from disk per request; the page polls a content hash and reloads on change, showing
 diagnostics in the page. Touch first: tap = tap, swipe = move along the iso axes, on-screen pad.
 

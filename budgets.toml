@@ -10,6 +10,8 @@
 # slate_web.wasm built with the `web` profile. v0.1.0 measured 466,628 bytes;
 # M3.4 with the hybrid profile (ADR 0017) 643,317 (234,702 gzipped). Raised
 # from 700,000 by the owner's call to leave room for more features (ADR 0017).
+# With the paint path the web module no longer holds the reference rasterizer
+# or the frame report: 585,725 (215,418 gzipped) (ADR 0018).
 wasm_bytes = 800_000
 
 [cli]
@@ -32,7 +34,13 @@ incremental_rebuild_ms = 10_000
 # native; `cargo xtask render-bench`). M3.4 measured ~2,270 us on an Apple M5
 # Pro. The limit catches a rasterizer regression of ~2.5x on slower CI
 # machines; the web profile's opt-levels are checked separately (ADR 0017).
+# This is the reference path: `slate shot`, playtest `[[shot]]`s and reports.
 render_frame_us = 6_000
+# Paint the same frame the way a player does when the picture changed:
+# build the draw list and fill spans, no report (ADR 0018). Measured 55-60 us on
+# an Apple M5 Pro; the limit leaves the same ~2.5x for slower CI machines
+# and catches a fall back to per-pixel work, which costs 20x.
+paint_frame_us = 200
 
 [tablet]
 # Cold start of the web player on a mid-range tablet. Needs a device to

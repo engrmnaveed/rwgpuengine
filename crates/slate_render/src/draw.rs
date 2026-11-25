@@ -177,7 +177,8 @@ pub struct DrawItem {
     key: (u8, i32, i32, Part, u32),
 }
 
-#[derive(Clone, Debug)]
+/// Two equal lists paint the same picture, so a player can skip repainting.
+#[derive(Clone, Debug, PartialEq)]
 pub struct DrawList {
     pub view: View,
     /// Back to front.

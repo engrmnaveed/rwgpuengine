@@ -2,6 +2,7 @@ use slate_data::{SceneLoader, Vfs, load_project};
 use slate_sim::World;
 
 use crate::draw::build;
+use crate::paint::paint;
 use crate::pick::pick;
 use crate::raster::rasterize;
 use crate::report::build_report;
@@ -413,4 +414,112 @@ block = { height = 3 }
     assert_eq!(pick(&list, p[0] as f32 + 0.5, p[1] as f32 + 0.5).ground, Some([1, 1]));
     // The cell under the tall rock has no free pixel.
     assert_eq!(crate::pick::ground_tap_point(&list, [0, 1]), None);
+}
+
+/// A scene with every kind of shape: terrain, tiles, blocks (one multi-cell,
+/// one with a top color), the three sprite shapes, see-through colors, world
+/// and screen labels, things cut by the frame's edge, and a disabled entity.
+const EVERYTHING: &str = r##"
+[ground]
+map = ["ggww", "gggw", "gggg", "ppgg"]
+
+[[terrain]]
+char = "g"
+name = "grass"
+color = "#3f8a3f"
+alt_color = "#3a8039"
+
+[[terrain]]
+char = "w"
+name = "water"
+color = "#2a5d8f"
+build = false
+
+[[terrain]]
+char = "p"
+name = "path"
+color = "#b9a26a"
+
+[[entity]]
+name = "plate"
+pos = [1, 2]
+tile = { color = "#ffcc0080" }
+
+[[entity]]
+name = "house"
+pos = [2, 2]
+footprint = [2, 2]
+block = { height = 1.5, color = "#b5651d", top = "#8b2f2f" }
+
+[[entity]]
+name = "ball"
+pos = [0, 0]
+sprite = { shape = "circle", color = "#ff000099", size = [30, 22] }
+
+[[entity]]
+name = "gem"
+pos = [1, 0]
+sprite = { shape = "diamond", color = "#4fc3f7", size = [21, 27] }
+
+[[entity]]
+name = "ghost"
+pos = [0, 3]
+sprite = { shape = "rect", color = "#ffffff40", size = [400, 90], offset = [-150, 20] }
+
+[[entity]]
+name = "sign"
+pos = [3, 0]
+block = { height = 0.5 }
+label = { text = "Hi {n}!", color = "#ffffffcc", scale = 2 }
+props = { n = 7 }
+
+[[entity]]
+name = "hud"
+screen_pos = [-6, 4]
+sprite = { shape = "rect", color = "#00000088", size = [120, 30] }
+label = { text = "Coins: {n}\nq~j", scale = 3, offset = [4, 3] }
+props = { n = 12 }
+
+[[entity]]
+name = "hidden"
+pos = [2, 0]
+enabled = false
+block = { height = 2 }
+"##;
+
+#[test]
+fn paint_gives_the_reference_pixels() {
+    for scene in [SCENE, EVERYTHING] {
+        let (world, view, def) = setup(scene);
+        // With and without disabled items in the list: both skip them.
+        for include_disabled in [false, true] {
+            let list = build(&world, &view, def.ground.as_ref(), include_disabled);
+            let (frame, _) = rasterize(&list);
+            let mut rgba = Vec::new();
+            paint(&list, &mut rgba);
+            assert_eq!(rgba.len(), frame.rgba.len());
+            let first = rgba.iter().zip(&frame.rgba).position(|(a, b)| a != b).map(|i| ((i / 4) % 320, i / 4 / 320));
+            assert_eq!(first, None, "the first different pixel (x, y)");
+        }
+    }
+}
+
+#[test]
+fn paint_overwrites_whatever_the_buffer_held() {
+    let (world, view, def) = setup(EVERYTHING);
+    let list = build(&world, &view, def.ground.as_ref(), false);
+    let (frame, _) = rasterize(&list);
+    // Too long and full of another picture; then too short.
+    let mut rgba = vec![0x5a; frame.rgba.len() + 64];
+    paint(&list, &mut rgba);
+    assert!(rgba == frame.rgba);
+    rgba.truncate(10);
+    paint(&list, &mut rgba);
+    assert!(rgba == frame.rgba);
+    // Equal lists compare equal (what a player's "repaint?" check relies on),
+    // and one moved entity makes them differ.
+    assert_eq!(list, build(&world, &view, def.ground.as_ref(), false));
+    let mut moved = world.clone();
+    moved.entities[2].pos[0] += 1.0;
+    assert_ne!(list, build(&moved, &view, def.ground.as_ref(), false));
 }

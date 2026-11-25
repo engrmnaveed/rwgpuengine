@@ -3,6 +3,28 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — A paint path for players (ADR 0018)
+
+- The owner chose to consolidate before the public push. First consolidation step: the web player's frame
+  ([ADR 0018](decisions/0018-paint-path-for-players.md)).
+  - `slate_render::paint` gives the reference rasterizer's pixels by solving each shape's coverage rule for
+    whole runs of pixels. `rasterize` is unchanged and stays the reference for `shot`, `test` and reports.
+  - `slate_runtime::Presenter` repaints only when the draw list changed; the web ABI gains `slate_present`
+    and `slate_pixels`, and `web/player.js` copies pixels to the canvas only then.
+- Measured (Tiny Town, `build_town`, frame 120):
+  - a changed frame, native: 2,256 µs → **55 µs** (budget `time.paint_frame_us = 200`);
+  - a changed frame, wasm in Node: 2.81 ms → **0.09 ms** at 640 × 480; 42.2 ms → **0.91 ms** at 2560 × 1920;
+  - repaints over the nine example playtests: 1,569 → **140**;
+  - web wasm: 643,317 → **585,725 bytes** (the reference rasterizer and the report left the web module).
+- Pixel identity: 9,000 random shapes against `covers`; a scene with every shape kind; every frame of all nine
+  playtests; and in wasm against native `slate shot` for all nine. Five mutation checks fail the shape test.
+  In Chromium the canvas's own pixels hash to the native image hash, and 120 live frames made 2 canvas copies.
+- Found on the way:
+  - The audit's wasm estimate was wrong: the first paint path was six times slower in wasm than natively at
+    high resolution (no vector instructions). Filling long runs by block copy fixed it (3.9 ms → 0.91 ms).
+  - Clippy 1.100 rejects `chunks_exact_mut` with a constant size; `as_chunks_mut` is the form to use.
+- Not done: a presentation scale; anything on the GPU. Both now belong to the 3D direction (next entry up).
+
 ## 2026-11-25 — Architecture audit by the senior architect session
 
 - The new supervisor session (Fable 5.2) audited the baseline against the vision:

@@ -293,8 +293,13 @@ fn budgets() -> Result {
     if !out.status.success() {
         return Err(format!("render-bench failed: {}", String::from_utf8_lossy(&out.stderr)));
     }
-    let us: i64 = String::from_utf8_lossy(&out.stdout).trim().parse().map_err(|e| format!("render-bench: {e}"))?;
-    r.add("time.render_frame_us", us, b.limit("time", "render_frame_us"));
+    let text = String::from_utf8_lossy(&out.stdout);
+    let us: Vec<i64> = text.split_whitespace().filter_map(|v| v.parse().ok()).collect();
+    let &[render_us, paint_us] = us.as_slice() else {
+        return Err(format!("render-bench: expected two numbers, got `{}`", text.trim()));
+    };
+    r.add("time.render_frame_us", render_us, b.limit("time", "render_frame_us"));
+    r.add("time.paint_frame_us", paint_us, b.limit("time", "paint_frame_us"));
 
     let smoke_ms = smoke()?;
     r.add("time.smoke_chain_ms", smoke_ms as i64, b.limit("time", "smoke_chain_ms"));
@@ -339,9 +344,12 @@ fn check_web_profile() -> Result {
     Ok(())
 }
 
-/// Microseconds to render one 640x480 frame of Tiny Town with its town
-/// built (`build_town` at frame 120): median of 5 batches of 100. Printed
-/// on stdout; meant for a release build (`budgets` runs it that way).
+/// Microseconds for one 640x480 frame of Tiny Town with its town built
+/// (`build_town` at frame 120), two ways: `Session::render` (the reference
+/// pixels plus the frame report, what `slate shot` does) and `Session::paint`
+/// (what a player does for a frame that changed; ADR 0018). Each is the
+/// median of 5 batches of 100. Printed on stdout as `render paint`; meant
+/// for a release build (`budgets` runs it that way).
 fn render_bench() -> Result {
     use slate_runtime::{DataOnly, Session, SessionConfig};
     let vfs = slate_data::Vfs::from_dir(&root().join("examples/tiny_town")).map_err(|e| e.to_string())?;
@@ -350,20 +358,31 @@ fn render_bench() -> Result {
     while session.frame() < 120 {
         session.step(&Default::default());
     }
-    for _ in 0..20 {
+    let median = |frame: &mut dyn FnMut()| {
+        for _ in 0..20 {
+            frame();
+        }
+        let mut batches: Vec<u128> = (0..5)
+            .map(|_| {
+                let start = Instant::now();
+                for _ in 0..100 {
+                    frame();
+                }
+                start.elapsed().as_micros() / 100
+            })
+            .collect();
+        batches.sort_unstable();
+        batches[2]
+    };
+    let render = median(&mut || {
         std::hint::black_box(session.render());
-    }
-    let mut batches: Vec<u128> = (0..5)
-        .map(|_| {
-            let start = Instant::now();
-            for _ in 0..100 {
-                std::hint::black_box(session.render());
-            }
-            start.elapsed().as_micros() / 100
-        })
-        .collect();
-    batches.sort_unstable();
-    println!("{}", batches[2]);
+    });
+    let mut pixels = Vec::new();
+    let paint = median(&mut || {
+        session.paint(&mut pixels);
+        std::hint::black_box(&pixels);
+    });
+    println!("{render} {paint}");
     Ok(())
 }
 

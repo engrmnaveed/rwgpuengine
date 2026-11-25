@@ -22,5 +22,6 @@ adding a new ADR that supersedes the old one (and marking the old one), never by
 | [0015](0015-several-actions-per-connect.md) | Several actions per `[[connect]]` (`actions = [...]`): one `when`, in order, a refused spawn stops the rest | accepted, built (M3.3); cold-agent run #9 |
 | [0016](0016-spawn-costs-and-funds-refusal.md) | Spawn `cost` (paid only if placed) and the `funds` refusal reason | accepted, built (M3.4) |
 | [0017](0017-web-profile-and-budgets.md) | Web profile: size-first with the renderer at `opt-level = 3`; budgets 800 KB wasm and a render-time limit | accepted, built |
+| [0018](0018-paint-path-for-players.md) | A paint path for players (`paint`, `Presenter`, `slate_present`): the reference pixels 41× faster, unchanged frames skipped; the reference rasterizer stays for checks | accepted, built |
 
 Template: copy any ADR; keep it under a page.
