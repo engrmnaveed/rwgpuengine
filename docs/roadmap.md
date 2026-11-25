@@ -4,6 +4,26 @@ Milestones after the MVP. Order and scope are proposals: guardrail 2 says **refe
 feature**, so each milestone names the game need that pulls it in. Items marked **(Q#)** wait on a
 decision in [open-questions.md](open-questions.md).
 
+## Now: pause, baseline, consolidate (owner's order, 2026-11-25)
+
+Core feature work is **paused** at [baseline 2026-11-25](baselines/2026-11-25.md) (git tag
+`baseline-2026-11-25`). The order from here:
+
+1. **Owner review** of the baseline and the handoff notes.
+2. **The senior architect session.** The owner starts a new session in this repository on a higher-end model
+   (Fable 5.2, Extra mode) with the [brief](handoff/senior-architect-brief.md). It:
+   - audits slate against the vision;
+   - consolidates the core and lays the complete platform foundation;
+   - becomes the project's **main supervisor** from then on.
+
+   Its plan, in approved steps, replaces the milestones below where they differ.
+3. **Demos**: real games built with slate on the consolidated platform, each with the procedural steps of
+   how it was built (`BUILD.md`). They are also the foundation's acceptance test.
+4. **The desktop app** for game producers, with agentic support through a bridge to Claude Desktop and
+   other agent platforms later ([proposal](proposals/desktop-app.md)). It starts only after the foundation.
+
+The M3 feature candidates below are the architect's backlog to judge.
+
 ## M1.5 — Close the loop on the idea (next)
 
 - ~~Run the cold-agent test~~ — done: [run #1](experiments/2026-11-25-cold-agent-1.md) and
@@ -86,9 +106,10 @@ Need: the first real game. Q3 is decided: the **isometric builder**, Tiny Town
   `cost = { entity, prop, amount }` on a spawn is checked first and paid only if placed; too little is a
   refusal with reason `funds`. Tiny Town's conditions no longer mention coins, and the file-order rule for
   coin messages is gone. Asked for by runs #8 and #9.
-- Next candidates:
-  - a size pass before the next large feature: the wasm is 674,719 bytes (budget 700,000); `opt-level = "z"`
-    measured −40 KB, frame time not yet measured;
+- **Size pass: done 2026-11-25** ([ADR 0017](decisions/0017-web-profile-and-budgets.md)). The web profile is
+  size-first with a fast renderer: 643,317 bytes (−31 KB) and −37 % frame time. Budget 800,000 (owner), plus a
+  new render-time budget.
+- Backlog for the architect (see "Now" above):
   - a "not equal" / `in` condition, or an else branch (runs #8 and #9 both added a flag prop);
   - a cold-agent run on M3.4.
 - Candidates, waiting for more evidence:

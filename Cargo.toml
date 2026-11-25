@@ -55,10 +55,19 @@ opt-level = 2
 debug = false
 strip = true
 
-# Size-focused profile for the browser build (cargo xtask web).
+# Browser build (cargo xtask web): size-first, except the hot path
+# (ADR 0017). Measured on Tiny Town (640x480, browser): "s" 674,719 bytes and
+# 4.29 ms/frame; "z" 631,342 and 5.22; "3" 754,461 and 2.72; this mix 643,317
+# and 2.72 (identical hashes). `cargo xtask budgets` checks the overrides.
 [profile.web]
 inherits = "release"
-opt-level = "s"
+opt-level = "z"
 lto = true
 codegen-units = 1
 panic = "abort"
+
+[profile.web.package.slate_render]
+opt-level = 3
+
+[profile.web.package.slate_core]
+opt-level = 3

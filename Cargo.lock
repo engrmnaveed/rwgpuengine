@@ -278,6 +278,7 @@ dependencies = [
  "slate_cli",
  "slate_core",
  "slate_data",
+ "slate_runtime",
 ]
 
 [[package]]

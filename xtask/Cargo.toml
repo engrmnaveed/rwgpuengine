@@ -10,6 +10,7 @@ publish.workspace = true
 slate_core.workspace = true
 slate_data.workspace = true
 slate_cli.workspace = true
+slate_runtime.workspace = true
 
 [lints]
 workspace = true

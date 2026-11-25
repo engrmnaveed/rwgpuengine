@@ -7,6 +7,8 @@
 //! cargo xtask budgets   measure and enforce budgets.toml
 //! cargo xtask docs      regenerate docs/reference (`--check` to verify only)
 //! ```
+//!
+//! `render-bench` is internal: `budgets` runs it as a release build.
 
 // xtask measures wall-clock time on purpose (budgets); the determinism ban
 // on Instant::now applies to the engine, not to dev tooling.
@@ -32,6 +34,7 @@ fn main() -> ExitCode {
         "smoke" => smoke().map(|_| ()),
         "budgets" => budgets(),
         "docs" => docs(rest.iter().any(|a| a == "--check")),
+        "render-bench" => render_bench(),
         _ => {
             eprintln!("usage: cargo xtask <ci | web | smoke | budgets | docs [--check]>");
             return ExitCode::from(2);
@@ -280,6 +283,19 @@ fn budgets() -> Result {
     }
     r.add("deps.proc_macro_crates", proc_macros.len() as i64, b.limit("deps", "proc_macro_crates"));
 
+    step("render time (release, native)");
+    check_web_profile()?;
+    let out = Command::new("cargo")
+        .args(["run", "--release", "--quiet", "--package", "xtask", "--", "render-bench"])
+        .current_dir(root())
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(format!("render-bench failed: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let us: i64 = String::from_utf8_lossy(&out.stdout).trim().parse().map_err(|e| format!("render-bench: {e}"))?;
+    r.add("time.render_frame_us", us, b.limit("time", "render_frame_us"));
+
     let smoke_ms = smoke()?;
     r.add("time.smoke_chain_ms", smoke_ms as i64, b.limit("time", "smoke_chain_ms"));
 
@@ -303,6 +319,52 @@ fn budgets() -> Result {
 
     r.add("tablet.startup_ms", 0, b.limit("tablet", "startup_ms"));
     r.print_and_check()
+}
+
+/// The web profile keeps the renderer fast (ADR 0017): the size-first
+/// `opt-level = "z"` made frames 22% slower, so slate_render and slate_core
+/// are built at `opt-level = 3`. A native measurement cannot see this, so
+/// check the setting itself.
+fn check_web_profile() -> Result {
+    let text = std::fs::read_to_string(root().join("Cargo.toml")).map_err(|e| e.to_string())?;
+    let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    for pkg in ["slate_render", "slate_core"] {
+        if !compact.contains(&format!("[profile.web.package.{pkg}]opt-level=3")) {
+            return Err(format!(
+                "Cargo.toml: `[profile.web.package.{pkg}] opt-level = 3` is missing; without it web frames are \
+                 ~60% slower (ADR 0017)"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Microseconds to render one 640x480 frame of Tiny Town with its town
+/// built (`build_town` at frame 120): median of 5 batches of 100. Printed
+/// on stdout; meant for a release build (`budgets` runs it that way).
+fn render_bench() -> Result {
+    use slate_runtime::{DataOnly, Session, SessionConfig};
+    let vfs = slate_data::Vfs::from_dir(&root().join("examples/tiny_town")).map_err(|e| e.to_string())?;
+    let cfg = SessionConfig { script: Some("tests/build_town.toml".into()), ..SessionConfig::default() };
+    let mut session = Session::load(&vfs, &cfg, Box::new(DataOnly)).map_err(|d| format!("{d:?}"))?;
+    while session.frame() < 120 {
+        session.step(&Default::default());
+    }
+    for _ in 0..20 {
+        std::hint::black_box(session.render());
+    }
+    let mut batches: Vec<u128> = (0..5)
+        .map(|_| {
+            let start = Instant::now();
+            for _ in 0..100 {
+                std::hint::black_box(session.render());
+            }
+            start.elapsed().as_micros() / 100
+        })
+        .collect();
+    batches.sort_unstable();
+    println!("{}", batches[2]);
+    Ok(())
 }
 
 fn file_size(p: &Path) -> Result<i64> {

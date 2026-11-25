@@ -179,7 +179,7 @@ Isometric projection: `sx = ox + (x − y)·tw/2`, `sy = oy + (x + y)·th/2 − 
 
 ## The web player
 
-ADR 0008. `slate_web` compiles to a wasm module with zero imports (674,719 bytes after M3.4; budget 700,000). `web/player.js` (no framework,
+ADR 0008. `slate_web` compiles to a wasm module with zero imports (643,317 bytes after the size pass, ADR 0017; budget 800,000). `web/player.js` (no framework,
 no build step) loads it, fetches the project as a bundle (`path\0text\0…`), steps at the project's
 tick rate, and paints the CPU-rendered frame with `putImageData`. `slate serve` (std-only HTTP) rebuilds
 the bundle from disk per request; the page polls a content hash and reloads on change, showing

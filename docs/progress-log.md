@@ -3,6 +3,27 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Size pass, baseline, pause for the senior architect
+
+- **Size pass** ([ADR 0017](decisions/0017-web-profile-and-budgets.md)). I measured the web build in the
+  browser at five optimisation settings, all giving identical hashes:
+  - `z` alone was 43 KB smaller but 22 % slower per frame;
+  - `3` alone was 37 % faster but 80 KB bigger;
+  - the adopted mix (size-first, with the renderer and core at `3`) is **643,317 bytes (−31 KB) and 2.72
+    ms/frame (−37 %)**, better on both.
+- **Budgets:** wasm raised to 800,000 at the owner's request. New `time.render_frame_us` (native release,
+  measured 2,253 µs, limit 6,000). `budgets` checks the web profile's renderer overrides.
+- **The owner set the order from here:**
+  1. pause core work at a baseline;
+  2. the owner reviews;
+  3. a senior architect session (Fable 5.2, Extra mode) audits against the vision, consolidates the core, lays
+     the platform foundation and becomes the main supervisor;
+  4. then demos with procedural build logs;
+  5. then a desktop app for game producers, bridged to Claude Desktop (other agent platforms later).
+- Written for that: [baseline](baselines/2026-11-25.md) (tag `baseline-2026-11-25`), the
+  [architect brief](handoff/senior-architect-brief.md), the [desktop app proposal](proposals/desktop-app.md),
+  Q15, and the roadmap's "Now" section.
+
 ## 2026-11-25 — Spawn costs and the `funds` refusal (M3.4)
 
 - Built what runs #8 and #9 both asked for ([ADR 0016](decisions/0016-spawn-costs-and-funds-refusal.md)):

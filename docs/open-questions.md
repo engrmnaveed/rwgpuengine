@@ -17,6 +17,7 @@ the answer here (and an ADR if it is architectural), then remove it from the "op
 | Q11 | **Web distribution.** Embed the wasm in the `slate` binary (bigger CLI, zero setup) or ship it separately? Add `slate export web`? | Embed at release time via a build feature; add `export web` in M2. | `slate serve` outside the repo |
 | Q12 | **Iso input mapping.** `up` = −y (screen up-right), swipes follow iso axes. Is that intuitive for children on tablets? | Validate with a quick playtest with real users; the mapping is one table to change. | M5 UX |
 | Q13 | **Audio crate** (kira / cpal / web audio) | Decide when a reference game needs sound. | M5 |
+| Q15 | **Desktop app** for game producers ([proposal](proposals/desktop-app.md)): who the producer is, target OSes, the bridge (MCP to Claude Desktop, later Codex etc.; or an agent inside the app too), what humans edit directly. | Decide after the platform foundation; the bridge as an MCP server makes "other agent platforms" nearly free. | the desktop app |
 
 ## Decided
 
@@ -25,4 +26,5 @@ the answer here (and an ADR if it is architectural), then remove it from the "op
 | — | Build from scratch, files + CLI first, Rust game code, web + tablets first (the direction doc) | 2026-11-24 |
 | — | Working codename "slate" (provisional, see Q1) | 2026-11-24 |
 | Q3 | **First reference game: the isometric builder**, Tiny Town ([spec](games/tiny-town.md)): tap a tool, tap the island to build within a coin budget. Its kit: terrain maps, ground taps, `spawn` with placement rules, multi-cell `footprint`, `from_prefab`. [ADR 0013](decisions/0013-first-reference-game-isometric-builder.md) | 2026-11-25 |
+| — | **Pause core work at [baseline 2026-11-25](baselines/2026-11-25.md)**. A senior architect session (Fable 5.2, Extra mode), started by the owner with the [brief](handoff/senior-architect-brief.md), audits, consolidates and lays the platform foundation, and becomes the main supervisor; then demos with build logs; then the desktop app. | 2026-11-25 |
 | Q14 | **Game logic: data first, Rust as the escape hatch.** A small data-level set (prop `add`/`set`, `when` conditions, a `label` component with a bitmap font, screen anchoring), chosen on KPIs: it wins the edit loop, static checking, queryability, determinism and web delivery; Rust keeps unbounded flexibility for the rest. [ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md) | 2026-11-25 |
