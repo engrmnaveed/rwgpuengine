@@ -1,0 +1,3 @@
+doc = "A tree. Costs 1 coin, refunds 1. The two old trees in the scene are copies of this prefab, so they count as trees."
+sprite = { shape = "circle", color = "#3f9a48", size = [26, 38] }
+solid = true

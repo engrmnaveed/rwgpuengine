@@ -1,0 +1,3 @@
+doc = "A bench. Costs 2 coins, refunds 2."
+block = { color = "#7a4f2a", top = "#b98552", height = 0.3 }
+solid = true

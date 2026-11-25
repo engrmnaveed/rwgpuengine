@@ -160,7 +160,8 @@ pub const EVENT_DOCS: &[EventDoc] = &[
         meaning: "A connection's action ran on its target: enable, disable, toggle, or add/set a prop \
                   (`before`/`after` are the enabled state or the prop's values). It is logged even when nothing \
                   changes (`enable` on an enabled entity: \"stays enabled\", `changed = false`), so \
-                  `[[expect]] event = \"action\"` counts every time the connection fired.",
+                  `[[expect]] event = \"action\"` counts every time the connection fired; add `changed = true` to \
+                  count only real changes.",
     },
     EventDoc {
         kind: EventKind::Skipped,

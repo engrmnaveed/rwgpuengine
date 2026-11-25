@@ -1,0 +1,90 @@
+[test]
+doc = "Refusal 1: the lake and the gravel path cannot be built on; the message clears on a tool choice and on a successful placement."
+scene = "scenes/main.toml"
+frames = 30
+
+[[input]]
+frame = 5
+tap = [210, 452]          # Tree button
+
+[[input]]
+frame = 10
+tap = [416, 272]          # lake cell (7, 3)
+
+[[expect]]
+frame = 11
+entity = "hint"
+text = "You can't build on the lake or the gravel path."
+
+[[expect]]
+frame = 11
+event = "blocked"
+reason = "terrain"
+prefab = "tree"
+at_least = 1
+at_most = 1
+
+[[expect]]
+frame = 11
+entity = "park"
+props = { coins = 9 }
+
+[[expect]]
+frame = 11
+prefab = "tree"
+count = 2                 # just the two old trees
+
+[[input]]
+frame = 15
+tap = [372, 452]          # Bench button: a tool choice clears the message
+
+[[expect]]
+frame = 16
+entity = "hint"
+text = ""
+
+[[input]]
+frame = 20
+tap = [352, 176]          # path cell (3, 1)
+
+[[expect]]
+frame = 21
+entity = "hint"
+text = "You can't build on the lake or the gravel path."
+
+[[expect]]
+frame = 21
+event = "blocked"
+reason = "terrain"
+prefab = "bench"
+at_least = 1
+at_most = 1
+
+[[expect]]
+frame = 21
+prefab = "bench"
+count = 0
+
+[[input]]
+frame = 25
+tap = [480, 208]          # meadow cell (6, 0): a bench is placed, the message clears
+
+[[expect]]
+frame = 26
+entity = "hint"
+text = ""
+
+[[expect]]
+frame = 26
+prefab = "bench"
+pos = [6, 0]
+count = 1
+
+[[expect]]
+frame = 26
+entity = "park"
+props = { coins = 7 }
+
+[[shot]]
+frame = 12
+reference = "tests/refs/refuse_terrain.png"

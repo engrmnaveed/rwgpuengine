@@ -54,6 +54,18 @@ Tiny Town regrouped:
 - **Model.** `ConnectDef` now holds `actions: Vec<ActionDef>` and the runtime `Connection` holds
   `actions: Vec<Act>`. A single `action` is a list of one, so there is one code path.
 
+## Acceptance
+
+**Result ([run #9](../experiments/2026-11-25-cold-agent-9.md)): met.** A cold agent got run #8's park task
+word for word. Every requirement was supported with 0 warnings, in **24 connections instead of 41** (−41 %;
+the estimate was 27), 369 scene lines instead of 470, and 5 min 54 s instead of 6 min 24 s. It used
+`[spawn, pay, clear message]` lists and put the coin messages before the spawns, as the recipe says. Its
+findings are fixed:
+- a short flag (`-o`) was read as a path;
+- list messages now say "action 3 of 3";
+- `[[expect]] event = "action"` takes `changed = true`;
+- three recipe facts.
+
 ## Not built
 
 A per-item `when`; actions that target the copy just spawned (use its `spawned` signal); "else" branches.

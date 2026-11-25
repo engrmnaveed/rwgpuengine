@@ -1,0 +1,96 @@
+[test]
+doc = "Refusal 2: a spot that is already taken (tapping a tree, a playground overlapping a tree, the ground under a tree)."
+scene = "scenes/main.toml"
+frames = 40
+
+[[input]]
+frame = 5
+tap = [210, 452]          # Tree button
+
+[[input]]
+frame = 10
+tap = [256, 136]          # right on old_tree_1: the tree is hit, not the ground
+
+[[expect]]
+frame = 11
+entity = "hint"
+text = "That spot is already taken."
+
+[[expect]]
+frame = 11
+entity = "park"
+props = { coins = 9 }
+
+[[expect]]
+frame = 11
+prefab = "tree"
+count = 2
+
+[[input]]
+frame = 15
+tap = [90, 452]           # Playground button: message clears
+
+[[expect]]
+frame = 16
+entity = "hint"
+text = ""
+
+[[input]]
+frame = 20
+tap = [269, 122]          # ground cell (0, 1): a 2x2 playground there would cover old_tree_1 at (1, 2)
+
+[[expect]]
+frame = 21
+entity = "hint"
+text = "That spot is already taken."
+
+[[expect]]
+frame = 21
+event = "blocked"
+reason = "occupied"
+prefab = "playground"
+at_least = 1
+
+[[expect]]
+frame = 21
+prefab = "playground"
+count = 0
+
+[[expect]]
+frame = 21
+entity = "park"
+props = { coins = 9 }
+
+[[input]]
+frame = 25
+tap = [210, 452]          # Tree button
+
+[[input]]
+frame = 30
+tap = [256, 160]          # visible ground of cell (1, 2), under old_tree_1
+
+[[expect]]
+frame = 31
+entity = "hint"
+text = "That spot is already taken."
+
+[[expect]]
+frame = 31
+event = "blocked"
+reason = "occupied"
+prefab = "tree"
+at_least = 1
+
+[[input]]
+frame = 35
+tap = [288, 112]          # free meadow cell (0, 0): placed, message clears
+
+[[expect]]
+frame = 36
+entity = "hint"
+text = ""
+
+[[expect]]
+frame = 36
+prefab = "tree"
+count = 3

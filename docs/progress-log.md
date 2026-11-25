@@ -3,6 +3,28 @@
 Newest first. Commit messages carry the detail; this page is the narrative and the place to record
 findings that are not code (experiment results, surprises, things to remember).
 
+## 2026-11-25 — Cold-agent test #9: run #8's park with `actions`, 41 → 24 connections
+
+- Same task, word for word, as run #8, on the build with `actions` lists. Every requirement was supported
+  with 0 warnings.
+  - **24 connections instead of 41** (−41 %; ADR 0015 estimated 27); 369 scene lines instead of 470.
+  - 5 min 54 s instead of 6 min 24 s; 21 tool calls; ~132K tokens.
+  - It wrote `[spawn, pay, clear message]` lists and put each coin message before its spawn, as the recipe
+    says.
+- Re-verified, including two mutation checks. One is a lesson: moving a coin message after its spawn passed
+  all 7 of its tests, because none spent the coins below a price. The recipe now says how to prove that
+  order.
+- Fixed:
+  - `-o` was read as a path; short flags are now an error that names the long flag;
+  - list messages say "action 3 of 3" (data `item`);
+  - `[[expect]] event = "action"` takes `changed = true`, so real transitions can be counted (Tiny Town:
+    the banner gets 11 `set`s, 1 real change);
+  - recipes: clearing a message only on success; copies with overrides still count; tap pixels on shape
+    edges;
+  - limits: changing looks at runtime.
+- Two runs now ask for the same two things: costs as data with a `funds` refusal, and a "not equal"
+  condition. [Experiment report](experiments/2026-11-25-cold-agent-9.md).
+
 ## 2026-11-25 — Several actions per `[[connect]]` (M3.3)
 
 - Built run #8's top request ([ADR 0015](decisions/0015-several-actions-per-connect.md)):

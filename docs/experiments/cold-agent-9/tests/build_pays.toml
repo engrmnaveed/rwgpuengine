@@ -1,0 +1,75 @@
+[test]
+doc = "A build that pays: a playground costs 4 coins, the coins and the sign update on screen; the remove tool gives the 4 coins back."
+scene = "scenes/main.toml"
+frames = 30
+
+[[expect]]
+frame = 0
+entity = "park"
+text = "Coins: 9\nTool: none"
+
+[[expect]]
+frame = 0
+entity = "sign"
+text = "PARK SIGN\nPlaygrounds: 0\nTrees: 2\nBenches: 0"
+
+[[input]]
+frame = 5
+tap = [90, 452]           # Playground button
+
+[[input]]
+frame = 10
+tap = [416, 176]          # meadow cell (4, 0): the playground covers (4..5, 0..1)
+
+[[expect]]
+frame = 10
+entity = "park"
+props = { coins = 9, tool = "playground" }
+
+[[expect]]
+frame = 11
+entity = "park"
+props = { coins = 5 }
+text = "Coins: 5\nTool: playground"
+
+[[expect]]
+frame = 11
+prefab = "playground"
+pos = [4, 0]
+count = 1
+
+[[expect]]
+frame = 11
+event = "spawned"
+prefab = "playground"
+at_least = 1
+at_most = 1
+
+[[expect]]
+frame = 11
+entity = "sign"
+props = { playgrounds = 1, trees = 2, benches = 0 }
+text = "PARK SIGN\nPlaygrounds: 1\nTrees: 2\nBenches: 0"
+
+[[input]]
+frame = 15
+tap = [571, 452]          # Remove button
+
+[[input]]
+frame = 20
+tap = [416, 195]          # the playground (tap pixel from `slate inspect`)
+
+[[expect]]
+frame = 21
+prefab = "playground"
+count = 0
+
+[[expect]]
+frame = 21
+entity = "park"
+props = { coins = 9 }
+
+[[expect]]
+frame = 21
+entity = "sign"
+props = { playgrounds = 0 }

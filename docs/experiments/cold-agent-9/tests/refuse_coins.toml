@@ -1,0 +1,118 @@
+[test]
+doc = "Refusal 3: not enough coins, for each build tool. Nothing is placed and nothing is paid."
+scene = "scenes/main.toml"
+frames = 60
+
+[[input]]
+frame = 5
+tap = [90, 452]           # Playground button
+
+[[input]]
+frame = 10
+tap = [416, 176]          # playground at (4, 0): 9 -> 5
+
+[[input]]
+frame = 15
+tap = [96, 208]           # playground at (0, 6): 5 -> 1
+
+[[expect]]
+frame = 16
+entity = "park"
+props = { coins = 1 }
+
+[[expect]]
+frame = 20
+prefab = "playground"
+count = 2
+
+[[input]]
+frame = 20
+tap = [192, 160]          # third playground at (0, 3): only 1 coin
+
+[[expect]]
+frame = 21
+entity = "hint"
+text = "Not enough coins: a playground costs 4."
+
+[[expect]]
+frame = 21
+prefab = "playground"
+count = 2
+
+[[expect]]
+frame = 20
+event = "skipped"
+prefab = "playground"
+at_most = 0               # no playground spawn was stopped before this tap...
+
+[[expect]]
+frame = 21
+event = "skipped"
+prefab = "playground"
+at_least = 1              # ...and this one was (coins >= 4 failed)
+
+[[input]]
+frame = 25
+tap = [372, 452]          # Bench button: message clears
+
+[[expect]]
+frame = 26
+entity = "hint"
+text = ""
+
+[[input]]
+frame = 30
+tap = [480, 208]          # bench at (6, 0): costs 2, only 1 coin
+
+[[expect]]
+frame = 31
+entity = "hint"
+text = "Not enough coins: a bench costs 2."
+
+[[expect]]
+frame = 31
+prefab = "bench"
+count = 0
+
+[[expect]]
+frame = 31
+entity = "park"
+props = { coins = 1 }
+
+[[input]]
+frame = 35
+tap = [210, 452]          # Tree button
+
+[[input]]
+frame = 40
+tap = [480, 208]          # tree at (6, 0): 1 -> 0, placed
+
+[[expect]]
+frame = 41
+entity = "park"
+props = { coins = 0 }
+text = "Coins: 0\nTool: tree"
+
+[[expect]]
+frame = 41
+prefab = "tree"
+count = 3
+
+[[input]]
+frame = 45
+tap = [512, 224]          # tree at (7, 0): no coins left
+
+[[expect]]
+frame = 46
+entity = "hint"
+text = "Not enough coins: a tree costs 1."
+
+[[expect]]
+frame = 46
+prefab = "tree"
+count = 3
+
+[[expect]]
+frame = 46
+entity = "park"
+props = { coins = 0 }

@@ -411,7 +411,8 @@ const F_COUNTS: Field = opt(
     None,
     "Props that count enabled copies of a prefab, kept up to date by the engine: `counts = { houses = \"house\" }` \
      makes `houses` an integer prop equal to the number of enabled `house` entities (placed in the scene or \
-     spawned). It changes when a copy is spawned, disabled or enabled again; the entity then emits `changed`, so \
+     spawned; an entity with `prefab = \"house\"` is a copy whatever keys it overrides). It changes when a copy \
+     is spawned, disabled or enabled again; the entity then emits `changed`, so \
      labels, `when` conditions and `[[expect]] props` read it like any prop. `add`/`set` cannot change it.",
 );
 const F_ALLOW: Field = opt(
@@ -556,8 +557,8 @@ pub static CONNECT: Spec = Spec {
             "from_prefab",
             Ty::Name,
             None,
-            "Listen to every entity made from this prefab, placed in the scene or spawned later: \
-             `from_prefab = \"coin\"` instead of one [[connect]] per coin.",
+            "Listen to every entity made from this prefab, placed in the scene (whatever keys it overrides) or \
+             spawned later: `from_prefab = \"coin\"` instead of one [[connect]] per coin.",
         ),
         req("signal", Ty::Name, "Signal name, e.g. `pressed`, `released`, `tapped`, `changed`, `spawned`, `refused`."),
         F_CONNECT_TO,
@@ -759,6 +760,14 @@ pub static EXPECT: Spec = Spec {
             None,
             "With `event = \"blocked\"`: only count refusals for this reason (e.g. `solid`, not `cooldown`; `push` = a \
              pushable could not be pushed; `terrain`/`occupied`/`edge` = a spawn could not be placed).",
+        ),
+        opt(
+            "changed",
+            Ty::Bool,
+            None,
+            "With `event = \"action\"`: `true` counts only actions that really changed something (a door that \
+             opened, a prop with a new value), `false` only those that changed nothing (`enable` on an enabled \
+             entity, `set` to the same value). Without it, every time the connection fired counts.",
         ),
         opt(
             "at_least",

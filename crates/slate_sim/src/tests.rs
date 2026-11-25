@@ -1198,8 +1198,10 @@ fn a_refused_spawn_stops_the_rest_of_its_actions() {
             && skipped[0].ends_with("the 'house' spawn before it in this [[connect]] was refused"),
         "{skipped:?}"
     );
+    assert!(skipped[1].contains("; action 3 of 3)"), "{skipped:?}");
     let e = w.events.all().iter().rev().find(|e| e.kind == EventKind::Skipped).unwrap();
     assert_eq!(e.data.get("stopped_by").and_then(|v| v.as_str()), Some("refused spawn"));
+    assert_eq!(e.data.get("item").and_then(|v| v.as_i64()), Some(3));
     // On grass: placed, then paid and noted, in order.
     w.tick(&ground_tap([0, 0]), &mut NoSystems);
     assert_eq!(prop(&w, "town", "coins"), PropValue::Int(0));

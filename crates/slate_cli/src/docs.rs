@@ -363,6 +363,9 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   `reason = "solid"` (reasons: `solid`, `actor`, `edge`, `area`, `cooldown`). Blocked *by whom*: add
   `other = "guard"`. With `event`, `entity` is the event's subject and `other` its other party;
   `slate explain events` lists both for every kind.
+- **Prove something really changed**: `[[expect]] event = "action"`, `entity = "door"`, `changed = true`
+  counts only actions that changed it (opened, a new prop value); without `changed`, an `enable` on an
+  enabled door counts too.
 - **Prove something never happened**: `[[expect]] event = "signal"`, `entity = "goal"`, `signal = "reached"`,
   `at_most = 0`.
 - **Buttons you tap.** Every entity emits `tapped` when tapped; wire it with `[[connect]]`. Get a pixel that
@@ -463,11 +466,17 @@ slate has no built-in "goal", "door" or "item": you build them from tiles, block
   water. A tap **on** a building hits the building, not the ground, so it is never refused either: to say
   "taken" there, add `from_prefab = "house" signal = "tapped" to = "hint" ...` with the build tool's
   condition (one per build tool, since `when` has no "not equal"; or keep a flag prop such as
-  `building = true` that the build buttons set and the remove button clears).
+  `building = true` that the build buttons set and the remove button clears). To keep a message until the
+  next *success* instead of the next tap, do not clear it on every tap: clear it as the last action of the
+  spawn's list (it runs only if the copy was placed) and in each tool button's list. Prove the order with
+  a purchase that spends the coins below a price (`[[expect]] entity = "hint"`, `text = ""` right after it):
+  a "not enough coins" connection placed after the spawn would wrongly fire there.
 - **Where can I tap to build?** `slate inspect --place house` lists every cell where a house fits right now,
   each with a `tap` pixel for `[[input]] tap`; `--place house@3,4` says whether it fits there and why not.
   Add `--input tests/x.toml --frame N` to ask after some building. A cell hidden behind a building has no
-  tap pixel: a player cannot tap it either.
+  tap pixel: a player cannot tap it either. Every `tap` pixel is checked by picking, so it is right even on
+  the edge of another shape: a pixel is covered when its center is, so `screen [240, 112, 32, 48]` covers
+  pixels x 240–271 and y 112–159, and a tap at y 160 is below it.
 - **Prove a build**: `[[expect]] prefab = "house"` with `count = 2` (enabled copies), optionally `pos = [4, 1]`
   for one spot (`count = 0` there: nothing was built). Prove a refusal with `event = "blocked"` and
   `reason = "terrain"` / `"occupied"` / `"edge"`, plus `prefab = "house"` to count only house placements.
@@ -624,6 +633,7 @@ refused (the ground emits `refused` with the reason). See the Recipes.
 | **Pulling, lifting, or pushing several crates in a row** | A mover pushes one `pushable` one cell; a crate with another crate behind it does not move (reason `push`). |
 | **Text beyond printable ASCII** (accents, other scripts, emoji), fonts and text styles | One built-in pixel font: printable ASCII, a color and an integer `scale`. Other characters draw as a box (W0207). |
 | **Image sprites, audio, animation** | Shapes only (`circle`, `rect`, `diamond`), colors, blocks, tiles and text. |
+| **Changing an entity's look at runtime** (color, size, highlighting the chosen tool) | Looks are fixed per entity. Put a second entity on the same spot (a highlight frame under a button, a lit lamp over an unlit one) and `enable`/`disable` it; one `actions` list can switch both. Text can change through `{prop}` placeholders. |
 | **Rotation, scrolling camera** | Footprints are fixed: a 2 x 3 building is always 2 along x and 3 along y (make a second prefab for the turned one). The camera is fixed per scene. |
 | **Dragging** (drag to build a row, drag to move a building) | Taps only: one tap, one `spawn`. Moving a building is clear (disable) and build again. |
 | **A signal when a `when` stops something** ("not enough coins" as an event the game reacts to) | `skipped` is logged but emits nothing. Write the opposite case as its own `[[connect]]` on the same signal (`when = [{ ..., prop = "coins", at_most = 2 }]`). Refused *placements* do emit `refused`. |

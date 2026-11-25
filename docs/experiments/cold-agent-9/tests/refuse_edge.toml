@@ -1,0 +1,42 @@
+[test]
+doc = "Extra refusals: no tool chosen yet, and a playground that would stick out over the edge of the ground."
+scene = "scenes/main.toml"
+frames = 20
+
+[[input]]
+frame = 2
+tap = [480, 208]          # meadow (6, 0) before any tool is chosen
+
+[[expect]]
+frame = 3
+entity = "hint"
+text = "Pick a tool first: tap a button below."
+
+[[expect]]
+frame = 3
+event = "spawned"
+at_most = 0
+
+[[input]]
+frame = 5
+tap = [90, 452]           # Playground button
+
+[[input]]
+frame = 10
+tap = [576, 256]          # (9, 0): a 2x2 playground would cover (10, 0), outside the ground
+
+[[expect]]
+frame = 11
+entity = "hint"
+text = "No room there: it would stick out of the park."
+
+[[expect]]
+frame = 11
+event = "blocked"
+reason = "edge"
+prefab = "playground"
+
+[[expect]]
+frame = 11
+entity = "park"
+props = { coins = 9 }

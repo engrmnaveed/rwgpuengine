@@ -724,3 +724,15 @@ fn action_lists_are_checked() {
                    from = \"hint\"\nsignal = \"changed\"\nto = \"town\"\naction = \"disable\"";
     assert_eq!(grouped(changed), Vec::<&str>::new());
 }
+
+#[test]
+fn changed_filters_only_action_events() {
+    let vfs = |expect: &str| {
+        project(&[
+            ("scenes/main.toml", "[ground]\nsize = [4, 4]\n"),
+            ("tests/t.toml", &format!("[test]\nscene = \"scenes/main.toml\"\nframes = 10\n\n[[expect]]\n{expect}\n")),
+        ])
+    };
+    assert_eq!(codes(&vfs("event = \"action\"\nchanged = true\nat_least = 0")), Vec::<&str>::new());
+    assert_eq!(codes(&vfs("event = \"skipped\"\nchanged = true\nat_least = 0")), vec!["E0105"]);
+}

@@ -305,6 +305,17 @@ pub fn parse(args: &[String]) -> Result<Parsed, Diagnostic> {
             flags.insert("--help", None);
             continue;
         }
+        // A short flag (`-o`) is a mistake, not a path: slate has long flags only.
+        if arg.len() >= 2 && arg.starts_with('-') && arg.as_bytes()[1].is_ascii_alphabetic() {
+            let long: Vec<&str> =
+                cmd.flags.iter().map(|f| f.name).filter(|n| n.as_bytes().get(2) == Some(&arg.as_bytes()[1])).collect();
+            let hint = match long.as_slice() {
+                [one] => format!("slate has long flags only: did you mean `{one}`?"),
+                [] => format!("slate has long flags only: run `slate help {}` for its flags", cmd.name),
+                many => format!("slate has long flags only: one of `{}`", many.join("`, `")),
+            };
+            return Err(bad_arg(format!("`slate {}` has no flag `{arg}`", cmd.name), Some(hint)));
+        }
         if !arg.starts_with("--") || arg == "--" {
             positionals.push(arg.clone());
             continue;
@@ -456,6 +467,12 @@ mod tests {
         assert!(e.message.contains("needs a value"));
         let e = parse(&args("run --frames x")).unwrap().number("--frames").unwrap_err();
         assert_eq!(e.code, "E0003");
+        // Short flags are not paths: name the long one.
+        let e = parse(&args("shot -o out/x.png")).unwrap_err();
+        assert_eq!(e.message, "`slate shot` has no flag `-o`");
+        assert_eq!(e.hint.as_deref(), Some("slate has long flags only: did you mean `--out`?"));
+        // `-h` still means help; a value like -1 after a flag is still a value.
+        assert!(parse(&args("shot -h")).is_ok());
     }
 
     #[test]

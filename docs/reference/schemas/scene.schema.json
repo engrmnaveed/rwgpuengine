@@ -394,7 +394,7 @@
               "type": "string",
               "pattern": "^[A-Za-z0-9_/-]+$"
             },
-            "description": "Props that count enabled copies of a prefab, kept up to date by the engine: `counts = { houses = \"house\" }` makes `houses` an integer prop equal to the number of enabled `house` entities (placed in the scene or spawned). It changes when a copy is spawned, disabled or enabled again; the entity then emits `changed`, so labels, `when` conditions and `[[expect]] props` read it like any prop. `add`/`set` cannot change it."
+            "description": "Props that count enabled copies of a prefab, kept up to date by the engine: `counts = { houses = \"house\" }` makes `houses` an integer prop equal to the number of enabled `house` entities (placed in the scene or spawned; an entity with `prefab = \"house\"` is a copy whatever keys it overrides). It changes when a copy is spawned, disabled or enabled again; the entity then emits `changed`, so labels, `when` conditions and `[[expect]] props` read it like any prop. `add`/`set` cannot change it."
           },
           "allow": {
             "type": "array",
@@ -423,7 +423,7 @@
           "from_prefab": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_/-]+$",
-            "description": "Listen to every entity made from this prefab, placed in the scene or spawned later: `from_prefab = \"coin\"` instead of one [[connect]] per coin."
+            "description": "Listen to every entity made from this prefab, placed in the scene (whatever keys it overrides) or spawned later: `from_prefab = \"coin\"` instead of one [[connect]] per coin."
           },
           "signal": {
             "type": "string",

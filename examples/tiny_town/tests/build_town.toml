@@ -90,3 +90,12 @@ at_most = 0
 
 [[shot]]
 reference = "tests/refs/build_town.png"
+
+# The banner's text really changed once: to "ready". Its other `set`s fired
+# on every job change but left the text as it was (changed = false).
+[[expect]]
+event = "action"
+entity = "banner"
+changed = true
+at_least = 1
+at_most = 1

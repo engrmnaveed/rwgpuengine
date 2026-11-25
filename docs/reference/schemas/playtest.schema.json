@@ -147,6 +147,10 @@
             "enum": ["solid", "actor", "edge", "area", "cooldown", "push", "terrain", "occupied"],
             "description": "With `event = \"blocked\"`: only count refusals for this reason (e.g. `solid`, not `cooldown`; `push` = a pushable could not be pushed; `terrain`/`occupied`/`edge` = a spawn could not be placed)."
           },
+          "changed": {
+            "type": "boolean",
+            "description": "With `event = \"action\"`: `true` counts only actions that really changed something (a door that opened, a prop with a new value), `false` only those that changed nothing (`enable` on an enabled entity, `set` to the same value). Without it, every time the connection fired counts."
+          },
           "at_least": {
             "type": "integer",
             "minimum": 0,

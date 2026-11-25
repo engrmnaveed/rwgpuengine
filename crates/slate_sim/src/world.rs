@@ -267,6 +267,8 @@ struct ActCtx<'a> {
     via: &'a str,
     when: &'a [Json],
     held: &'a [&'a str],
+    /// 1-based position in an `actions` list of two or more.
+    item: Option<usize>,
 }
 
 /// A `when` condition with its entity resolved (`None` for `reason`).
@@ -900,9 +902,13 @@ impl World {
         let failed =
             results.iter().find(|(_, held, _)| !held).map(|(cond, _, seen)| format!("{cond} does not hold ({seen})"));
         let held: Vec<&str> = results.iter().map(|(cond, _, _)| cond.as_str()).collect();
-        let ctx = ActCtx { emitter, signal, cell, via: &via, when: &when_json, held: &held };
+        let n = c.actions.len();
         let mut stopped: Option<String> = None;
-        for a in &c.actions {
+        for (i, a) in c.actions.iter().enumerate() {
+            // In a list, each message says which item it is.
+            let via = if n > 1 { format!("{via}; action {} of {n}", i + 1) } else { via.clone() };
+            let item = (n > 1).then_some(i + 1);
+            let ctx = ActCtx { emitter, signal, cell, via: &via, when: &when_json, held: &held, item };
             match failed.as_ref().or(stopped.as_ref()) {
                 Some(why) => {
                     let why = why.clone();
@@ -944,6 +950,9 @@ impl World {
         }
         if !ctx.when.is_empty() {
             data.set("when", ctx.when.to_vec());
+        }
+        if let Some(i) = ctx.item {
+            data.set("item", i);
         }
         data
     }

@@ -107,6 +107,7 @@ fn check_expect(session: &Session, def: &PlaytestDef, exp: &ExpectDef, frame: u6
             .filter(|e| other.is_none_or(|o| e.other == Some(o)))
             .filter(|e| exp.signal.as_ref().is_none_or(|s| e.signal.as_ref() == Some(s)))
             .filter(|e| exp.reason.as_ref().is_none_or(|r| e.data.get("reason").and_then(|v| v.as_str()) == Some(r)))
+            .filter(|e| exp.changed.is_none_or(|c| e.data.get("changed").and_then(|v| v.as_bool()) == Some(c)))
             .filter(|e| {
                 exp.prefab.as_ref().is_none_or(|p| {
                     e.data.get("prefab").and_then(|v| v.as_str()) == Some(p.as_str())
@@ -133,6 +134,11 @@ fn check_expect(session: &Session, def: &PlaytestDef, exp: &ExpectDef, frame: u6
         }
         if let Some(p) = &exp.prefab {
             what.push_str(&format!(" about prefab `{p}`"));
+        }
+        match exp.changed {
+            Some(true) => what.push_str(" that changed something"),
+            Some(false) => what.push_str(" that changed nothing"),
+            None => {}
         }
         let bound = match exp.at_most {
             Some(0) => "no".to_string(),

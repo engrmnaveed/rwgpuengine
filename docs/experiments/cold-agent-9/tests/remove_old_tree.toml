@@ -1,0 +1,63 @@
+[test]
+doc = "Remove an old tree: it disappears, 1 coin comes back, the tree count goes down, and its cell can be built on again."
+scene = "scenes/main.toml"
+frames = 30
+
+[[input]]
+frame = 5
+tap = [571, 452]          # Remove button
+
+[[expect]]
+frame = 10
+entity = "park"
+props = { coins = 9, tool = "remove" }
+
+[[expect]]
+frame = 10
+entity = "sign"
+props = { trees = 2 }
+
+[[input]]
+frame = 10
+tap = [256, 136]          # old_tree_1
+
+[[expect]]
+frame = 11
+entity = "old_tree_1"
+enabled = false
+
+[[expect]]
+frame = 11
+entity = "park"
+props = { coins = 10 }
+text = "Coins: 10\nTool: remove"
+
+[[expect]]
+frame = 11
+entity = "sign"
+props = { trees = 1 }
+text = "PARK SIGN\nPlaygrounds: 0\nTrees: 1\nBenches: 0"
+
+[[expect]]
+frame = 11
+prefab = "tree"
+count = 1
+
+[[input]]
+frame = 15
+tap = [210, 452]          # Tree button
+
+[[input]]
+frame = 20
+tap = [256, 160]          # cell (1, 2), freed by the removal: a new tree goes there
+
+[[expect]]
+frame = 21
+prefab = "tree"
+pos = [1, 2]
+count = 1
+
+[[expect]]
+frame = 21
+entity = "park"
+props = { coins = 9 }

@@ -1429,6 +1429,13 @@ fn load_playtest_lenient(vfs: &Vfs, path: &str) -> (Option<PlaytestDef>, Vec<Dia
                     .at(&src, t.value_span("at_least", node.span)),
             );
         }
+        if t.has("changed") && t.str("event") != Some("action") {
+            diags.push(
+                Diagnostic::new(&codes::INVALID_VALUE, "`changed` only applies to `event = \"action\"`")
+                    .at(&src, t.key_span("changed", node.span))
+                    .hint("add `event = \"action\"`, or remove `changed`"),
+            );
+        }
         if t.has("reason") && t.str("event") != Some("blocked") {
             diags.push(
                 Diagnostic::new(&codes::INVALID_VALUE, "`reason` only applies to `event = \"blocked\"`")

@@ -1,0 +1,137 @@
+[test]
+doc = "The park opens with 1 playground, 4 trees (2 old + 2 new) and 1 bench; closes when an old tree is removed; opens again with a new tree; closes when the bench is removed."
+scene = "scenes/main.toml"
+frames = 80
+
+[[input]]
+frame = 5
+tap = [90, 452]           # Playground button
+
+[[input]]
+frame = 10
+tap = [416, 176]          # playground at (4, 0): 9 -> 5
+
+[[input]]
+frame = 15
+tap = [210, 452]          # Tree button
+
+[[input]]
+frame = 20
+tap = [288, 112]          # tree at (0, 0): 5 -> 4
+
+[[input]]
+frame = 25
+tap = [320, 128]          # tree at (1, 0): 4 -> 3
+
+[[expect]]
+frame = 26
+entity = "sign"
+props = { playgrounds = 1, trees = 4, benches = 0 }
+
+[[expect]]
+frame = 26
+entity = "open_sign"
+enabled = false           # no bench yet
+
+[[input]]
+frame = 30
+tap = [372, 452]          # Bench button
+
+[[input]]
+frame = 35
+tap = [512, 224]          # bench at (7, 0): 3 -> 1
+
+[[expect]]
+frame = 35
+entity = "open_sign"
+enabled = false
+
+[[expect]]
+frame = 36
+entity = "sign"
+text = "PARK SIGN\nPlaygrounds: 1\nTrees: 4\nBenches: 1"
+
+[[expect]]
+frame = 36
+entity = "open_sign"
+enabled = true
+text = "The park is open!"
+
+[[expect]]
+frame = 36
+entity = "park"
+props = { coins = 1 }
+
+[[shot]]
+frame = 40
+reference = "tests/refs/park_open.png"
+
+[[input]]
+frame = 45
+tap = [571, 452]          # Remove button
+
+[[input]]
+frame = 50
+tap = [320, 328]          # old_tree_2: trees 4 -> 3, coins 1 -> 2
+
+[[expect]]
+frame = 51
+entity = "old_tree_2"
+enabled = false
+
+[[expect]]
+frame = 51
+entity = "sign"
+props = { trees = 3 }
+
+[[expect]]
+frame = 51
+entity = "open_sign"
+enabled = false
+
+[[expect]]
+frame = 51
+entity = "park"
+props = { coins = 2 }
+
+[[input]]
+frame = 55
+tap = [210, 452]          # Tree button
+
+[[input]]
+frame = 60
+tap = [352, 144]          # tree at (2, 0): trees 3 -> 4, coins 2 -> 1
+
+[[expect]]
+frame = 61
+entity = "open_sign"
+enabled = true
+
+[[expect]]
+frame = 61
+entity = "park"
+props = { coins = 1 }
+
+[[input]]
+frame = 65
+tap = [571, 452]          # Remove button
+
+[[input]]
+frame = 70
+tap = [512, 214]          # the bench: benches 1 -> 0, coins 1 -> 3
+
+[[expect]]
+frame = 71
+entity = "sign"
+props = { playgrounds = 1, trees = 4, benches = 0 }
+
+[[expect]]
+frame = 71
+entity = "open_sign"
+enabled = false
+
+[[expect]]
+frame = 71
+entity = "park"
+props = { coins = 3 }
+
