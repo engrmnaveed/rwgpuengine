@@ -117,13 +117,22 @@ files + input + seed = same state hash and same pixels, on every machine. A stat
 state at one frame (what `rwgpu test` prints is the final frame's), not the path that led there: two runs
 can differ along the way and still end in the same state.
 
-**Coordinates.** Cells are `[x, y]` integers; `[0, 0]` is the top corner of the ground. +x runs down-right
-on screen, +y down-left, z is height. Direction inputs move movers: `up` = -y, `down` = +y,
-`left` = -x, `right` = +x. Screen position of grid point (x, y, z), in pixels from the top-left:
+**Coordinates.** Cells are `[x, y]` integers; `[0, 0]` is the top corner of the ground. z is height.
+Direction inputs move movers: `up` = -y, `down` = +y, `left` = -x, `right` = +x. With the camera a scene
+starts with by default (`view = "iso"`, no `turn`, `zoom = 1`), +x runs down-right on screen and +y
+down-left, and grid point (x, y, z) is drawn at this pixel from the top-left:
 `sx = ox + (x - y) × tile_width / 2`, `sy = oy + (x + y) × tile_height / 2 - z × z_height`, where (ox, oy) is
 chosen so the camera `center` (default: the middle of the ground) lands in the middle of the frame. A sprite's
-bottom edge sits at its cell's (sx, sy); `offset` shifts it. `rwgpu inspect --json` shows each entity's
-`screen` rectangle, which is the easiest way to place things.
+bottom edge sits at its cell's (sx, sy); `offset` shifts it.
+
+**The camera.** The world is 3D and the camera is part of the game's state. `[camera]` in the scene sets
+where it starts (`center`, `turn`, `zoom`, `view = "iso"` or `"perspective"`); `[[input]] camera = {{ turn =
+90 }}` (also `zoom`, `pan`, `view`) moves it during a playtest, as a player would. Once it has moved, the
+formula above no longer holds: ask the engine. `rwgpu inspect --frame N --json` gives each entity's `screen`
+rectangle and a `tap` pixel under the camera of that frame, `--place house@3,4` gives the pixel that taps
+that ground cell, and the top-level `camera` field says where the camera is. A camera move at frame N
+happens before the taps of frame N. The camera is not part of the state hash (it is not in the world); a
+picture taken after a move is.
 
 **Step order.** Each step: input (taps resolve to the topmost enabled entity drawn under the point and
 emit `tapped`; a tap that hits no entity but lands on a ground cell makes the ground emit `tapped`, if a
@@ -200,12 +209,15 @@ Read them with `rwgpu inspect --events` or `rwgpu run --events`; `rwgpu explain 
 
 {event_table}
 
-**Drawing.** Ground first, then tiles, then blocks, sprites and labels back to front by `x + y`, then
-height, then part (block, sprite, label), then file order (later entities on top). A multi-cell block is
-drawn one cell-slice at a time, each sorted by its own cell, so it looks like one box and still sorts
-correctly against smaller things around it. Screen entities
-(`screen_pos`) are drawn after the whole world, in file order, and ignore the camera.
-Blocks shade their left and right faces automatically. A sprite's bottom edge stands on its cell's center.
+**Drawing.** The world is drawn in 3D: what is nearer the camera hides what is behind it, whatever the
+order in the file. A block is a box; a tile and a ground cell are flat. A flat thing lying exactly on a
+surface shows on top of it: a tile on the ground or on a block's top, a block of height 0 on a tile. A
+sprite or a label is a flat picture that faces the camera and stands on its entity's standing point (on
+top of its block, if it has one): a sprite grows and shrinks with the camera like the world, text keeps its
+pixel size. See-through colors blend over what is behind them. Screen entities (`screen_pos`) are drawn
+after the whole world, in file order, and ignore the camera.
+One fixed light shades boxes: a top keeps its color, and the sides get 0.8 (+y), 0.65 (+x), 0.5 (-x) and
+0.35 (-y) of theirs, so turning the camera shows the darker sides.
 "#
     )
 }
@@ -243,7 +255,8 @@ pub fn project_agents_md(project_name: &str) -> String {
     let mut out = format!(
         r##"# AGENTS.md — {project_name}
 
-This is a game project for **rwgpu {v}**, an agent-native 2D/2.5D isometric engine. The game is text
+This is a game project for **rwgpu {v}**, an agent-native game engine: a 3D world of simple shapes on a
+grid, seen through an isometric or a perspective camera. The game is text
 files; the engine is a command line that checks, runs, renders and inspects them. This file was generated
 for rwgpu {v} (`rwgpu docs --agents` prints the version you have installed).
 
@@ -471,7 +484,7 @@ rwgpu has no built-in "goal", "door" or "item": you build them from tiles, block
 - **Where can I tap to build?** `rwgpu inspect --place house` lists every cell where a house fits right now,
   each with a `tap` pixel for `[[input]] tap`; `--place house@3,4` says whether it fits there and why not.
   Add `--input tests/x.toml --frame N` to ask after some building. A cell hidden behind a building has no
-  tap pixel: a player cannot tap it either. Every `tap` pixel is checked by picking, so it is right even on
+  tap pixel from that camera: a player cannot tap it either without turning the camera. Every `tap` pixel is checked by picking, so it is right even on
   the edge of another shape: a pixel is covered when its center is, so `screen [240, 112, 32, 48]` covers
   pixels x 240–271 and y 112–159, and a tap at y 160 is below it.
 - **Prove a build**: `[[expect]] prefab = "house"` with `count = 2` (enabled copies), optionally `pos = [4, 1]`
@@ -630,7 +643,7 @@ refused (the ground emits `refused` with the reason). See the Recipes.
 | **Text beyond printable ASCII** (accents, other scripts, emoji), fonts and text styles | One built-in pixel font: printable ASCII, a color and an integer `scale`. Other characters draw as a box (W0207). |
 | **Image sprites, audio, animation** | Shapes only (`circle`, `rect`, `diamond`), colors, blocks, tiles and text. |
 | **Changing an entity's look at runtime** (color, size, highlighting the chosen tool) | Looks are fixed per entity. Put a second entity on the same spot (a highlight frame under a button, a lit lamp over an unlit one) and `enable`/`disable` it; one `actions` list can switch both. Text can change through `{prop}` placeholders. |
-| **Rotation, scrolling camera** | Footprints are fixed: a 2 x 3 building is always 2 along x and 3 along y (make a second prefab for the turned one). The camera is fixed per scene. |
+| **Turning things, tilting the camera** | Footprints are fixed: a 2 x 3 building is always 2 along x and 3 along y (make a second prefab for the turned one). The camera turns about the vertical axis, zooms and pans (`[camera]`, `[[input]] camera`); it cannot tilt: the perspective view is always 30 degrees above the horizon. |
 | **Dragging** (drag to build a row, drag to move a building) | Taps only: one tap, one `spawn`. Moving a building is clear (disable) and build again. |
 | **A signal when a `when` stops something** | `skipped` is logged but emits nothing. Write the opposite case as its own `[[connect]]` on the same signal. For prices use `cost` on the spawn instead: too few coins is then a refusal (`refused`, reason `funds`). |
 | **Terrain that blocks walking** | `build = false` only stops spawning; movers walk on every terrain. Put solid entities (`cells = [...]`) where they must not walk. |

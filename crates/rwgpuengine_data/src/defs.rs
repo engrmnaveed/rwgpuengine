@@ -106,6 +106,51 @@ pub struct SceneDef {
 pub struct CameraDef {
     pub center: Option<[f32; 2]>,
     pub offset: [f32; 2],
+    pub view: CameraView,
+    /// Degrees turned about the vertical axis through `center`.
+    pub turn: f32,
+    pub zoom: f32,
+}
+
+/// How the world is projected onto the screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CameraView {
+    /// The isometric view set by `[iso]`: parallel lines stay parallel.
+    Iso,
+    /// A camera 30 degrees above the horizon; far things are drawn smaller.
+    Perspective,
+}
+
+impl CameraView {
+    pub const NAMES: &'static [&'static str] = &["iso", "perspective"];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            CameraView::Iso => "iso",
+            CameraView::Perspective => "perspective",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<CameraView> {
+        match s {
+            "iso" => Some(CameraView::Iso),
+            "perspective" => Some(CameraView::Perspective),
+            _ => None,
+        }
+    }
+}
+
+/// One move of the camera: a playtest's `[[input]] camera`, or a player's
+/// gesture. The parts are applied together: view, then turn, zoom and pan.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CameraMove {
+    pub view: Option<CameraView>,
+    /// Degrees to turn by.
+    pub turn: f32,
+    /// Factor to multiply the zoom by.
+    pub zoom: f32,
+    /// Cells [x, y] to move the center by.
+    pub pan: [f32; 2],
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -666,6 +711,7 @@ pub enum InputKind {
     Press(Action),
     Hold(Action, u64),
     Tap(f32, f32),
+    Camera(CameraMove),
 }
 
 #[derive(Clone, Debug)]
@@ -736,7 +782,13 @@ pub(crate) fn decode_project(root: &Table) -> ProjectDef {
 pub(crate) fn decode_camera(t: Option<&Table>) -> CameraDef {
     let empty = Table::default();
     let c = Fields::new(t.unwrap_or(&empty), &schema::CAMERA);
-    CameraDef { center: c.opt_vec2("center"), offset: c.vec2("offset") }
+    CameraDef {
+        center: c.opt_vec2("center"),
+        offset: c.vec2("offset"),
+        view: c.opt_str("view").and_then(|v| CameraView::parse(&v)).unwrap_or(CameraView::Iso),
+        turn: c.num("turn") as f32,
+        zoom: c.num("zoom") as f32,
+    }
 }
 
 /// Plain ground from `size` and `color` (maps are built by the loader).
@@ -922,6 +974,14 @@ pub(crate) fn decode_input(t: &Table) -> Option<InputDef> {
         InputKind::Press(a)
     } else if let Some(a) = i.opt_str("hold").and_then(|s| Action::parse(&s)) {
         InputKind::Hold(a, i.int("for") as u64)
+    } else if let Some(c) = t.table("camera") {
+        let c = Fields::new(c, &schema::INPUT_CAMERA);
+        InputKind::Camera(CameraMove {
+            view: c.opt_str("view").and_then(|v| CameraView::parse(&v)),
+            turn: c.num("turn") as f32,
+            zoom: c.num("zoom") as f32,
+            pan: c.vec2("pan"),
+        })
     } else {
         let [x, y] = i.opt_vec2("tap")?;
         InputKind::Tap(x, y)

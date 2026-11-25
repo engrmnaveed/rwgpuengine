@@ -1,16 +1,16 @@
-//! Draw lists: what is drawn, where, in which order.
+//! Flat shapes in screen pixels, and the 2D layer drawn over the world.
 //!
-//! The draw list is the renderer's central artifact (ADR 0007). The CPU
-//! rasterizer consumes it, the frame report describes it, and picking walks
-//! it backwards, so "what you see", "what the report says" and "what a tap
-//! hits" can never disagree. A future GPU backend consumes the same list.
+//! [`Shape`] is what sprites, labels and the HUD are made of once they are
+//! on the screen: exact integer coverage at pixel centers. [`overlay`] builds
+//! the layer of screen entities (`screen_pos`), which ignores the camera and
+//! is always on top.
 
 use rwgpuengine_core::color::Rgba;
-use rwgpuengine_data::{GroundDef, SpriteShape, font};
+use rwgpuengine_data::{SpriteDef, SpriteShape, font};
 use rwgpuengine_sim::{Entity, EntityId, World};
 
 use crate::font::{glyph_index, lit};
-use crate::view::{View, round};
+use crate::view::round;
 
 /// Pixel rectangle, `x1`/`y1` exclusive.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -143,9 +143,7 @@ impl Shape {
 pub enum Part {
     Ground,
     Tile,
-    BlockLeft,
-    BlockRight,
-    BlockTop,
+    Block,
     Sprite,
     Label,
 }
@@ -155,193 +153,84 @@ impl Part {
         match self {
             Part::Ground => "ground",
             Part::Tile => "tile",
-            Part::BlockLeft | Part::BlockRight | Part::BlockTop => "block",
+            Part::Block => "block",
             Part::Sprite => "sprite",
             Part::Label => "label",
         }
     }
 }
 
+/// One shape of the 2D layer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DrawItem {
-    /// `None` for ground cells.
-    pub entity: Option<EntityId>,
+    pub entity: EntityId,
     pub part: Part,
     pub shape: Shape,
     pub color: Rgba,
-    /// Disabled items are only present in lists built for picking; the
-    /// rasterizer skips them.
+    /// Disabled items are only present in lists built for picking; nothing
+    /// draws them.
     pub enabled: bool,
-    /// Grid cell, for ground items and reports.
-    pub cell: [i32; 2],
-    key: (u8, i32, i32, Part, u32),
 }
 
-/// Two equal lists paint the same picture, so a player can skip repainting.
-#[derive(Clone, Debug, PartialEq)]
-pub struct DrawList {
-    pub view: View,
-    /// Back to front.
-    pub items: Vec<DrawItem>,
-}
-
-/// Painter's order: floor first, then everything standing, sorted by depth
-/// (x + y), then height, then part (block faces, sprite, label), then id.
-/// Screen entities (`screen_pos`) come last, in file order: a HUD is always
-/// on top of the world.
-pub fn build(world: &World, view: &View, ground: Option<&GroundDef>, include_disabled: bool) -> DrawList {
+/// The 2D layer: every screen entity's sprite and label, back to front (file
+/// order, a sprite before its own label). A HUD is always on top of the world.
+pub fn overlay(world: &World, include_disabled: bool) -> Vec<DrawItem> {
     let mut items = Vec::new();
-    if let Some(g) = ground {
-        for y in 0..g.size[1] {
-            for x in 0..g.size[0] {
-                let Some(t) = g.terrain_at([x, y]) else { continue };
-                let color = if (x + y) % 2 == 0 { t.color } else { t.alt_color };
-                let shape = Shape::quad(view.diamond(x as f32, y as f32, 0.0));
-                items.push(DrawItem {
-                    entity: None,
-                    part: Part::Ground,
-                    shape,
-                    color,
-                    enabled: true,
-                    cell: [x, y],
-                    key: (0, x + y, 0, Part::Ground, 0),
-                });
-            }
-        }
-    }
     for e in &world.entities {
-        if e.enabled || include_disabled {
-            push_entity(&mut items, e, view);
+        let Some(at) = e.screen_pos else { continue };
+        if !(e.enabled || include_disabled) {
+            continue;
+        }
+        let mut push = |part: Part, shape: Shape, color: Rgba| {
+            items.push(DrawItem { entity: e.id, part, shape, color, enabled: e.enabled });
+        };
+        if let Some(s) = &e.sprite {
+            // `screen_pos` is the top-left corner.
+            let (x0, y0) = (round(at[0] + s.offset[0]), round(at[1] + s.offset[1]));
+            push(Part::Sprite, sprite_shape(s, x0, y0, 1.0), s.color);
+        }
+        if let (Some(l), Some(text)) = (&e.label, e.label_text()) {
+            let scale = l.scale.max(1) as i32;
+            let (x0, y0) = (round(at[0] + l.offset[0]), round(at[1] + l.offset[1]));
+            for (gx, gy, index) in glyphs(&text, scale) {
+                push(Part::Label, Shape::Glyph { x0: x0 + gx, y0: y0 + gy, scale, index }, l.color);
+            }
         }
     }
-    items.sort_by_key(|i| i.key);
-    DrawList { view: *view, items }
+    items
 }
 
-fn push_entity(items: &mut Vec<DrawItem>, e: &Entity, view: &View) {
-    let [x, y, z] = e.pos;
-    let cell = e.cell();
-    let screen = e.screen_pos;
-    let [fw, fh] = e.footprint;
-    // The front cell (largest x + y): a multi-cell entity's sprite and label
-    // sort with it, after every slice of its block.
-    let front = [cell[0] + fw - 1, cell[1] + fh - 1];
-    // Screen entities: one layer above the world, in file order (the id
-    // takes the depth slot so it sorts before the part).
-    let (layer, depth, zkey) = match screen {
-        Some(_) => (3, e.id as i32, 0),
-        None => (2, front[0] + front[1], round(z * 1000.0)),
-    };
-    let mut push_at = |part: Part, layer: u8, depth: i32, shape: Shape, color: Rgba| {
-        items.push(DrawItem {
-            entity: Some(e.id),
-            part,
-            shape,
-            color,
-            enabled: e.enabled,
-            cell,
-            key: (layer, depth, zkey, part, e.id),
-        });
-    };
-    if screen.is_none() {
-        // The footprint's corners: from (x - 0.5, y - 0.5) to (x + w - 0.5, y + h - 0.5).
-        let (x1, y1) = (x + (fw - 1) as f32, y + (fh - 1) as f32);
-        if let Some(t) = &e.tile {
-            let d = [
-                view.project_px(x - 0.5, y - 0.5, z),
-                view.project_px(x1 + 0.5, y - 0.5, z),
-                view.project_px(x1 + 0.5, y1 + 0.5, z),
-                view.project_px(x - 0.5, y1 + 0.5, z),
-            ];
-            push_at(Part::Tile, 1, front[0] + front[1], Shape::quad(d), t.color);
-        }
-        if let Some(b) = &e.block {
-            // One slice per covered cell, each sorted by its own cell, so a big
-            // box interleaves correctly with smaller things around it; slices
-            // drawn back to front hide each other's inner faces exactly.
-            for dy in 0..fh {
-                for dx in 0..fw {
-                    let (cx, cy) = (x + dx as f32, y + dy as f32);
-                    let depth = cell[0] + dx + cell[1] + dy;
-                    let base = view.diamond(cx, cy, z);
-                    let top = view.diamond(cx, cy, z + b.height);
-                    let [_, base_r, base_b, base_l] = base;
-                    let [_, top_r, top_b, top_l] = top;
-                    if b.height > 0.0 {
-                        push_at(
-                            Part::BlockLeft,
-                            2,
-                            depth,
-                            Shape::quad([top_l, top_b, base_b, base_l]),
-                            b.color.scale(4, 5),
-                        );
-                        push_at(
-                            Part::BlockRight,
-                            2,
-                            depth,
-                            Shape::quad([top_b, top_r, base_r, base_b]),
-                            b.color.scale(13, 20),
-                        );
-                    }
-                    push_at(Part::BlockTop, 2, depth, Shape::quad(top), b.top);
-                }
-            }
-        }
-    }
-    let mut push = |part: Part, layer: u8, shape: Shape, color: Rgba| push_at(part, layer, depth, shape, color);
-    // A multi-cell entity's sprite and label stand at the middle of its footprint.
-    let (x, y) = (x + (fw - 1) as f32 / 2.0, y + (fh - 1) as f32 / 2.0);
-    // The standing point (world) or the top-left corner (screen).
-    let anchor = match screen {
-        Some(p) => p,
-        None => view.project(x, y, z),
-    };
-    if let Some(s) = &e.sprite {
-        let (w, h) = (round(s.size[0]).max(1), round(s.size[1]).max(1));
-        let (x0, y0) = match screen {
-            Some(_) => (round(anchor[0] + s.offset[0]), round(anchor[1] + s.offset[1])),
-            None => (round(anchor[0] - s.size[0] / 2.0 + s.offset[0]), round(anchor[1] - s.size[1] + s.offset[1])),
-        };
-        let r = Rect { x0, y0, x1: x0 + w, y1: y0 + h };
-        let shape = match s.shape {
-            SpriteShape::Circle => Shape::Ellipse(r),
-            SpriteShape::Rect => Shape::Rect(r),
-            SpriteShape::Diamond => {
-                let (mx, my) = (x0 + w / 2, y0 + h / 2);
-                Shape::quad([[mx, y0], [r.x1, my], [mx, r.y1], [x0, my]])
-            }
-        };
-        push(Part::Sprite, layer, shape, s.color);
-    }
-    if let (Some(l), Some(text)) = (&e.label, e.label_text()) {
-        let scale = l.scale.max(1) as i32;
-        let [w, h] = font::text_size(&text).map(|v| v * scale);
-        let (x0, y0) = match screen {
-            Some(_) => (round(anchor[0] + l.offset[0]), round(anchor[1] + l.offset[1])),
-            None => (round(anchor[0] - w as f32 / 2.0 + l.offset[0]), round(anchor[1] - h as f32 + l.offset[1])),
-        };
-        for (row, line) in text.split('\n').enumerate() {
-            for (col, c) in line.chars().enumerate() {
-                if c == ' ' {
-                    continue;
-                }
-                let shape = Shape::Glyph {
-                    x0: x0 + col as i32 * font::ADVANCE * scale,
-                    y0: y0 + row as i32 * font::LINE * scale,
-                    scale,
-                    index: glyph_index(c),
-                };
-                push(Part::Label, layer, shape, l.color);
-            }
+/// A sprite's shape with its top-left corner at (x0, y0), `scale` times its size.
+pub(crate) fn sprite_shape(s: &SpriteDef, x0: i32, y0: i32, scale: f32) -> Shape {
+    let (w, h) = (round(s.size[0] * scale).max(1), round(s.size[1] * scale).max(1));
+    let r = Rect { x0, y0, x1: x0 + w, y1: y0 + h };
+    match s.shape {
+        SpriteShape::Circle => Shape::Ellipse(r),
+        SpriteShape::Rect => Shape::Rect(r),
+        SpriteShape::Diamond => {
+            let (mx, my) = (x0 + w / 2, y0 + h / 2);
+            Shape::quad([[mx, y0], [r.x1, my], [mx, r.y1], [x0, my]])
         }
     }
 }
 
-impl DrawList {
-    /// Screen bounds of everything drawn for `id`.
-    pub fn bounds_of(&self, id: EntityId) -> Rect {
-        self.items.iter().filter(|i| i.entity == Some(id)).fold(Rect::EMPTY, |acc, i| acc.union(&i.shape.bbox()))
+/// Where each character of `text` goes, relative to the text's top-left
+/// corner: (x, y, glyph). Spaces draw nothing.
+pub(crate) fn glyphs(text: &str, scale: i32) -> Vec<(i32, i32, u8)> {
+    let mut out = Vec::new();
+    for (row, line) in text.split('\n').enumerate() {
+        for (col, c) in line.chars().enumerate() {
+            if c != ' ' {
+                out.push((col as i32 * font::ADVANCE * scale, row as i32 * font::LINE * scale, glyph_index(c)));
+            }
+        }
     }
+    out
+}
+
+/// Does this entity stand in the world (as opposed to on the screen)?
+pub(crate) fn in_world(e: &Entity) -> bool {
+    e.screen_pos.is_none()
 }
 
 #[cfg(test)]

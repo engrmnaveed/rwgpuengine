@@ -278,6 +278,7 @@ dependencies = [
  "rwgpuengine_cli",
  "rwgpuengine_core",
  "rwgpuengine_data",
+ "rwgpuengine_render",
  "rwgpuengine_runtime",
 ]
 

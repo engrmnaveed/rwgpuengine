@@ -36,7 +36,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "description": "One input event. Use exactly one of `press`, `hold` or `tap`. Input at frame N is applied by step N (the step from frame N to N+1).",
+        "description": "One input event. Use exactly one of `press`, `hold`, `tap` or `camera`. Input at frame N is applied by step N (the step from frame N to N+1). A `camera` move at frame N happens before that frame's taps.",
         "properties": {
           "frame": {
             "type": "integer",
@@ -66,6 +66,38 @@
             "minItems": 2,
             "maxItems": 2,
             "description": "Tap the screen at pixel [x, y]; hits the topmost enabled entity drawn there."
+          },
+          "camera": {
+            "type": "object",
+            "description": "Move the camera: `{ turn = 90 }`, `{ zoom = 2 }`, `{ pan = [1, 0] }`, `{ view = \"perspective\" }`, or several at once. What a later tap hits depends on it.",
+            "properties": {
+              "view": {
+                "enum": ["iso", "perspective"],
+                "description": "Switch to this view (`iso` or `perspective`)."
+              },
+              "turn": {
+                "type": "number",
+                "minimum": -360.0,
+                "maximum": 360.0,
+                "description": "Turn by this many degrees about the vertical line through the camera's center. Default: 0."
+              },
+              "zoom": {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 10.0,
+                "description": "Multiply the zoom by this (it stays within 0.125–16). Default: 1.0."
+              },
+              "pan": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "Move the camera's center by this many cells [x, y]. Default: [0, 0]."
+              }
+            },
+            "additionalProperties": false
           }
         },
         "required": ["frame"],

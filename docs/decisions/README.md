@@ -15,7 +15,7 @@ adding a new ADR that supersedes the old one (and marking the old one), never by
 | [0004](0004-few-dependencies-no-proc-macros.md) | Few dependencies, zero proc macros in the runtime tree | accepted |
 | [0005](0005-determinism-model.md) | Determinism contract: fixed step, seeded PCG32, exact float ops, integer raster | accepted |
 | [0006](0006-fat-entities-and-game-trait.md) | Fat entities + props instead of an ECS; Rust code via a `Game` trait | accepted (revisit at M3) |
-| [0007](0007-draw-list-and-cpu-rasterizer.md) | The draw list is the central render artifact; deterministic CPU rasterizer first | accepted (revisit for GPU) |
+| [0007](0007-draw-list-and-cpu-rasterizer.md) | The draw list is the central render artifact; deterministic CPU rasterizer first | accepted; for the world replaced by 0020, which keeps its idea |
 | [0008](0008-web-via-c-abi.md) | Web: wasm32 cdylib with a hand-written C ABI, no wasm-bindgen | accepted |
 | [0009](0009-stable-diagnostics.md) | Stable diagnostic codes, rustc-style text, `explain` | accepted |
 | [0010](0010-input-actions-taps-scripts.md) | Input = abstract actions + taps (touch first); scripted input = playtest files | accepted |
@@ -26,7 +26,8 @@ adding a new ADR that supersedes the old one (and marking the old one), never by
 | [0015](0015-several-actions-per-connect.md) | Several actions per `[[connect]]` (`actions = [...]`): one `when`, in order, a refused spawn stops the rest | accepted, built (M3.3); cold-agent run #9 |
 | [0016](0016-spawn-costs-and-funds-refusal.md) | Spawn `cost` (paid only if placed) and the `funds` refusal reason | accepted, built (M3.4) |
 | [0017](0017-web-profile-and-budgets.md) | Web profile: size-first with the renderer at `opt-level = 3`; budgets 800 KB wasm and a render-time limit | accepted, built |
-| [0018](0018-paint-path-for-players.md) | A paint path for players (`paint`, `Presenter`, `slate_present`): the reference pixels 41× faster, unchanged frames skipped; the reference rasterizer stays for checks | accepted, built |
+| [0018](0018-paint-path-for-players.md) | A paint path for players (`paint`, `Presenter`, `slate_present`): the reference pixels 41× faster, unchanged frames skipped; the reference rasterizer stays for checks | accepted, built; for the world replaced by 0020 (the `Presenter` and span filling stay) |
 | [0019](0019-name-rwgpuengine.md) | The engine is named **rwgpuengine** (Rust + wgpu); the command is `rwgpu`; crates `rwgpuengine_*`; project file `rwgpu.toml`; JSON `format` 2. Old records keep the old name | accepted, done |
+| [0020](0020-render-list-camera-and-cpu-reference-renderer.md) | The world is drawn in 3D: the **render list** (instances, cards, a 2D layer), the **camera as session state** (`iso` and `perspective`, turn, zoom, pan; owned sine and cosine), and a **CPU reference renderer** with a depth buffer that the frame report and picking read | accepted, built |
 
 Template: copy any ADR; keep it under a page.

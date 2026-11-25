@@ -21,10 +21,13 @@ decision in [open-questions.md](open-questions.md).
    <https://github.com/engrmnaveed/rwgpuengine>, licence Apache-2.0, with CI for Linux, Windows and macOS and
    the wasm check in the gate. The first run was green on all three systems, Windows included
    ([log entry](progress-log.md#2026-11-26--the-first-ci-run-is-green-on-linux-windows-and-macos)).
-6. Then, in the order the proposal gives (its section 7): the GPU-free 3D core with a CPU reference
-   renderer; wgpu players natively and on the web; the simulation at scale; shapes as text and the town
-   reference game; Rust game code; templates per kind of game. Then demos, the MCP adapter and the desktop
-   app.
+6. ~~The 3D core, GPU-free~~: built on 2026-11-26
+   ([ADR 0020](decisions/0020-render-list-camera-and-cpu-reference-renderer.md)). The render list, the camera
+   as session state and the CPU reference renderer with report and picking; Tiny Town plays in 3D from its
+   unchanged files with unchanged state hashes.
+7. Then, in the order the proposal gives (its section 7): wgpu players natively; the web player on wgpu; the
+   simulation at scale; shapes as text and the town reference game; Rust game code; templates per kind of
+   game. Then demos, the MCP adapter and the desktop app.
 
 Not started and now in question: the audit's step 4 (splitting `load.rs` and `world.rs`). The 3D world model
 will reshape both files, so they are restructured as part of that work, not before it.

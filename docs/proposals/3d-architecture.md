@@ -2,8 +2,9 @@
 
 > Status: **proposed, 2026-11-25; the owner said to continue the same day.** The architect reads that as
 > approval of the five points in section 6 and of the order in section 7, and has told the owner so. Each
-> point is still written up as an ADR, with its own evidence, when it is built. Nothing here is built into
-> the engine yet. It is the 3D direction study the
+> point is still written up as an ADR, with its own evidence, when it is built. Built so far: step 1 (the
+> public repository, with a green matrix) and step 2 (the GPU-free 3D core,
+> [ADR 0020](../decisions/0020-render-list-camera-and-cpu-reference-renderer.md)). It is the 3D direction study the
 > owner asked for after the [direction update](../vision.md#direction-update--2026-11-25-owner): measured
 > spikes, one proposed architecture, new budgets and a new order of work. The spike code is in
 > [3d-architecture/spikes/](3d-architecture/spikes/), so every number can be measured again. All numbers are

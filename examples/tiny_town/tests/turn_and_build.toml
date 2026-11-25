@@ -1,0 +1,83 @@
+[test]
+doc = "The camera is part of the game: turn it, change the view, zoom and pan, and build by tapping what the new picture shows. The tap points come from `rwgpu inspect --input tests/turn_and_build.toml --frame N --place <prefab>@x,y`."
+frames = 90
+
+# A quarter turn: +x, which ran down-right, now runs down-left.
+[[input]]
+frame = 0
+camera = { turn = 90 }
+
+[[input]]
+frame = 5
+tap = [416, 272]          # ground (4, 1), where the turned picture shows it
+
+# A camera 30 degrees above the horizon, a little closer.
+[[input]]
+frame = 30
+camera = { view = "perspective", zoom = 1.25 }
+
+[[input]]
+frame = 34
+tap = [255, 442]          # Tree button: the HUD does not move with the camera
+
+[[input]]
+frame = 38
+tap = [205, 386]          # ground (8, 2)
+
+# Walk round to the other side, and look a little further east.
+[[input]]
+frame = 60
+camera = { pan = [1, 0], turn = 180 }
+
+[[input]]
+frame = 64
+tap = [405, 442]          # Well button
+
+[[input]]
+frame = 68
+tap = [162, 348]          # ground (2, 4)
+
+# After the turn: the house stands where the tap pointed in the turned picture.
+[[expect]]
+frame = 15
+prefab = "house"
+pos = [4, 1]
+
+[[expect]]
+frame = 15
+entity = "town"
+props = { coins = 9 }
+
+[[shot]]
+frame = 15
+reference = "tests/refs/turned.png"
+
+# The end: one of each, built from three different cameras, nothing refused.
+[[expect]]
+prefab = "house"
+count = 1
+
+[[expect]]
+prefab = "tree"
+pos = [8, 2]
+
+[[expect]]
+prefab = "well"
+pos = [2, 4]
+
+[[expect]]
+entity = "town"
+props = { coins = 6 }
+text = "Coins: 6\nTool: well"
+
+[[expect]]
+event = "spawned"
+at_least = 3
+at_most = 3
+
+[[expect]]
+event = "blocked"
+at_most = 0
+
+[[shot]]
+reference = "tests/refs/perspective.png"

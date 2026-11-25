@@ -47,6 +47,22 @@
           "minItems": 2,
           "maxItems": 2,
           "description": "Extra shift in screen pixels [right, down]. Default: [0, 0]."
+        },
+        "view": {
+          "enum": ["iso", "perspective"],
+          "description": "How the world is projected. `iso`: the isometric view set by `[iso]`, where parallel lines stay parallel. `perspective`: a camera 30 degrees above the horizon, where far things are drawn smaller; `center` is drawn at the same size as in `iso`. Default: \"iso\"."
+        },
+        "turn": {
+          "type": "number",
+          "minimum": -360.0,
+          "maximum": 360.0,
+          "description": "Degrees the camera is turned about the vertical line through `center`. At 0, +x runs down-right and +y down-left on screen; at 90, +x runs down-left and +y up-left. Default: 0."
+        },
+        "zoom": {
+          "type": "number",
+          "minimum": 0.125,
+          "maximum": 16.0,
+          "description": "Size factor: 2 draws everything in the world twice as large. Screen entities do not zoom. Default: 1.0."
         }
       },
       "additionalProperties": false

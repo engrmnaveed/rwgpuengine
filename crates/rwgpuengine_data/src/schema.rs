@@ -103,6 +103,8 @@ const ANY_NUM: Ty = Ty::Num { min: f64::MIN, max: f64::MAX };
 
 /// Abstract input actions. Arrow keys / WASD map to the directions on the web.
 pub const ACTIONS: &[&str] = &["up", "down", "left", "right", "confirm", "cancel"];
+/// How a camera projects the world (`[camera] view`).
+pub const CAMERA_VIEWS: &[&str] = &["iso", "perspective"];
 /// What a `[[connect]]` can do to its target.
 pub const CONNECT_ACTIONS: &[&str] = &["enable", "disable", "toggle", "add", "set", "spawn"];
 /// Kinds of entries in the event log.
@@ -224,7 +226,9 @@ pub static SCENE: Spec = Spec {
 pub static CAMERA: Spec = Spec {
     id: "scene.camera",
     title: "[camera]",
-    doc: "The camera looks straight down the isometric axis; it only pans.",
+    doc: "Where the picture is taken from when the scene starts. The camera looks at `center` on the ground; it \
+          can turn about the vertical line through that point and zoom. A playtest's `[[input]] camera` moves it \
+          while the game runs. With no keys set, the view is the isometric one of `[iso]`.",
     fields: &[
         opt(
             "center",
@@ -233,6 +237,27 @@ pub static CAMERA: Spec = Spec {
             "Grid point [x, y] at the middle of the frame. Default: the middle of the ground.",
         ),
         opt("offset", Ty::Vec2, Some("[0, 0]"), "Extra shift in screen pixels [right, down]."),
+        opt(
+            "view",
+            Ty::Enum(CAMERA_VIEWS),
+            Some("\"iso\""),
+            "How the world is projected. `iso`: the isometric view set by `[iso]`, where parallel lines stay \
+             parallel. `perspective`: a camera 30 degrees above the horizon, where far things are drawn smaller; \
+             `center` is drawn at the same size as in `iso`.",
+        ),
+        opt(
+            "turn",
+            Ty::Num { min: -360.0, max: 360.0 },
+            Some("0"),
+            "Degrees the camera is turned about the vertical line through `center`. At 0, +x runs down-right \
+             and +y down-left on screen; at 90, +x runs down-left and +y up-left.",
+        ),
+        opt(
+            "zoom",
+            Ty::Num { min: 0.125, max: 16.0 },
+            Some("1.0"),
+            "Size factor: 2 draws everything in the world twice as large. Screen entities do not zoom.",
+        ),
     ],
 };
 
@@ -730,14 +755,43 @@ pub static TEST: Spec = Spec {
 pub static INPUT: Spec = Spec {
     id: "playtest.input",
     title: "[[input]]",
-    doc: "One input event. Use exactly one of `press`, `hold` or `tap`. Input at frame N is applied by step N \
-          (the step from frame N to N+1).",
+    doc: "One input event. Use exactly one of `press`, `hold`, `tap` or `camera`. Input at frame N is applied by \
+          step N (the step from frame N to N+1). A `camera` move at frame N happens before that frame's taps.",
     fields: &[
         req("frame", FRAME, "Frame at which the input happens."),
         opt("press", Ty::Enum(ACTIONS), None, "Press and release an action within the frame."),
         opt("hold", Ty::Enum(ACTIONS), None, "Hold an action down for `for` frames."),
         opt("for", Ty::Int { min: 1, max: 1_000_000 }, Some("1"), "With `hold`: number of frames to hold."),
         opt("tap", Ty::Vec2, None, "Tap the screen at pixel [x, y]; hits the topmost enabled entity drawn there."),
+        opt(
+            "camera",
+            Ty::Table(&INPUT_CAMERA),
+            None,
+            "Move the camera: `{ turn = 90 }`, `{ zoom = 2 }`, `{ pan = [1, 0] }`, `{ view = \"perspective\" }`, or \
+             several at once. What a later tap hits depends on it.",
+        ),
+    ],
+};
+
+pub static INPUT_CAMERA: Spec = Spec {
+    id: "playtest.input.camera",
+    title: "camera",
+    doc: "One move of the camera, as a player would make it. The parts given are applied together.",
+    fields: &[
+        opt("view", Ty::Enum(CAMERA_VIEWS), None, "Switch to this view (`iso` or `perspective`)."),
+        opt(
+            "turn",
+            Ty::Num { min: -360.0, max: 360.0 },
+            Some("0"),
+            "Turn by this many degrees about the vertical line through the camera's center.",
+        ),
+        opt(
+            "zoom",
+            Ty::Num { min: 0.1, max: 10.0 },
+            Some("1.0"),
+            "Multiply the zoom by this (it stays within 0.125–16).",
+        ),
+        opt("pan", Ty::Vec2, Some("[0, 0]"), "Move the camera's center by this many cells [x, y]."),
     ],
 };
 
@@ -852,6 +906,7 @@ pub static ALL_SPECS: &[&Spec] = &[
     &PLAYTEST_FILE,
     &TEST,
     &INPUT,
+    &INPUT_CAMERA,
     &EXPECT,
     &SHOT,
 ];

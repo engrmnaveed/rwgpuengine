@@ -1,6 +1,8 @@
 # ADR 0007: The draw list is the central render artifact; CPU rasterizer first
 
-- Status: accepted, 2026-11-24; revisit when adding a GPU backend
+- Status: accepted, 2026-11-24. Since 2026-11-26 the world is drawn from the render list of
+  [ADR 0020](0020-render-list-camera-and-cpu-reference-renderer.md), in 3D; this record's idea (one list every
+  consumer reads, a deterministic CPU reference) carries over, and its flat shapes remain for the 2D layer.
 
 ## Context
 The engine must render offscreen to PNG, compare against reference images, report what is drawn where,

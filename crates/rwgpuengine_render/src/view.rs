@@ -1,6 +1,9 @@
-//! Isometric projection and the camera.
+//! The frame and the isometric grid a scene is drawn with.
 //!
-//! Grid → screen (pixels, y down):
+//! These are fixed for a session. What moves is the [`Camera`](crate::Camera).
+//!
+//! With the camera where the scene puts it (`view = "iso"`, no turn, zoom 1),
+//! grid → screen in pixels, y down, is:
 //!
 //! ```text
 //! sx = origin_x + (x - y) * tile_width  / 2
@@ -8,7 +11,7 @@
 //! ```
 //!
 //! So +x runs down-right, +y runs down-left and +z runs up. Integer cell
-//! coordinates are cell centers; a cell's diamond spans ±0.5 around it.
+//! coordinates are cell centers; a cell spans ±0.5 around it.
 
 use rwgpuengine_core::color::Rgba;
 use rwgpuengine_data::{ProjectDef, SceneDef};
@@ -21,22 +24,23 @@ pub struct View {
     pub tile_w: i32,
     pub tile_h: i32,
     pub z_h: i32,
-    /// Screen position of grid point (0, 0, 0), whole pixels.
-    pub origin: [f32; 2],
+    /// Screen pixel where the camera's center point is drawn. It is the
+    /// middle of the frame plus the scene's `[camera] offset`, moved by less
+    /// than a pixel so that whole cells land on whole pixels in the scene's
+    /// starting view.
+    pub pivot: [f32; 2],
 }
 
 impl View {
     pub fn new(project: &ProjectDef, scene: &SceneDef) -> View {
         let d = project.display;
         let iso = project.iso;
-        let center = scene.camera.center.unwrap_or_else(|| match &scene.ground {
-            Some(g) => [(g.size[0] - 1) as f32 / 2.0, (g.size[1] - 1) as f32 / 2.0],
-            None => [0.0, 0.0],
-        });
+        let center = start_center(scene);
         let half_w = iso.tile_width as f32 / 2.0;
         let half_h = iso.tile_height as f32 / 2.0;
-        let ox = d.width as f32 / 2.0 - (center[0] - center[1]) * half_w + scene.camera.offset[0];
-        let oy = d.height as f32 / 2.0 - (center[0] + center[1]) * half_h + scene.camera.offset[1];
+        // Where grid point (0, 0, 0) is drawn at the start, in whole pixels.
+        let ox = round(d.width as f32 / 2.0 - (center[0] - center[1]) * half_w + scene.camera.offset[0]) as f32;
+        let oy = round(d.height as f32 / 2.0 - (center[0] + center[1]) * half_h + scene.camera.offset[1]) as f32;
         View {
             width: d.width,
             height: d.height,
@@ -44,33 +48,18 @@ impl View {
             tile_w: iso.tile_width,
             tile_h: iso.tile_height,
             z_h: iso.z_height,
-            origin: [round(ox) as f32, round(oy) as f32],
+            pivot: [ox + (center[0] - center[1]) * half_w, oy + (center[0] + center[1]) * half_h],
         }
     }
+}
 
-    /// Exact screen position (may be fractional).
-    pub fn project(&self, x: f32, y: f32, z: f32) -> [f32; 2] {
-        [
-            self.origin[0] + (x - y) * (self.tile_w as f32 / 2.0),
-            self.origin[1] + (x + y) * (self.tile_h as f32 / 2.0) - z * self.z_h as f32,
-        ]
-    }
-
-    /// Screen position snapped to whole pixels (round half up).
-    pub fn project_px(&self, x: f32, y: f32, z: f32) -> [i32; 2] {
-        let [sx, sy] = self.project(x, y, z);
-        [round(sx), round(sy)]
-    }
-
-    /// The four corners of a cell's diamond at height z: top, right, bottom, left.
-    pub fn diamond(&self, x: f32, y: f32, z: f32) -> [[i32; 2]; 4] {
-        [
-            self.project_px(x - 0.5, y - 0.5, z),
-            self.project_px(x + 0.5, y - 0.5, z),
-            self.project_px(x + 0.5, y + 0.5, z),
-            self.project_px(x - 0.5, y + 0.5, z),
-        ]
-    }
+/// The ground point a scene's camera looks at when it starts: `[camera]
+/// center`, or the middle of the ground.
+pub fn start_center(scene: &SceneDef) -> [f32; 2] {
+    scene.camera.center.unwrap_or_else(|| match &scene.ground {
+        Some(g) => [(g.size[0] - 1) as f32 / 2.0, (g.size[1] - 1) as f32 / 2.0],
+        None => [0.0, 0.0],
+    })
 }
 
 /// Round half up using exact float ops only (deterministic everywhere).

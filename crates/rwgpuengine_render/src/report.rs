@@ -15,8 +15,8 @@ use rwgpuengine_core::hash;
 use rwgpuengine_core::json::Json;
 use rwgpuengine_sim::{EntityId, World};
 
-use crate::draw::{DrawList, Part, Rect};
-use crate::raster::{Frame, ItemStats};
+use crate::draw::{Part, Rect};
+use crate::reference::{Frame, Projected, coverage};
 
 /// Sprites with less than this share of pixels visible are reported (W0302).
 pub const OCCLUDED_BELOW: f64 = 0.5;
@@ -35,14 +35,14 @@ pub struct EntityReport {
     pub on_screen: bool,
     /// Union of the entity's shapes, in screen pixels (may extend off-screen).
     pub bounds: Rect,
-    /// Pixels of the entity's footprint (its parts' union) inside the frame.
+    /// Pixels inside the frame covered by any of the entity's parts, seen or not.
     pub drawn_px: u32,
-    /// Of those, pixels still showing the entity at the end.
+    /// Of those, pixels that show the entity.
     pub visible_px: u32,
     /// Pixels area outside the frame, from the bounding rectangle.
     pub offscreen: bool,
     pub clipped: bool,
-    /// Entities drawn over this one, with pixel counts, largest first.
+    /// Entities that show where this one is covered, with pixel counts, largest first.
     pub covered_by: Vec<(EntityId, u32)>,
     /// Label text as shown, if the entity has a label.
     pub text: Option<String>,
@@ -70,12 +70,15 @@ pub struct FrameReport {
     pub height: u32,
     pub image_hash: u64,
     pub ground_cells: usize,
-    /// In draw order (back to front) by first item.
+    /// World entities in file order, then screen entities in file order.
     pub entities: Vec<EntityReport>,
     pub issues: Vec<Diagnostic>,
 }
 
-pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[ItemStats]) -> FrameReport {
+/// Describe a frame. `frame` must be the rendering of `list`.
+pub fn build_report(world: &World, list: &Projected, frame: &Frame) -> FrameReport {
+    let cov = coverage(list, frame);
+    let stats = &cov.items;
     let screen = Rect { x0: 0, y0: 0, x1: frame.width as i32, y1: frame.height as i32 };
     let mut order: Vec<EntityId> = Vec::new();
     let mut by_entity: BTreeMap<EntityId, EntityReport> = BTreeMap::new();
@@ -103,7 +106,7 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
                 cell: item.cell,
                 on_screen: world.get(id).is_some_and(|e| e.screen_pos.is_some()),
                 bounds: Rect::EMPTY,
-                drawn_px: 0,
+                drawn_px: cov.entity_px.get(&id).copied().unwrap_or(0),
                 visible_px: 0,
                 offscreen: false,
                 clipped: false,
@@ -114,17 +117,13 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
         if !entry.parts.contains(&item.part.name()) {
             entry.parts.push(item.part.name());
         }
-        entry.bounds = entry.bounds.union(&item.shape.bbox());
+        entry.bounds = entry.bounds.union(&item.bounds);
+        entry.offscreen |= item.out_of_range;
         let s = &stats[idx];
-        // Pixels where the entity covers itself (a label over its own backdrop,
-        // a sprite over its own tile) count once.
-        let self_covered: u32 =
-            s.covered_by.iter().filter(|(o, _)| list.items[**o].entity == Some(id)).map(|(_, n)| *n).sum();
-        entry.drawn_px += s.drawn.saturating_sub(self_covered);
         entry.visible_px += s.visible;
         if item.part == Part::Tile && world.get(id).is_some_and(|e| e.trigger.is_some()) {
             // What stands on any cell of the trigger does not hide it.
-            let on_it = |o: usize| world.get(id).is_some_and(|t| t.covers(list.items[o].cell));
+            let on_it = |o: usize| o < list.world_len() && world.get(id).is_some_and(|t| t.covers(list.items[o].cell));
             let hidden: u32 = s.covered_by.iter().filter(|(o, _)| !on_it(**o)).map(|(_, n)| *n).sum();
             let p = trigger_tile_px.entry(id).or_insert((0, 0));
             p.0 += s.drawn;
@@ -137,13 +136,13 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
         }
         if item.part == Part::Label {
             let l = label_px.entry(id).or_default();
-            l.bounds = l.bounds.union(&item.shape.bbox());
+            l.bounds = l.bounds.union(&item.bounds);
             l.drawn += s.drawn;
             l.covered +=
                 s.covered_by.iter().filter(|(o, _)| list.items[**o].entity != Some(id)).map(|(_, n)| *n).sum::<u32>();
         } else {
             let b = body.entry(id).or_insert(Rect::EMPTY);
-            *b = b.union(&item.shape.bbox());
+            *b = b.union(&item.bounds);
         }
         for (&other_idx, &n) in &s.covered_by {
             if let Some(other) = list.items[other_idx].entity
@@ -159,7 +158,7 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
     for id in order {
         let mut r = by_entity.remove(&id).expect("entity report");
         let inside = r.bounds.intersect(&screen).area();
-        r.offscreen = !r.bounds.is_empty() && inside == 0;
+        r.offscreen = (r.offscreen && r.bounds.is_empty()) || (!r.bounds.is_empty() && inside == 0);
         r.clipped = !r.offscreen && inside < r.bounds.area();
         let mut cov: Vec<(EntityId, u32)> = covered.remove(&id).unwrap_or_default().into_iter().collect();
         cov.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
@@ -167,12 +166,14 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
         let mut own: Vec<Diagnostic> = Vec::new();
         let [x, y, w, h] = r.bounds.xywh();
         if r.offscreen {
+            let message = if r.bounds.is_empty() {
+                format!("{} is out of the camera's sight (behind it, or too far away)", r.label)
+            } else {
+                format!("{} is drawn entirely off-screen at [{x}, {y}, {w}, {h}]", r.label)
+            };
             own.push(
-                Diagnostic::new(
-                    &codes::OFFSCREEN,
-                    format!("{} is drawn entirely off-screen at [{x}, {y}, {w}, {h}]", r.label),
-                )
-                .hint("move it or the camera ([camera] center in the scene)"),
+                Diagnostic::new(&codes::OFFSCREEN, message)
+                    .hint("move it or the camera ([camera] center in the scene)"),
             );
         } else if body.get(&id).is_some_and(|b| !b.is_empty() && b.intersect(&screen).area() < b.area()) {
             own.push(Diagnostic::new(
@@ -183,12 +184,6 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
                 ),
             ));
         }
-        let by: Vec<String> = r
-            .covered_by
-            .iter()
-            .take(3)
-            .map(|(o, n)| format!("{} ({n} px)", world.get(*o).map_or_else(|| format!("#{o}"), |e| e.label())))
-            .collect();
         if let Some(&(drawn, visible)) = trigger_tile_px.get(&id)
             && drawn > 0
             && (visible as f64) < TRIGGER_HIDDEN_BELOW * drawn as f64
@@ -196,7 +191,11 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
             let by: Vec<String> = r
                 .covered_by
                 .iter()
-                .filter(|(o, _)| world.get(*o).is_some_and(|e| world.get(id).is_none_or(|t| !t.covers(e.cell()))))
+                .filter(|(o, _)| {
+                    world
+                        .get(*o)
+                        .is_some_and(|e| e.screen_pos.is_some() || world.get(id).is_none_or(|t| !t.covers(e.cell())))
+                })
                 .take(3)
                 .map(|(o, n)| format!("{} ({n} px)", world.get(*o).map_or_else(|| format!("#{o}"), |e| e.label())))
                 .collect();
@@ -219,6 +218,12 @@ pub fn build_report(world: &World, list: &DrawList, frame: &Frame, stats: &[Item
             && drawn > 0
             && (visible as f64) < OCCLUDED_BELOW * drawn as f64
         {
+            let by: Vec<String> = r
+                .covered_by
+                .iter()
+                .take(3)
+                .map(|(o, n)| format!("{} ({n} px)", world.get(*o).map_or_else(|| format!("#{o}"), |e| e.label())))
+                .collect();
             own.push(Diagnostic::new(
                 &codes::OCCLUDED,
                 format!(

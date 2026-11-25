@@ -19,9 +19,9 @@ How rwgpuengine is built, as of v0.1.0 (first milestone). Decisions behind each 
                        │                       │                    │
  core runtime   ┌──────▼──────┐        ┌───────▼───────┐            │
                 │ rwgpuengine_sim   │◄───────┤ rwgpuengine_render  │            │
-                │ world, step,│        │ iso view, draw│            │
-                │ signals,    │        │ list, CPU     │            │
-                │ event log   │        │ raster, report│            │
+                │ world, step,│        │ camera, render│            │
+                │ signals,    │        │ list, CPU ref.│            │
+                │ event log   │        │ render, report│            │
                 └──────┬──────┘        └───────┬───────┘            │
                        │                       │                    │
                 ┌──────▼───────────────────────▼────────────────────▼──────────┐
@@ -44,7 +44,7 @@ the world but never changes it; only `rwgpuengine_runtime` holds both (picking n
 | `rwgpuengine_core` | JSON, `Diagnostic`, the code registry, RNG, hashing, colors | depend on anything |
 | `rwgpuengine_data` | file formats: the schema registry, validation, typed definitions, `Vfs`, static checks | run anything |
 | `rwgpuengine_sim` | `World`, entities, built-in behaviors, signals, event log, state hash | render, read files, use wall-clock time |
-| `rwgpuengine_render` | iso projection, draw list, rasterizer, frame report, picking, PNG | change the world |
+| `rwgpuengine_render` | the camera, the render list, the CPU reference renderer, frame report, picking, PNG | change the world |
 | `rwgpuengine_runtime` | sessions, scripted input, playtests, the `Game` trait | touch the filesystem (the CLI does) |
 | `rwgpuengine_cli` | commands, output envelope, docs generation, templates, dev server | contain engine logic |
 | `rwgpuengine_web` | the wasm C ABI | contain engine logic |
@@ -56,10 +56,10 @@ disk ──Vfs::from_dir──► Vfs ──load_project/SceneLoader──► Pr
                          │                                   (diagnostics on failure)            │
                          └──load_playtest──► PlaytestDef ──Script──► InputFrame per step ─────────┤
                                                                                                     ▼
-                                    Session::step ×N  (taps resolved by picking the drawn frame)
+                     Session::step ×N  (camera moves, then taps resolved by picking the drawn frame)
                                                                                                     │
             inspect ◄── Session::inspect (world JSON + screen rects + events)                       │
-            shot    ◄── draw::build → rasterize → (pixels, stats) → build_report → PNG + report ◄──┘
+            shot    ◄── list::build → project → render (pixels, owners) → build_report → PNG + report ◄──┘
             run     ◄── summary + state hash (+ events, + hash trace)
             test    ◄── run_playtest: [[expect]] at frames, [[shot]] captures → compare refs (CLI)
 ```
@@ -145,29 +145,37 @@ the wasm's pixels hash to native `rwgpu shot`'s image hashes. The current finger
 
 ## Rendering
 
-ADR 0007. The **draw list** is the central artifact:
+[ADR 0020](decisions/0020-render-list-camera-and-cpu-reference-renderer.md). The world is drawn in 3D, and the
+**render list** is the central artifact:
 
-- `draw::build` turns the world into back-to-front items: ground cells (colored by terrain), then tiles,
-  then block faces, sprites and label glyphs sorted by `(x + y, z, part, id)`, then screen entities
-  (`screen_pos`) in file order. A multi-cell block is pushed as one slice per covered cell, each with its own
-  `x + y`, so the per-cell painter's order stays correct around big objects; sprites and labels of a
-  multi-cell entity sort with its front cell (ADR 0013). Text is drawn with an owned 5×8 pixel font (`font.rs`, printable ASCII); each glyph is a shape
-  whose coverage is a bit test, so text is as deterministic, reportable and pickable as everything else.
-- `rasterize` fills shapes with exact integer coverage tests at pixel centers (doubled coordinates,
-  top-left fill rule) and integer shading/blending; it records which item owns each pixel. It is the
-  **reference**: `rwgpu shot`, playtest `[[shot]]`s and the frame report use it.
-- `paint` (ADR 0018) gives the same pixels from the same list, colors only, by solving the coverage rule for
-  whole runs of pixels: 55 µs against 2,256 µs for rasterize plus report on a Tiny Town frame. Players use it
-  through `rwgpuengine_runtime::Presenter`, which repaints only when the draw list changed. Tests hold the two
-  pixel-identical on every frame of every example playtest.
+- `list::build` turns the world into a view, a camera, one light and three kinds of things: **instances**
+  (solid: a box per `block`, a flat rectangle per `tile` and per ground cell), **cards** (flat pictures that
+  face the camera: a world entity's `sprite` or `label`) and the **2D layer** (screen entities, in file
+  order). Nothing in it depends on a GPU; a GPU renderer for players will read the same list.
+- The **camera** (`camera.rs`) is session state: `view` (`iso` or `perspective`), `center`, `turn`, `zoom`.
+  The iso view with no turn and zoom 1 is the formula below, bit for bit, so scenes and taps written for
+  the 2.5D engine stay valid. Its math is exact float operations plus the owned sine and cosine of
+  `rwgpuengine_core::math`.
+- `reference::project` takes the list to the screen: triangles with corners on a 1/256 pixel grid and a
+  depth at each corner, cards as flat shapes with a depth per row. `reference::render` fills pixels through a
+  depth buffer with exact integer coverage (top-left rule) and records which item owns each pixel. It is the
+  **reference**: `rwgpu shot`, playtest `[[shot]]`s and the frame report use it. Three rules go beyond "the
+  nearest wins": level faces in one plane are ordered by rank (a tile shows on the ground it lies on), a card
+  stands upright above its anchor and lies on the surface below it, and see-through things are drawn last,
+  far to near.
+- `Painter` gives the same pixels without owners, for players, through `rwgpuengine_runtime::Presenter`,
+  which repaints only when the render list changed. Tests hold the two pixel-identical on every frame of
+  every example playtest.
+- Text is drawn with an owned 5×8 pixel font (`font.rs`, printable ASCII); each glyph is a shape whose
+  coverage is a bit test, so text is as deterministic, reportable and pickable as everything else.
 - `build_report` turns ownership into per-entity drawn/visible pixels and "covered by", and flags W0301
   off-screen, W0302 mostly-hidden sprites, W0303 clipped.
-- `pick` walks the same list front to back with the same coverage test, so taps hit exactly what is drawn;
-  when no entity is hit, the ground item under the point gives the tapped cell. `ground_tap_point` finds a
-  pixel that taps a given cell (what `inspect --place` reports).
+- `pick` replays the renderer's rules at one pixel, so a tap hits exactly what is drawn there; when no
+  entity is hit, the ground cell under the point is the tapped cell. `ground_tap_point` finds a pixel that
+  taps a given cell (what `inspect --place` reports).
 
-Isometric projection: `sx = ox + (x − y)·tw/2`, `sy = oy + (x + y)·th/2 − z·zh`. +x is down-right,
-+y down-left, z up. The camera centers the ground by default.
+The iso view a scene starts with: `sx = ox + (x − y)·tw/2`, `sy = oy + (x + y)·th/2 − z·zh`. +x is
+down-right, +y down-left, z up. The camera centers the ground by default.
 
 ## The agent surface
 
@@ -183,8 +191,8 @@ Isometric projection: `sx = ox + (x − y)·tw/2`, `sy = oy + (x + y)·th/2 − 
 
 ## The web player
 
-ADR 0008. `rwgpuengine_web` compiles to a wasm module with zero imports (about 586 KB with the paint path,
-ADR 0018; budget 800,000). `web/player.js` (no framework, no build step) loads it, fetches the project as a
+ADR 0008. `rwgpuengine_web` compiles to a wasm module with zero imports (about 620 KB with the 3D reference
+renderer; budget 800,000). `web/player.js` (no framework, no build step) loads it, fetches the project as a
 bundle (`path\0text\0…`), steps at the project's tick rate, and asks `rwgpu_present` each frame: only when
 the picture changed does it copy the pixels to the canvas with `putImageData`. `rwgpu serve` (std-only HTTP) rebuilds
 the bundle from disk per request; the page polls a content hash and reloads on change, showing

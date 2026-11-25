@@ -107,9 +107,10 @@ pub static COMMANDS: &[Command] = &[
             flag("--report", None, "Print the frame report (always included with --json)."),
             JSON,
         ],
-        details: "Rendering is a deterministic CPU rasterizer: identical pixels on every machine. The frame \
-                  report lists each entity's screen rectangle, visible pixels and what covers it, and flags \
-                  off-screen (W0301), hidden (W0302) and clipped (W0303) entities.",
+        details: "The picture is drawn by a deterministic CPU renderer, in 3D, from the camera as it is at \
+                  that frame: identical pixels on every machine. The frame report lists each entity's screen \
+                  rectangle, visible pixels and what covers it, and flags off-screen (W0301), hidden (W0302) \
+                  and clipped (W0303) entities.",
         examples: &[
             "rwgpu shot",
             "rwgpu shot --input tests/walkthrough.toml --report",

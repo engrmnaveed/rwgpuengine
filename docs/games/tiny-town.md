@@ -57,7 +57,8 @@ Tap only (touch first, ADR 0010). Buttons are screen entities; the island is gro
 | `actions = [...]` (ADR 0015) | a button sets the tool and clears the hint; a clear disables and refunds |
 | `cost` + reason `funds` (ADR 0016) | each spawn's price; "A house needs 3 coins" is a `refused` connection (20 connections in all, no condition on coins) |
 | props, `when`, `label`, `screen_pos` (ADR 0011) | coins, tool, job card, banner, toolbar |
-| `[[expect]] prefab` + `count`, `inspect --place` | three playtests and their tap pixels |
+| `[[expect]] prefab` + `count`, `inspect --place` | the playtests and their tap pixels |
+| the camera as state, `[[input]] camera` (ADR 0020) | the town is 3D: `turn_and_build` builds from a turned, a perspective and a panned camera |
 
 ## Playtests (all must pass in CI)
 
@@ -65,6 +66,9 @@ Tap only (touch first, ADR 0010). Buttons are screen entities; the island is gro
 - `refusals`: water, beach, a reach into the river, a boulder and a taken cell are refused, each with its hint;
   the last tap with 0 coins buys nothing and says why; the job card counted by itself.
 - `clear`: a house is built, cleared (coins back) and built again on the same spot; reference image.
+- `turn_and_build` (added with the 3D core, ADR 0020; the first three did not change): a quarter turn, then
+  a perspective camera, then a walk half round the island, with a house, a tree and a well built by tapping
+  what each picture shows; two reference images.
 
 ## Out of scope for v1 (candidates if the game needs them)
 

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use rwgpuengine_data::{Action, InputDef, InputKind, Vfs};
+use rwgpuengine_data::{Action, CameraMove, CameraView, InputDef, InputKind, Vfs};
 
 use crate::playtest::run_playtest;
 use crate::present::Presenter;
@@ -95,7 +95,7 @@ fn live_taps_resolve_against_the_drawn_frame() {
     vfs.insert("scenes/garden.toml", vfs.get("scenes/garden.toml").unwrap().replace("enabled = false", ""));
     let mut s = Session::load(&vfs, &SessionConfig::default(), Box::new(DataOnly)).unwrap();
     let player = s.world.find("player").unwrap();
-    let [x, y] = s.view.project(1.0, 1.0, 0.0);
+    let [x, y] = s.screen_point([1.0, 1.0, 0.0]).unwrap();
     s.step(&LiveInput { taps: vec![(x, y - 10.0)], ..Default::default() });
     let tap = &s.world.events.all()[0];
     assert_eq!(tap.entity, Some(player), "{}", tap.message);
@@ -186,7 +186,124 @@ fn a_presenter_shows_the_reference_pixels_and_repaints_only_on_change() {
             assert!(presenter.present(&session) && presenter.pixels() == once);
         }
     }
-    // 9 playtests, 1,569 frames; a frame in ten changes the picture.
-    assert_eq!(frames, 1569);
+    // 10 playtests, 1,660 frames; a frame in ten changes the picture.
+    assert_eq!(frames, 1660);
     assert!(repaints >= 9 && repaints * 8 < frames, "{repaints} repaints in {frames} frames");
+}
+
+/// A 6 x 6 floor where a tap on the ground builds a post on that cell.
+fn builder(playtest: &str) -> Vfs {
+    let mut vfs = Vfs::new();
+    vfs.insert(
+        "rwgpu.toml",
+        "[project]\nname = \"t\"\nmain_scene = \"scenes/main.toml\"\n[display]\nwidth = 320\nheight = 240\n",
+    );
+    vfs.insert(
+        "scenes/main.toml",
+        "[ground]\nsize = [6, 6]\n\n[[connect]]\nfrom = \"ground\"\nsignal = \"tapped\"\nactions = [{ action = \"spawn\", prefab = \"post\" }]\n",
+    );
+    vfs.insert("prefabs/post.toml", "block = { color = \"#c08040\", height = 1 }\nsolid = true\n");
+    vfs.insert("tests/t.toml", playtest);
+    vfs
+}
+
+fn posts(s: &Session) -> Vec<[i32; 2]> {
+    s.world.entities.iter().filter(|e| e.prefab.as_deref() == Some("post")).map(|e| e.cell()).collect()
+}
+
+#[test]
+fn the_camera_is_replayed_and_decides_what_a_tap_hits() {
+    // The same pixel is tapped three times: before a quarter turn, after it,
+    // and after switching to perspective. Each time it shows another cell.
+    let script = "[test]\nframes = 30\n\n[[input]]\nframe = 2\ntap = [224, 136]\n\n[[input]]\nframe = 10\ncamera = { turn = 90 }\n\n[[input]]\nframe = 10\ntap = [224, 136]\n\n[[input]]\nframe = 20\ncamera = { view = \"perspective\", zoom = 0.5, pan = [1, 0] }\n\n[[input]]\nframe = 21\ntap = [224, 136]\n";
+    let vfs = builder(script);
+    let check = rwgpuengine_data::check_project(&vfs);
+    assert!(check.diagnostics.is_empty(), "{:#?}", check.diagnostics);
+    let cfg = SessionConfig { script: Some("tests/t.toml".into()), ..Default::default() };
+    let run = || {
+        let mut s = Session::load(&vfs, &cfg, Box::new(DataOnly)).unwrap();
+        let mut seen = Vec::new();
+        for frame in [2, 3, 10, 11, 22, 30] {
+            s.run_to(frame);
+            seen.push((s.camera, posts(&s), s.state_hash(), s.render().0.image_hash()));
+        }
+        (seen, s)
+    };
+    let (seen, s) = run();
+    // The pixel is 64 right of and 16 below the middle of the frame, where
+    // (2.5, 2.5) is drawn: two cells across and half a cell toward the
+    // viewer, which is cell (4, 2). The camera move of frame 10 happens
+    // before that frame's tap; after a quarter turn the same offset is
+    // (2.5 - 0.5, 2.5 - 1.5): cell (2, 1).
+    assert_eq!(seen[0].1, Vec::<[i32; 2]>::new());
+    assert_eq!(seen[1].1, vec![[4, 2]]);
+    assert_eq!(seen[2].0.turn, 0.0, "frame 10 has not been stepped yet");
+    assert_eq!((seen[3].0.turn, seen[3].1.clone()), (90.0, vec![[4, 2], [2, 1]]));
+    let last = &seen[5];
+    assert_eq!(
+        (last.0.view, last.0.turn, last.0.zoom, last.0.center),
+        (CameraView::Perspective, 90.0, 0.5, [3.5, 2.5])
+    );
+    assert_eq!(last.1.len(), 3, "the third tap found a third cell: {:?}", last.1);
+    // Replaying gives the same cameras, worlds and pictures.
+    assert_eq!(seen, run().0);
+    // The camera is reported next to the world's state.
+    let j = s.inspect(&InspectOptions::default());
+    assert_eq!(j.pointer("camera/view").and_then(|v| v.as_str()), Some("perspective"));
+    assert_eq!(j.pointer("camera/turn").and_then(|v| v.as_f64()), Some(90.0));
+    assert_eq!(s.summary().pointer("camera/zoom").and_then(|v| v.as_f64()), Some(0.5));
+}
+
+#[test]
+fn moving_the_camera_changes_the_picture_and_not_the_world() {
+    let vfs = builder("[test]\nframes = 5\n");
+    let mut s = Session::load(&vfs, &SessionConfig::default(), Box::new(DataOnly)).unwrap();
+    s.run_to(3);
+    let (state, picture) = (s.state_hash(), s.render().0.image_hash());
+    let mut presenter = Presenter::new();
+    assert!(presenter.present(&s) && !presenter.present(&s));
+    // A player's gesture.
+    s.move_camera(&CameraMove { view: None, turn: 30.0, zoom: 1.5, pan: [0.0, 0.0] });
+    assert_eq!(s.state_hash(), state, "the camera is not part of the world");
+    assert_ne!(s.render().0.image_hash(), picture);
+    assert!(presenter.present(&s), "a moved camera is a new picture");
+    assert!(presenter.pixels() == s.render().0.rgba);
+    // A tap is resolved against the moved picture: where the middle of cell
+    // (1, 4) is drawn now, that cell is hit.
+    let [x, y] = s.screen_point([1.0, 4.0, 0.0]).unwrap();
+    s.step(&LiveInput { taps: vec![(x, y)], ..Default::default() });
+    assert_eq!(posts(&s), vec![[1, 4]]);
+    // Moving back gives the first camera again, bit for bit.
+    let before = s.camera;
+    s.move_camera(&CameraMove { view: None, turn: 90.0, zoom: 1.0, pan: [2.0, -1.0] });
+    s.move_camera(&CameraMove { view: None, turn: -90.0, zoom: 1.0, pan: [-2.0, 1.0] });
+    assert_eq!(s.camera, before);
+}
+
+#[test]
+fn a_scene_can_start_turned_zoomed_and_in_perspective() {
+    let mut vfs = builder("[test]\nframes = 5\n");
+    let scene = vfs.get("scenes/main.toml").unwrap().to_string();
+    vfs.insert(
+        "scenes/main.toml",
+        format!("[camera]\nview = \"perspective\"\nturn = -90\nzoom = 2\ncenter = [1, 2]\n\n{scene}"),
+    );
+    assert!(rwgpuengine_data::check_project(&vfs).diagnostics.is_empty());
+    let s = Session::load(&vfs, &SessionConfig::default(), Box::new(DataOnly)).unwrap();
+    assert_eq!(
+        (s.camera.view, s.camera.turn, s.camera.zoom, s.camera.center),
+        (CameraView::Perspective, 270.0, 2.0, [1.0, 2.0])
+    );
+    // The center is drawn at the middle of the frame.
+    assert_eq!(s.screen_point([1.0, 2.0, 0.0]).map(|p| p.map(|v| v.round())), Some([160.0, 120.0]));
+    // Bad values are refused by `check`, with the key's location.
+    vfs.insert("scenes/main.toml", format!("[camera]\nview = \"fisheye\"\nzoom = 100\n\n{scene}"));
+    let d = rwgpuengine_data::check_project(&vfs).diagnostics;
+    assert_eq!(d.len(), 2, "{d:#?}");
+    assert!(d.iter().all(|d| d.file.as_deref() == Some("scenes/main.toml") && d.line.is_some()), "{d:#?}");
+    // An input is one thing: a camera move and a tap need two tables.
+    vfs.insert("scenes/main.toml", scene);
+    vfs.insert("tests/t.toml", "[test]\nframes = 5\n\n[[input]]\nframe = 1\ncamera = { turn = 90 }\ntap = [1, 1]\n");
+    let d = rwgpuengine_data::check_project(&vfs).diagnostics;
+    assert!(d.len() == 1 && d[0].message.contains("exactly one of `press`, `hold`, `tap` or `camera`"), "{d:#?}");
 }

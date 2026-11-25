@@ -7,6 +7,40 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-26 — The 3D core: Tiny Town plays in 3D from its unchanged files
+
+- The owner said to start step 2 of the 3D order. Built, on the branch `3d-core`
+  ([ADR 0020](decisions/0020-render-list-camera-and-cpu-reference-renderer.md) has the decisions and the
+  measured options):
+  - **The render list** replaces the 2D draw list for the world: solid instances (a box per `block`, a flat
+    rectangle per `tile` and ground cell), cards (a world entity's `sprite` and `label`) and the 2D layer.
+  - **The camera is session state**: `iso` or `perspective`, turn, zoom, pan. `[camera]` in a scene gained
+    `view`, `turn` and `zoom`; playtests gained `[[input]] camera = { ... }`. Sine and cosine are owned
+    (`rwgpuengine_core::math`).
+  - **The CPU reference renderer** draws through a depth buffer; the frame report and picking read its
+    projection.
+- **Done when, and it is:** all nine existing playtests end in the state hashes they had, from files that
+  did not change. A tenth, `turn_and_build`, builds a house, a tree and a well from three cameras.
+- **The pictures changed, and were looked at.** Tiny Town's two differ from the old ones by one color level
+  on box sides. The other two also differ along the tops of boxes 0.8 and 1.2 high, which are now drawn at
+  25.6 and 38.4 pixels, not at a rounded whole pixel.
+- **Findings on the way.** The first run through the new renderer passed every state check, and the three
+  flaws that mattered were found by the new tests, not by the examples:
+  - A flat thing drawn a little nearer the camera, the usual way to put a tile on the ground, left a line of
+    tile color along the foot of a crate standing on a plate. Level faces now carry a rank instead.
+  - A sprite drawn at one depth was cut by a wall *behind* it, because a camera looking down sees the top of
+    that wall as nearer. A card now stands upright above its anchor and lies on the surface below it.
+  - Painting for a player took 263 µs against a limit of 200. Solving each triangle row's run and writing
+    through row slices brought it to 161. The limit was not changed.
+- Measured (Apple M5 Pro): reference frame with report 1,587 µs (it was 2,225); paint 161 µs (59); a town of
+  5,000 boxes at 1280 × 720 in 5.2 ms against the proposal's 20 ms, now a budget in the gate; web module
+  619,742 bytes (585,789); command 1,979,088 bytes. Under Node the wasm module reaches the native state and
+  image hashes for all ten playtests, turned and perspective frames included.
+- Not done: no GPU, no window. The camera cannot tilt and entities cannot turn. The web player has no camera
+  gestures yet, `shot` has no flag to move the camera, and a playtest cannot `[[expect]]` a camera. The frame
+  report of a 5,000-box town takes about 14 ms on top of its frame and is not budgeted. The ground is one
+  instance per cell.
+
 ## 2026-11-26 — The first CI run is green on Linux, Windows and macOS
 
 - The first run on GitHub (run 45679193089, on the published tip, 2026-11-25 UTC) passed on all three

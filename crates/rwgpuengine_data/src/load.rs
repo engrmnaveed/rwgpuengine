@@ -1385,13 +1385,13 @@ fn load_playtest_lenient(vfs: &Vfs, path: &str) -> (Option<PlaytestDef>, Vec<Dia
     let mut inputs = Vec::new();
     for node in root.array("input").unwrap_or(&[]) {
         let Some(t) = node.as_table() else { continue };
-        let kinds: Vec<&str> = ["press", "hold", "tap"].into_iter().filter(|k| t.has(k)).collect();
+        let kinds: Vec<&str> = ["press", "hold", "tap", "camera"].into_iter().filter(|k| t.has(k)).collect();
         if kinds.len() != 1 {
             let found = if kinds.is_empty() { "none".to_string() } else { kinds.join(" and ") };
             diags.push(
                 Diagnostic::new(
                     &codes::INVALID_VALUE,
-                    format!("[[input]] needs exactly one of `press`, `hold` or `tap` (found {found})"),
+                    format!("[[input]] needs exactly one of `press`, `hold`, `tap` or `camera` (found {found})"),
                 )
                 .at(&src, node.span)
                 .hint("split it into separate [[input]] tables"),

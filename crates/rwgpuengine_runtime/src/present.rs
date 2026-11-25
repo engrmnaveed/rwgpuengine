@@ -1,20 +1,21 @@
 //! Presenting a session's picture in a player.
 
-use rwgpuengine_render::{DrawList, paint};
+use rwgpuengine_render::{Painter, RenderList};
 
 use crate::session::Session;
 
 /// A player's pixel buffer, repainted only when the picture changes.
 ///
-/// A step that moves nothing gives the same draw list, and equal lists paint
-/// equal pixels. In the example games fewer than one frame in ten changes
+/// A step that moves nothing gives the same render list, and equal lists
+/// paint equal pixels. In the example games fewer than one frame in ten changes
 /// anything, so a player that asks [`Presenter::present`] every frame mostly
 /// gets "nothing to show" for the price of building and comparing the list
 /// (ADR 0018).
 #[derive(Debug, Default)]
 pub struct Presenter {
     pixels: Vec<u8>,
-    shown: Option<DrawList>,
+    shown: Option<RenderList>,
+    painter: Painter,
 }
 
 impl Presenter {
@@ -26,11 +27,11 @@ impl Presenter {
     /// picture is the one already in the buffer, and true when it was
     /// repainted (always on the first call and after [`Presenter::reset`]).
     pub fn present(&mut self, session: &Session) -> bool {
-        let list = session.draw_list(false);
+        let list = session.render_list(false);
         if self.shown.as_ref() == Some(&list) {
             return false;
         }
-        paint(&list, &mut self.pixels);
+        self.painter.paint(&list, &mut self.pixels);
         self.shown = Some(list);
         true
     }

@@ -8,9 +8,12 @@ use rwgpuengine_core::hash;
 use rwgpuengine_core::json::Json;
 use rwgpuengine_core::text::did_you_mean;
 use rwgpuengine_data::{
-    InputDef, InputKind, PlaytestDef, ProjectDef, SceneDef, SceneLoader, Vfs, load_playtest, load_project,
+    CameraMove, InputDef, InputKind, PlaytestDef, ProjectDef, SceneDef, SceneLoader, Vfs, load_playtest, load_project,
 };
-use rwgpuengine_render::{DrawList, Frame, FrameReport, View, build_report, draw, paint, pick, rasterize};
+use rwgpuengine_render::{
+    Camera, Frame, FrameReport, Painter, Projected, Projector, RenderList, View, build_report, list, pick, project,
+    render,
+};
 use rwgpuengine_sim::{ActionSet, InputFrame, Systems, World, dump};
 
 /// Rust game code plugged into a session (ADR 0006: data first, code
@@ -63,6 +66,14 @@ impl Script {
         Script { inputs }
     }
 
+    /// Camera moves for the step taken at `frame`, in file order.
+    pub fn camera_at(&self, frame: u64) -> impl Iterator<Item = &CameraMove> {
+        self.inputs.iter().filter(move |i| i.frame == frame).filter_map(|i| match &i.kind {
+            InputKind::Camera(m) => Some(m),
+            _ => None,
+        })
+    }
+
     /// (pressed, down, taps) for the step taken at `frame`.
     pub fn at(&self, frame: u64) -> (ActionSet, ActionSet, Vec<(f32, f32)>) {
         let (mut pressed, mut down, mut taps) = (ActionSet::EMPTY, ActionSet::EMPTY, Vec::new());
@@ -92,6 +103,12 @@ pub struct Session {
     pub playtest: Option<PlaytestDef>,
     pub world: World,
     pub view: View,
+    /// Where the picture is taken from. It is part of the session's state:
+    /// moves arrive as input ([`Session::move_camera`], a playtest's
+    /// `[[input]] camera`) and are replayed with it, because what a tap hits
+    /// depends on the camera. It is not part of the world, so not of the
+    /// state hash either; `inspect` and `run` report it next to that.
+    pub camera: Camera,
     /// Warnings found while loading (the session still runs).
     pub warnings: Vec<Diagnostic>,
     script: Script,
@@ -158,8 +175,9 @@ impl Session {
         let mut world = World::new(&scene, seed);
         game.on_start(&mut world);
         let view = View::new(&project, &scene);
+        let camera = Camera::new(&scene);
         let script = Script::new(playtest.as_ref().map(|p| p.inputs.clone()).unwrap_or_default());
-        Ok(Session { project, scene, playtest, world, view, warnings: diags, script, game })
+        Ok(Session { project, scene, playtest, world, view, camera, warnings: diags, script, game })
     }
 
     pub fn frame(&self) -> u64 {
@@ -171,15 +189,22 @@ impl Session {
         self.playtest.as_ref().map(|p| p.frames)
     }
 
-    /// Take one fixed step with scripted plus live input.
+    /// Take one fixed step with scripted plus live input. The script's
+    /// camera moves for this frame happen first, so its taps see the moved
+    /// camera.
     pub fn step(&mut self, live: &LiveInput) {
-        let (pressed, down, mut taps) = self.script.at(self.world.frame);
+        let frame = self.world.frame;
+        let moves: Vec<CameraMove> = self.script.camera_at(frame).copied().collect();
+        for m in &moves {
+            self.move_camera(m);
+        }
+        let (pressed, down, mut taps) = self.script.at(frame);
         taps.extend(live.taps.iter().copied());
         let resolved = if taps.is_empty() {
             Vec::new()
         } else {
-            let list = self.draw_list(true);
-            taps.iter().map(|&(x, y)| pick::pick(&list, x, y)).collect()
+            let seen = self.projected(true);
+            taps.iter().map(|&(x, y)| pick::pick(&seen, x, y)).collect()
         };
         let input = InputFrame {
             pressed: pressed.union(live.pressed),
@@ -197,16 +222,35 @@ impl Session {
         }
     }
 
-    pub fn draw_list(&self, include_disabled: bool) -> DrawList {
-        draw::build(&self.world, &self.view, self.scene.ground.as_ref(), include_disabled)
+    /// Move the camera, as a player's gesture would. Taps from now on are
+    /// resolved against the new picture.
+    pub fn move_camera(&mut self, m: &CameraMove) {
+        self.camera.apply(m);
+    }
+
+    /// The screen pixel a world point is drawn at now, or `None` if it is
+    /// behind the camera.
+    pub fn screen_point(&self, p: [f32; 3]) -> Option<[f32; 2]> {
+        Projector::new(&self.view, &self.camera).screen(p)
+    }
+
+    /// What the current frame draws: the list every renderer reads.
+    pub fn render_list(&self, include_disabled: bool) -> RenderList {
+        list::build(&self.world, &self.view, &self.camera, include_disabled)
+    }
+
+    /// The render list seen from the camera: what picking and the reference
+    /// renderer work on.
+    pub fn projected(&self, include_disabled: bool) -> Projected {
+        project(&self.render_list(include_disabled))
     }
 
     /// Render the current frame and describe it: the reference pixels plus
     /// the frame report (`rwgpu shot`, playtest `[[shot]]`s).
     pub fn render(&self) -> (Frame, FrameReport) {
-        let list = self.draw_list(false);
-        let (frame, stats) = rasterize(&list);
-        let report = build_report(&self.world, &list, &frame, &stats);
+        let seen = self.projected(false);
+        let frame = render(&seen);
+        let report = build_report(&self.world, &seen, &frame);
         (frame, report)
     }
 
@@ -215,7 +259,7 @@ impl Session {
     /// player that paints every frame should use a
     /// [`Presenter`](crate::Presenter), which skips frames that did not change.
     pub fn paint(&self, rgba: &mut Vec<u8>) {
-        paint(&self.draw_list(false), rgba);
+        Painter::new().paint(&self.render_list(false), rgba);
     }
 
     pub fn state_hash(&self) -> u64 {
@@ -225,8 +269,8 @@ impl Session {
     /// The world as JSON: summary, entities (with screen rectangles) and,
     /// optionally, events.
     pub fn inspect(&self, opts: &InspectOptions) -> Json {
-        let list = self.draw_list(false);
-        let pick_list = self.draw_list(true);
+        let seen = self.projected(false);
+        let frame = render(&seen);
         let ids: Option<Vec<u32>> =
             opts.entity.as_ref().map(|n| self.world.find(n).map(|id| vec![id]).unwrap_or_default());
         let mut entities = Vec::new();
@@ -238,18 +282,19 @@ impl Session {
             if opts.component.as_ref().is_some_and(|c| j.get(c).is_none()) {
                 continue;
             }
-            j.set("screen", screen_json(&list, e.id));
+            j.set("screen", screen_json(&seen, e.id));
             // A pixel where a tap is guaranteed to hit this entity.
-            j.set("tap", pick::tap_point(&pick_list, e.id).map(Json::from));
+            j.set("tap", pick::tap_point(&seen, &frame, e.id).map(Json::from));
             entities.push(j);
         }
         let mut out = dump::world_summary(&self.world)
             .with("scene", self.scene.path.as_str())
             .with("input", self.playtest.as_ref().map(|p| p.path.clone()))
+            .with("camera", self.camera_json())
             .with("ground", dump::ground_json(&self.world))
             .with("entities", entities);
         if let Some(q) = &opts.place {
-            out.set("place", self.place_json(q));
+            out.set("place", self.place_json(q, &seen, &frame));
         }
         let game = self.game.inspect(&self.world);
         if !game.is_null() {
@@ -279,7 +324,18 @@ impl Session {
         dump::world_summary(&self.world)
             .with("scene", self.scene.path.as_str())
             .with("input", self.playtest.as_ref().map(|p| p.path.clone()))
+            .with("camera", self.camera_json())
             .with("game", self.game.name())
+    }
+
+    /// The camera as it is now: `{ view, center, turn, zoom }`.
+    pub fn camera_json(&self) -> Json {
+        let c = &self.camera;
+        Json::object()
+            .with("view", c.view.name())
+            .with("center", c.center)
+            .with("turn", c.turn as f64)
+            .with("zoom", c.zoom as f64)
     }
 
     pub fn hash_hex(&self) -> String {
@@ -287,11 +343,11 @@ impl Session {
     }
 
     /// "Can I build here?": where `prefab` can be spawned right now, or
-    /// whether it fits at one cell and why not.
-    pub fn place_json(&self, q: &PlaceQuery) -> Json {
+    /// whether it fits at one cell and why not. `seen` and `frame` are the
+    /// current picture (`projected(false)` and its rendering).
+    pub fn place_json(&self, q: &PlaceQuery, seen: &Projected, frame: &Frame) -> Json {
         let w = &self.world;
-        let list = self.draw_list(true);
-        let tap = |cell: [i32; 2]| pick::ground_tap_point(&list, cell).map(Json::from);
+        let tap = |cell: [i32; 2]| pick::ground_tap_point(seen, frame, cell).map(Json::from);
         if w.template(&q.prefab).is_none() {
             let mut known: Vec<&str> = w.templates.iter().filter_map(|t| t.prefab.as_deref()).collect();
             known.sort_unstable();
@@ -389,7 +445,7 @@ pub struct InspectOptions {
     pub place: Option<PlaceQuery>,
 }
 
-fn screen_json(list: &DrawList, id: u32) -> Json {
+fn screen_json(list: &Projected, id: u32) -> Json {
     let r = list.bounds_of(id);
     if r.is_empty() { Json::Null } else { Json::from(r.xywh()) }
 }

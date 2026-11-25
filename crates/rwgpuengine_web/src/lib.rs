@@ -265,9 +265,8 @@ pub extern "C" fn rwgpu_hash() -> u32 {
 }
 
 /// Writes the image hash of the current frame to the output buffer. It is
-/// the hash of the painted pixels, which equal the reference rasterizer's
-/// (`rwgpu shot`); painting keeps that rasterizer and the frame report out
-/// of the web module (ADR 0018).
+/// the hash of the painted pixels, which equal the reference renderer's
+/// (`rwgpu shot`); painting keeps the frame report out of the web module.
 #[unsafe(no_mangle)]
 pub extern "C" fn rwgpu_image_hash() -> u32 {
     with(|s| {

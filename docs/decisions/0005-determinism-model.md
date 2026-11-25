@@ -22,6 +22,11 @@ Same project files + input script + seed ⇒ same state hash and same pixels on 
 
 Verified on v0.1: native (aarch64) and browser (wasm32) agree on state and image hashes.
 
+Added 2026-11-26 ([ADR 0020](0020-render-list-camera-and-cpu-reference-renderer.md)): turning the camera needs
+sine and cosine. They are owned (`rwgpuengine_core::math`): exact operations in a fixed order, exact at
+quarter turns, with their bits pinned by a test. The camera is session state replayed from input; it is not
+part of the world's state hash.
+
 ## Consequences
 - Game code must follow the same rules (documented; enforced by clippy for engine crates).
 - Changing the RNG, step order or rasterizer changes recorded hashes and reference images: such changes

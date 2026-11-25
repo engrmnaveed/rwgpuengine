@@ -12,6 +12,7 @@ publish.workspace = true
 rwgpuengine_core.workspace = true
 rwgpuengine_data.workspace = true
 rwgpuengine_cli.workspace = true
+rwgpuengine_render.workspace = true
 rwgpuengine_runtime.workspace = true
 
 [lints]

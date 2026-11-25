@@ -87,12 +87,15 @@ Scene metadata.
 
 ### `[camera]`
 
-The camera looks straight down the isometric axis; it only pans.
+Where the picture is taken from when the scene starts. The camera looks at `center` on the ground; it can turn about the vertical line through that point and zoom. A playtest's `[[input]] camera` moves it while the game runs. With no keys set, the view is the isometric one of `[iso]`.
 
 | key | type | default | meaning |
 |---|---|---|---|
 | `center` | [x, y] | — | Grid point [x, y] at the middle of the frame. Default: the middle of the ground. |
 | `offset` | [x, y] | `[0, 0]` | Extra shift in screen pixels [right, down]. |
+| `view` | iso \| perspective | `"iso"` | How the world is projected. `iso`: the isometric view set by `[iso]`, where parallel lines stay parallel. `perspective`: a camera 30 degrees above the horizon, where far things are drawn smaller; `center` is drawn at the same size as in `iso`. |
+| `turn` | number -360–360 | `0` | Degrees the camera is turned about the vertical line through `center`. At 0, +x runs down-right and +y down-left on screen; at 90, +x runs down-left and +y up-left. |
+| `zoom` | number 0.125–16 | `1.0` | Size factor: 2 draws everything in the world twice as large. Screen entities do not zoom. |
 
 ### `[ground]`
 
@@ -330,7 +333,7 @@ Playtest settings.
 
 ### `[[input]]`
 
-One input event. Use exactly one of `press`, `hold` or `tap`. Input at frame N is applied by step N (the step from frame N to N+1).
+One input event. Use exactly one of `press`, `hold`, `tap` or `camera`. Input at frame N is applied by step N (the step from frame N to N+1). A `camera` move at frame N happens before that frame's taps.
 
 | key | type | default | meaning |
 |---|---|---|---|
@@ -339,6 +342,7 @@ One input event. Use exactly one of `press`, `hold` or `tap`. Input at frame N i
 | `hold` | up \| down \| left \| right \| confirm \| cancel | — | Hold an action down for `for` frames. |
 | `for` | integer ≥ 1 | `1` | With `hold`: number of frames to hold. |
 | `tap` | [x, y] | — | Tap the screen at pixel [x, y]; hits the topmost enabled entity drawn there. |
+| `camera` | table: playtest.input.camera | — | Move the camera: `{ turn = 90 }`, `{ zoom = 2 }`, `{ pan = [1, 0] }`, `{ view = "perspective" }`, or several at once. What a later tap hits depends on it. |
 
 ### `[[expect]]`
 
@@ -383,13 +387,22 @@ files + input + seed = same state hash and same pixels, on every machine. A stat
 state at one frame (what `rwgpu test` prints is the final frame's), not the path that led there: two runs
 can differ along the way and still end in the same state.
 
-**Coordinates.** Cells are `[x, y]` integers; `[0, 0]` is the top corner of the ground. +x runs down-right
-on screen, +y down-left, z is height. Direction inputs move movers: `up` = -y, `down` = +y,
-`left` = -x, `right` = +x. Screen position of grid point (x, y, z), in pixels from the top-left:
+**Coordinates.** Cells are `[x, y]` integers; `[0, 0]` is the top corner of the ground. z is height.
+Direction inputs move movers: `up` = -y, `down` = +y, `left` = -x, `right` = +x. With the camera a scene
+starts with by default (`view = "iso"`, no `turn`, `zoom = 1`), +x runs down-right on screen and +y
+down-left, and grid point (x, y, z) is drawn at this pixel from the top-left:
 `sx = ox + (x - y) × tile_width / 2`, `sy = oy + (x + y) × tile_height / 2 - z × z_height`, where (ox, oy) is
 chosen so the camera `center` (default: the middle of the ground) lands in the middle of the frame. A sprite's
-bottom edge sits at its cell's (sx, sy); `offset` shifts it. `rwgpu inspect --json` shows each entity's
-`screen` rectangle, which is the easiest way to place things.
+bottom edge sits at its cell's (sx, sy); `offset` shifts it.
+
+**The camera.** The world is 3D and the camera is part of the game's state. `[camera]` in the scene sets
+where it starts (`center`, `turn`, `zoom`, `view = "iso"` or `"perspective"`); `[[input]] camera = { turn =
+90 }` (also `zoom`, `pan`, `view`) moves it during a playtest, as a player would. Once it has moved, the
+formula above no longer holds: ask the engine. `rwgpu inspect --frame N --json` gives each entity's `screen`
+rectangle and a `tap` pixel under the camera of that frame, `--place house@3,4` gives the pixel that taps
+that ground cell, and the top-level `camera` field says where the camera is. A camera move at frame N
+happens before the taps of frame N. The camera is not part of the state hash (it is not in the world); a
+picture taken after a move is.
 
 **Step order.** Each step: input (taps resolve to the topmost enabled entity drawn under the point and
 emit `tapped`; a tap that hits no entity but lands on a ground cell makes the ground emit `tapped`, if a
@@ -483,9 +496,12 @@ Every event has `frame` (the step that produced it: `[N]` happened in step N, so
 | `custom` | set by game code | set by game code | set by game code | Logged by Rust game code. |
 
 
-**Drawing.** Ground first, then tiles, then blocks, sprites and labels back to front by `x + y`, then
-height, then part (block, sprite, label), then file order (later entities on top). A multi-cell block is
-drawn one cell-slice at a time, each sorted by its own cell, so it looks like one box and still sorts
-correctly against smaller things around it. Screen entities
-(`screen_pos`) are drawn after the whole world, in file order, and ignore the camera.
-Blocks shade their left and right faces automatically. A sprite's bottom edge stands on its cell's center.
+**Drawing.** The world is drawn in 3D: what is nearer the camera hides what is behind it, whatever the
+order in the file. A block is a box; a tile and a ground cell are flat. A flat thing lying exactly on a
+surface shows on top of it: a tile on the ground or on a block's top, a block of height 0 on a tile. A
+sprite or a label is a flat picture that faces the camera and stands on its entity's standing point (on
+top of its block, if it has one): a sprite grows and shrinks with the camera like the world, text keeps its
+pixel size. See-through colors blend over what is behind them. Screen entities (`screen_pos`) are drawn
+after the whole world, in file order, and ignore the camera.
+One fixed light shades boxes: a top keeps its color, and the sides get 0.8 (+y), 0.65 (+x), 0.5 (-x) and
+0.35 (-y) of theirs, so turning the camera shows the darker sides.

@@ -5,15 +5,18 @@ checks, runs, renders and inspects them, deterministically, without a screen, wi
 diagnostics in the style of the Rust compiler. It is built for coding agents first, and for the people who
 direct them. The name is **R**ust + **wgpu** + engine; the command is `rwgpu`.
 
-> **Status: early, and changing direction.** What works today (v0.1.0) is a 2D/2.5D core: text formats with
-> a schema, the command line, a deterministic simulation, a CPU renderer with visual checks, and a web
-> player. It runs natively and in the browser with identical results.
+> **Status: early.** What works today (v0.1.0) is the half of the engine an agent works with: text formats
+> with a schema, the command line, a deterministic simulation, and a world drawn in 3D by a deterministic
+> CPU reference renderer, with a camera that turns, zooms and switches between an isometric and a
+> perspective view, visual checks, and a web player. It runs natively and in the browser with identical
+> results. There is **no GPU renderer yet**: boxes, flat tiles and camera-facing sprites are all it draws.
 >
 > **Where it is going:** a **3D engine on the GPU through wgpu, native and web**, for strategy games, city
 > builders, car-building and simulation games, and children's games, with art made of simple shapes written
-> as text. The agent's loop will stay free of the GPU. Read the
+> as text. The agent's loop stays free of the GPU. Read the
 > [direction](docs/vision.md#direction-update--2026-11-25-owner) and the
-> [3D architecture proposal](docs/proposals/3d-architecture.md), which has the measurements behind it.
+> [3D architecture proposal](docs/proposals/3d-architecture.md), which has the measurements behind it; its
+> next step is the wgpu players.
 >
 > Until 2026-11-25 the engine had the working codename "slate"; older records still use it
 > ([ADR 0019](docs/decisions/0019-name-rwgpuengine.md)). Nothing is published on crates.io yet.
@@ -79,13 +82,13 @@ page matches `rwgpu run`. Edit any file in the project and the page reloads it.
 | `crates/rwgpuengine_core` | JSON, diagnostics + stable codes, RNG, hashing (zero deps) |
 | `crates/rwgpuengine_data` | file formats: schema registry, validation, loaders, static checks |
 | `crates/rwgpuengine_sim` | deterministic world, built-in behaviors, signals, event log |
-| `crates/rwgpuengine_render` | iso projection, draw list, CPU rasterizer, frame report, picking, PNG |
+| `crates/rwgpuengine_render` | the camera, the render list, the CPU reference renderer (3D), frame report, picking, PNG |
 | `crates/rwgpuengine_runtime` | sessions, scripted input, playtests, the `Game` trait for Rust code |
 | `crates/rwgpuengine_cli` | the `rwgpu` command line (+ project template, dev server) |
 | `crates/rwgpuengine_web` | wasm build with a small C ABI; `web/` holds the page and JS glue |
 | `examples/iso_garden` | reference example: plate opens gate, goal raises flag; 2 playtests |
 | `examples/coin_vault` | reference example for data logic: coin counter on a HUD, vault opens at 3, AND lock held by a pushed crate; 4 playtests |
-| `examples/tiny_town` | **reference game 1** ([spec](docs/games/tiny-town.md)): an isometric builder — terrain map, tap to build 2 × 2 houses, trees and a well within a coin budget, clear with refund, a job card that counts copies, hints that say why nothing was built; 3 playtests |
+| `examples/tiny_town` | **reference game 1** ([spec](docs/games/tiny-town.md)): a builder — terrain map, tap to build 2 × 2 houses, trees and a well within a coin budget, clear with refund, a job card that counts copies, hints that say why nothing was built; 4 playtests, one of which turns the camera and builds in perspective |
 | `xtask` | `cargo xtask ci | web | smoke | budgets | docs | wasm-check` |
 | `web/` | the web player's page and glue, and `check.mjs`, which holds the wasm module to the native command |
 | `docs/` | vision, architecture, decisions (ADRs), proposals, roadmap, open questions, reference |

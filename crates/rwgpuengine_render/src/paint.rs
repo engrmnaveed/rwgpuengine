@@ -1,18 +1,15 @@
-//! The paint path: colors only, for players.
+//! Filling flat shapes fast.
 //!
-//! [`paint`] fills a pixel buffer from a draw list with exactly the pixels
-//! [`rasterize`](crate::raster::rasterize) gives, and nothing else: no
-//! per-pixel owners, no statistics, no report. It solves each shape's
-//! coverage rule for whole runs of pixels instead of testing every pixel of
-//! the bounding box, which makes it tens of times faster (ADR 0018).
-//!
-//! `rasterize` stays the reference: `rwgpu shot`, `rwgpu test` and the frame
-//! report use it, and tests hold the two pixel-identical.
+//! [`spans`] solves a shape's coverage rule for whole runs of pixels instead
+//! of testing every pixel of its bounding box, which is tens of times faster
+//! (ADR 0018). The runs are exactly the pixels [`Shape::covers`] accepts;
+//! tests hold the two equal. The reference renderer uses it for cards and
+//! for the 2D layer.
 
 use rwgpuengine_core::color::Rgba;
 use rwgpuengine_data::font;
 
-use crate::draw::{DrawList, Rect, Shape};
+use crate::draw::{Rect, Shape};
 use crate::font::lit;
 
 /// Quad vertices up to this size keep every product of the span solver
@@ -21,24 +18,8 @@ const QUAD_LIMIT: i64 = 1 << 27;
 /// Ellipse sizes up to this keep `w² · h²` inside an i64.
 const ELLIPSE_LIMIT: i64 = 1 << 15;
 
-/// Paint the list's enabled items, back to front, into `rgba` (RGBA8,
-/// row-major, top row first). The buffer is resized to the view and fully
-/// overwritten, so a player can reuse one buffer for every frame.
-pub fn paint(list: &DrawList, rgba: &mut Vec<u8>) {
-    let (w, h) = (list.view.width as usize, list.view.height as usize);
-    let bg = list.view.background;
-    rgba.resize(w * h * 4, 0);
-    solid(rgba, [bg.r, bg.g, bg.b, 255]);
-    let screen = Rect { x0: 0, y0: 0, x1: w as i32, y1: h as i32 };
-    for item in list.items.iter().filter(|i| i.enabled) {
-        let area = item.shape.bbox().intersect(&screen);
-        let color = item.color;
-        spans(&item.shape, area, |y, x0, x1| fill(rgba, w, y, x0, x1, color));
-    }
-}
-
 /// Source-over `color` onto pixels `x0..x1` of row `y`.
-fn fill(rgba: &mut [u8], width: usize, y: i32, x0: i32, x1: i32, color: Rgba) {
+pub(crate) fn fill(rgba: &mut [u8], width: usize, y: i32, x0: i32, x1: i32, color: Rgba) {
     let row = y as usize * width;
     let run = &mut rgba[(row + x0 as usize) * 4..(row + x1 as usize) * 4];
     if color.a == 255 {
@@ -57,7 +38,7 @@ fn fill(rgba: &mut [u8], width: usize, y: i32, x0: i32, x1: i32, color: Rgba) {
 /// then copy what is already written onto the rest, doubling each time: a
 /// block copy is far faster than a pixel loop where the target has no
 /// vector instructions (wasm), and the bytes are the same either way.
-fn solid(run: &mut [u8], px: [u8; 4]) {
+pub(crate) fn solid(run: &mut [u8], px: [u8; 4]) {
     const SEED: usize = 16 * 4;
     let head = run.len().min(SEED);
     for p in run[..head].as_chunks_mut::<4>().0 {
@@ -186,7 +167,7 @@ pub(crate) fn spans(shape: &Shape, area: Rect, mut f: impl FnMut(i32, i32, i32))
 }
 
 /// `a / b` rounded up, for `b > 0`.
-fn ceil_div(a: i64, b: i64) -> i64 {
+pub(crate) fn ceil_div(a: i64, b: i64) -> i64 {
     -(-a).div_euclid(b)
 }
 

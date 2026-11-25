@@ -331,11 +331,12 @@ fn budgets() -> Result {
     }
     let text = String::from_utf8_lossy(&out.stdout);
     let us: Vec<i64> = text.split_whitespace().filter_map(|v| v.parse().ok()).collect();
-    let &[render_us, paint_us] = us.as_slice() else {
-        return Err(format!("render-bench: expected two numbers, got `{}`", text.trim()));
+    let &[render_us, paint_us, town_us] = us.as_slice() else {
+        return Err(format!("render-bench: expected three numbers, got `{}`", text.trim()));
     };
     r.add("time.render_frame_us", render_us, b.time("render_frame_us"));
     r.add("time.paint_frame_us", paint_us, b.time("paint_frame_us"));
+    r.add("time.reference_town_frame_us", town_us, b.time("reference_town_frame_us"));
 
     let smoke_ms = smoke()?;
     r.add("time.smoke_chain_ms", smoke_ms as i64, b.time("smoke_chain_ms"));
@@ -382,44 +383,85 @@ fn check_web_profile() -> Result {
 
 /// Microseconds for one 640x480 frame of Tiny Town with its town built
 /// (`build_town` at frame 120), two ways: `Session::render` (the reference
-/// pixels plus the frame report, what `rwgpu shot` does) and `Session::paint`
-/// (what a player does for a frame that changed; ADR 0018). Each is the
-/// median of 5 batches of 100. Printed on stdout as `render paint`; meant
-/// for a release build (`budgets` runs it that way).
+/// pixels plus the frame report, what `rwgpu shot` does) and a `Presenter`
+/// made to repaint (what a player does for a frame that changed: build the
+/// render list and paint it, with the buffers it keeps between frames). Each
+/// is the median of 5 batches of 100. The third number is the CPU reference
+/// renderer on a town of 5,000 boxes at 1280x720 ([`town`]): the render
+/// list, its projection and the pixels with their owners, median of 5
+/// batches of 10. Printed on stdout as `render paint town`; meant for a
+/// release build (`budgets` runs it that way).
 fn render_bench() -> Result {
-    use rwgpuengine_runtime::{DataOnly, Session, SessionConfig};
+    use rwgpuengine_runtime::{DataOnly, Presenter, Session, SessionConfig};
     let vfs = rwgpuengine_data::Vfs::from_dir(&root().join("examples/tiny_town")).map_err(|e| e.to_string())?;
     let cfg = SessionConfig { script: Some("tests/build_town.toml".into()), ..SessionConfig::default() };
     let mut session = Session::load(&vfs, &cfg, Box::new(DataOnly)).map_err(|d| format!("{d:?}"))?;
     while session.frame() < 120 {
         session.step(&Default::default());
     }
-    let median = |frame: &mut dyn FnMut()| {
-        for _ in 0..20 {
+    let median = |n: u32, frame: &mut dyn FnMut()| {
+        for _ in 0..n / 5 {
             frame();
         }
         let mut batches: Vec<u128> = (0..5)
             .map(|_| {
                 let start = Instant::now();
-                for _ in 0..100 {
+                for _ in 0..n {
                     frame();
                 }
-                start.elapsed().as_micros() / 100
+                start.elapsed().as_micros() / n as u128
             })
             .collect();
         batches.sort_unstable();
         batches[2]
     };
-    let render = median(&mut || {
+    let render = median(100, &mut || {
         std::hint::black_box(session.render());
     });
-    let mut pixels = Vec::new();
-    let paint = median(&mut || {
-        session.paint(&mut pixels);
-        std::hint::black_box(&pixels);
+    let mut presenter = Presenter::new();
+    let paint = median(100, &mut || {
+        presenter.reset();
+        presenter.present(&session);
+        std::hint::black_box(presenter.pixels());
     });
-    println!("{render} {paint}");
+    let big =
+        Session::load(&town(5_000), &SessionConfig::default(), Box::new(DataOnly)).map_err(|d| format!("{d:?}"))?;
+    let town = median(10, &mut || {
+        std::hint::black_box(rwgpuengine_render::render(&big.projected(false)));
+    });
+    println!("{render} {paint} {town}");
     Ok(())
+}
+
+/// A project with one scene: `n` boxes, one per cell of a square ground, with
+/// heights from 0.4 to 3 and six colors (the town of the 3D study's spikes),
+/// seen at 1280x720 by a perspective camera far enough out to see all of it.
+fn town(n: usize) -> rwgpuengine_data::Vfs {
+    let side = (1..).find(|g| g * g >= n).unwrap_or(1);
+    let mut seed: u32 = 0x1234_5678;
+    let mut next = || {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        seed >> 8
+    };
+    let palette = ["#b5651d", "#8b2f2f", "#3f8a3f", "#c8bea0", "#5a6ea0", "#e6c850"];
+    let mut scene = format!("[camera]\nview = \"perspective\"\nzoom = 0.2\n\n[ground]\nsize = [{side}, {side}]\n");
+    for i in 0..n {
+        // Quarter units, so every height is an exact number in the file.
+        let height = 0.5 + (next() % 11) as f32 * 0.25;
+        let color = palette[(next() % 6) as usize];
+        scene.push_str(&format!(
+            "\n[[entity]]\npos = [{}, {}]\nblock = {{ color = \"{color}\", height = {height} }}\n",
+            i % side,
+            i / side
+        ));
+    }
+    let mut vfs = rwgpuengine_data::Vfs::new();
+    vfs.insert(
+        "rwgpu.toml",
+        "[project]\nname = \"town\"\nmain_scene = \"scenes/main.toml\"\n[display]\nwidth = 1280\nheight = 720\n",
+    );
+    vfs.insert("scenes/main.toml", scene);
+    vfs
 }
 
 fn file_size(p: &Path) -> Result<i64> {

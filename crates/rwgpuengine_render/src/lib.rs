@@ -1,28 +1,33 @@
-//! `rwgpuengine_render` — 2D/2.5D isometric rendering, offscreen first.
+//! `rwgpuengine_render` — the render list and the CPU reference renderer.
 //!
-//! world → [`draw::build`] → [`draw::DrawList`] → [`raster::rasterize`] →
-//! pixels + per-item stats → [`report::build_report`] / [`image::encode_png`].
+//! world → [`list::build`] → [`RenderList`] → [`reference::project`] →
+//! [`Projected`] → [`reference::render`] → pixels and owners →
+//! [`report::build_report`] / [`image::encode_png`].
 //!
-//! The rasterizer is a deterministic CPU implementation: no GPU, no window,
-//! identical bytes on every platform (ADR 0007). Picking ([`pick`]) uses
-//! the same draw list and coverage test.
+//! The render list is what every renderer reads: a camera, a light, solid
+//! instances, cards and a 2D layer. The reference renderer here draws it on
+//! the CPU, with no GPU and no window, to identical bytes on every platform;
+//! picking ([`pick`]) and the frame report read the same projection, so what
+//! is shown, what is reported and what a tap hits cannot disagree.
 //!
-//! Players that only show the picture use [`paint::paint`] instead: the same
-//! pixels from the same draw list, without owners, stats or a report, and
-//! tens of times faster (ADR 0018).
+//! Players that only show the picture use a [`Painter`]: the same pixels
+//! without owners, statistics or a report.
 
+pub mod camera;
 pub mod draw;
 pub mod font;
 pub mod image;
+pub mod list;
 pub mod paint;
 pub mod pick;
-pub mod raster;
+pub mod reference;
 pub mod report;
 pub mod view;
 
-pub use draw::{DrawItem, DrawList, Part, Rect, Shape};
-pub use paint::paint;
-pub use raster::{Frame, ItemStats, rasterize};
+pub use camera::{Camera, Projector};
+pub use draw::{DrawItem, Part, Rect, Shape};
+pub use list::{Card, CardBody, Instance, Light, Mesh, RenderList};
+pub use reference::{Coverage, Frame, Item, ItemStats, Painter, Projected, project, render};
 pub use report::{EntityReport, FrameReport, build_report};
 pub use view::View;
 

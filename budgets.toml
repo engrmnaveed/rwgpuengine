@@ -35,15 +35,22 @@ smoke_chain_ms = 4_000
 incremental_rebuild_ms = 10_000
 # Render one 640x480 frame of Tiny Town with its town built (release build,
 # native; `cargo xtask render-bench`). M3.4 measured ~2,270 us on an Apple M5
-# Pro. The limit catches a rasterizer regression of ~2.5x on slower CI
+# Pro, and the 3D reference renderer about 1,600. The limit catches a rasterizer regression of ~2.5x on slower CI
 # machines; the web profile's opt-levels are checked separately (ADR 0017).
 # This is the reference path: `rwgpu shot`, playtest `[[shot]]`s and reports.
 render_frame_us = 6_000
 # Paint the same frame the way a player does when the picture changed:
-# build the draw list and fill spans, no report (ADR 0018). Measured 55-60 us on
-# an Apple M5 Pro; the limit leaves the same ~2.5x for slower CI machines
-# and catches a fall back to per-pixel work, which costs 20x.
+# build the render list and paint it, no owners and no report (ADR 0020).
+# Since the world is drawn in 3D through a depth buffer this measures about
+# 160 us on an Apple M5 Pro (the flat 2D painter of ADR 0018 took 55-60).
+# The limit is unchanged; it now leaves 1.25x on the reference machine.
 paint_frame_us = 200
+# Draw a town of 5,000 boxes on a 71 x 71 ground at 1280x720, in
+# perspective, with the CPU reference renderer: the render list, its
+# projection and the pixels with their owners, no report (`cargo xtask
+# render-bench` builds the town). The limit is the 3D proposal's; measured
+# about 5.5 ms on an Apple M5 Pro.
+reference_town_frame_us = 20_000
 
 [tablet]
 # Cold start of the web player on a mid-range tablet. Needs a device to

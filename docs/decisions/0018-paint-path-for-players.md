@@ -1,6 +1,8 @@
 # ADR 0018: A paint path for players; the reference rasterizer stays for checks
 
-- Status: accepted and built, 2026-11-25
+- Status: accepted and built, 2026-11-25. Since 2026-11-26 players paint the world with the `Painter` of
+  [ADR 0020](0020-render-list-camera-and-cpu-reference-renderer.md) (161 µs for the frame measured here at
+  55); the `Presenter` and the span filling of this record remain, the latter for cards and the 2D layer.
 - Decided by: the owner chose "consolidate first" after the
   [architecture audit](../audits/2026-11-25-architecture-audit.md); the shape by the KPI rule (ADR 0011)
 - Scope note: on the same day the owner decided that the engine's target is 3D on the GPU
