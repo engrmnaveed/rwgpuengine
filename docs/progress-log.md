@@ -7,6 +7,30 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-25 — Open-source readiness, prepared up to the push
+
+- The owner said to continue after the 3D proposal, and created the public repository. First step of the
+  proposal's order: get ready to publish. Done locally, in one commit:
+  - **LICENSE** (Apache-2.0, the text the Rust project's crates ship) and `license` / `repository` in every
+    crate's metadata.
+  - **The wasm check is in the gate.** `cargo xtask wasm-check` runs `web/check.mjs` (moved from the audit's
+    tools) for every example: the wasm module must reach the native command's state hashes and paint its
+    `shot` pixels. Without Node it is skipped locally and fails in CI.
+  - **CI for Linux, Windows and macOS** (`.github/workflows/ci.yml`), read-only permissions, with
+    `RWGPU_TIME_BUDGET_SCALE=4` because the time budgets are written for the reference machine.
+  - **Portability:** the command's path gets the system's suffix (`.exe`); `.gitattributes` fixes line
+    endings to LF, because spans and bundles are bytes.
+  - **No build-machine path in a release command from our own code:** `serve` only knows the source tree's
+    wasm path in debug builds.
+  - README rewritten for a first reader, with example output that is real again (its hashes had gone
+    stale); a short CONTRIBUTING.md.
+- **Not done, waiting for the owner's word because they cannot be undone:** rewriting the history (author
+  and committer to the owner's GitHub no-reply address, co-author lines removed, the direction PDF left out)
+  and the first push to the public repository.
+- Not done at all: Windows has never run the gate, so the first CI run there may fail and need fixes.
+  Release binaries still contain cargo's registry path of whoever builds them; a `dist` build that remaps
+  it is needed before any binary is published, not before publishing source.
+
 ## 2026-11-25 — The 3D direction study: a proposed architecture, with spikes
 
 - [The 3D architecture proposal](proposals/3d-architecture.md) is written and waits for the owner. Its core:

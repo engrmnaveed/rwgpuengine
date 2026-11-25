@@ -1,6 +1,7 @@
 // Headless check: run rwgpuengine_web.wasm under Node (V8) and print state and
 // image hashes for every playtest of an example, plus render timing.
-// usage: node wasm_check.mjs <wasm> <example dir> [--bench] [--native <rwgpu binary>]
+// usage: node web/check.mjs <wasm> <project dir> [--bench] [--native <rwgpu binary>]
+// `cargo xtask wasm-check` (part of `cargo xtask ci`) runs it for every example.
 //
 // `image` is rwgpu_image_hash. On a build with the paint path (ADR 0018)
 // `shown` is the hash of the pixels a page gets from rwgpu_present and

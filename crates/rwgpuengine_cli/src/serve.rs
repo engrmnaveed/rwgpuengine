@@ -20,9 +20,14 @@ use crate::project::locate;
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
 const PLAYER_JS: &str = include_str!("../../../web/player.js");
 
-/// Where `cargo xtask web` puts the module.
-const DEFAULT_WASM: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/wasm32-unknown-unknown/web/rwgpuengine_web.wasm");
+/// Where `cargo xtask web` puts the module, for running from source
+/// (`cargo rwgpu serve ...`). Debug builds only: a release binary must not
+/// carry a path of the machine that built it.
+#[cfg(debug_assertions)]
+const SOURCE_WASM: Option<&str> =
+    Some(concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/wasm32-unknown-unknown/web/rwgpuengine_web.wasm"));
+#[cfg(not(debug_assertions))]
+const SOURCE_WASM: Option<&str> = None;
 
 fn wasm_path(flag: Option<&str>) -> Result<PathBuf, Diagnostic> {
     let candidates: Vec<PathBuf> = match flag {
@@ -31,7 +36,7 @@ fn wasm_path(flag: Option<&str>) -> Result<PathBuf, Diagnostic> {
             .map(PathBuf::from)
             .into_iter()
             .chain(std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("rwgpuengine_web.wasm"))))
-            .chain(std::iter::once(PathBuf::from(DEFAULT_WASM)))
+            .chain(SOURCE_WASM.map(PathBuf::from))
             .collect(),
     };
     candidates.iter().find(|p| p.is_file()).cloned().ok_or_else(|| {

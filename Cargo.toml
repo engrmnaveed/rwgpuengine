@@ -12,8 +12,10 @@ default-members = ["crates/*"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.100"
+license = "Apache-2.0"
+repository = "https://github.com/engrmnaveed/rwgpuengine"
+# Nothing is published on crates.io yet (docs/decisions/0019-name-rwgpuengine.md).
 publish = false
-# License is an open decision (docs/open-questions.md, Q2). Nothing is published yet.
 
 [workspace.dependencies]
 # Owned crates.

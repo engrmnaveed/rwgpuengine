@@ -15,12 +15,16 @@ decision in [open-questions.md](open-questions.md).
    ([ADR 0018](decisions/0018-paint-path-for-players.md)).
 3. ~~The name~~: done. The engine is **rwgpuengine** and the command is `rwgpu`
    ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
-4. ~~The 3D direction study~~: done. [The 3D architecture proposal](proposals/3d-architecture.md) waits for
-   the owner's approval of its five points.
-5. Then, in the order the proposal gives (its section 7) and the owner approves: open-source readiness and
-   the first public push; the GPU-free 3D core with a CPU reference renderer; wgpu players natively and on
-   the web; the simulation at scale; shapes as text and the town reference game; Rust game code; templates
-   per kind of game. Then demos, the MCP adapter and the desktop app.
+4. ~~The 3D direction study~~: done. [The 3D architecture proposal](proposals/3d-architecture.md); the owner
+   said to continue.
+5. **Open-source readiness and the first public push** (in progress). Done locally: LICENSE (Apache-2.0),
+   crate metadata, CI for Linux, Windows and macOS with the wasm check in the gate, README and CONTRIBUTING.
+   Waiting for the owner's word, because they cannot be undone: rewriting history to the owner's no-reply
+   address without co-author lines, and the push itself to the public repository.
+6. Then, in the order the proposal gives (its section 7): the GPU-free 3D core with a CPU reference
+   renderer; wgpu players natively and on the web; the simulation at scale; shapes as text and the town
+   reference game; Rust game code; templates per kind of game. Then demos, the MCP adapter and the desktop
+   app.
 
 Not started and now in question: the audit's step 4 (splitting `load.rs` and `world.rs`). The 3D world model
 will reshape both files, so they are restructured as part of that work, not before it.

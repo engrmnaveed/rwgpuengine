@@ -6,6 +6,7 @@
 //! cargo xtask smoke     the first-milestone command chain on a fresh project
 //! cargo xtask budgets   measure and enforce budgets.toml
 //! cargo xtask docs      regenerate docs/reference (`--check` to verify only)
+//! cargo xtask wasm-check  the wasm module against the native command (needs Node)
 //! ```
 //!
 //! `render-bench` is internal: `budgets` runs it as a release build.
@@ -34,9 +35,10 @@ fn main() -> ExitCode {
         "smoke" => smoke().map(|_| ()),
         "budgets" => budgets(),
         "docs" => docs(rest.iter().any(|a| a == "--check")),
+        "wasm-check" => wasm_check(),
         "render-bench" => render_bench(),
         _ => {
-            eprintln!("usage: cargo xtask <ci | web | smoke | budgets | docs [--check]>");
+            eprintln!("usage: cargo xtask <ci | web | smoke | budgets | docs [--check] | wasm-check>");
             return ExitCode::from(2);
         }
     };
@@ -83,13 +85,38 @@ fn ci() -> Result {
     step("generated docs are current");
     docs(true)?;
     step("example playtests");
-    for example in ["examples/iso_garden", "examples/coin_vault", "examples/tiny_town"] {
+    for example in EXAMPLES {
         run("cargo", &["run", "--quiet", "--bin", "rwgpu", "--", "check", example])?;
         run("cargo", &["run", "--quiet", "--bin", "rwgpu", "--", "test", example])?;
     }
     step("budgets (builds web + release, runs smoke)");
     budgets()?;
+    wasm_check()?;
     eprintln!("\nci: all green");
+    Ok(())
+}
+
+const EXAMPLES: [&str; 3] = ["examples/iso_garden", "examples/coin_vault", "examples/tiny_town"];
+
+/// Native equals web: for every example playtest, the wasm module (run under
+/// Node by `web/check.mjs`) must reach the native command's state hash and
+/// paint pixels that hash to its `shot` image. Without Node the check is
+/// skipped on a developer's machine and fails in CI, which always has it.
+fn wasm_check() -> Result {
+    step("native equals web (the wasm module under Node)");
+    let has_node = Command::new("node").arg("--version").output().is_ok_and(|o| o.status.success());
+    if !has_node {
+        if std::env::var_os("CI").is_some() {
+            return Err("`node` was not found; CI must run the wasm check".into());
+        }
+        eprintln!("skipped: `node` was not found. Install Node.js to run this check; CI always runs it.");
+        return Ok(());
+    }
+    let wasm = web()?.to_string_lossy().into_owned();
+    let cli = release_cli()?.to_string_lossy().into_owned();
+    for example in EXAMPLES {
+        run("node", &["web/check.mjs", &wasm, example, "--native", &cli])?;
+    }
     Ok(())
 }
 
@@ -104,7 +131,7 @@ fn web() -> Result<PathBuf> {
 
 fn release_cli() -> Result<PathBuf> {
     run("cargo", &["build", "--release", "--bin", "rwgpu"])?;
-    Ok(root().join("target/release/rwgpu"))
+    Ok(root().join("target/release").join(format!("rwgpu{}", std::env::consts::EXE_SUFFIX)))
 }
 
 /// The first milestone, end to end, with JSON assertions at each step.
@@ -236,6 +263,15 @@ impl Budgets {
     fn limit(&self, section: &str, key: &str) -> i64 {
         self.0.table(section).and_then(|t| t.int(key)).unwrap_or(0)
     }
+
+    /// A `[time]` limit. The limits are written for the reference machine
+    /// (see budgets.toml); `RWGPU_TIME_BUDGET_SCALE=4` multiplies them for
+    /// slower machines such as CI runners, so a regression of many times
+    /// still fails there.
+    fn time(&self, key: &str) -> i64 {
+        let scale = std::env::var("RWGPU_TIME_BUDGET_SCALE").ok().and_then(|v| v.parse::<i64>().ok()).unwrap_or(1);
+        self.limit("time", key) * scale.max(1)
+    }
 }
 
 struct Report {
@@ -298,11 +334,11 @@ fn budgets() -> Result {
     let &[render_us, paint_us] = us.as_slice() else {
         return Err(format!("render-bench: expected two numbers, got `{}`", text.trim()));
     };
-    r.add("time.render_frame_us", render_us, b.limit("time", "render_frame_us"));
-    r.add("time.paint_frame_us", paint_us, b.limit("time", "paint_frame_us"));
+    r.add("time.render_frame_us", render_us, b.time("render_frame_us"));
+    r.add("time.paint_frame_us", paint_us, b.time("paint_frame_us"));
 
     let smoke_ms = smoke()?;
-    r.add("time.smoke_chain_ms", smoke_ms as i64, b.limit("time", "smoke_chain_ms"));
+    r.add("time.smoke_chain_ms", smoke_ms as i64, b.time("smoke_chain_ms"));
 
     step("incremental rebuild");
     run("cargo", &["build", "--bin", "rwgpu"])?;
@@ -320,7 +356,7 @@ fn budgets() -> Result {
     if !status.success() {
         return Err("rebuild failed".into());
     }
-    r.add("time.incremental_rebuild_ms", start.elapsed().as_millis() as i64, b.limit("time", "incremental_rebuild_ms"));
+    r.add("time.incremental_rebuild_ms", start.elapsed().as_millis() as i64, b.time("incremental_rebuild_ms"));
 
     r.add("tablet.startup_ms", 0, b.limit("tablet", "startup_ms"));
     r.print_and_check()

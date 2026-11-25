@@ -1,6 +1,7 @@
 # CI runs exactly what developers run locally: `cargo xtask ci`.
 # That covers fmt, clippy (native + wasm), tests, generated-docs drift,
-# example playtests, and the hard budgets in budgets.toml.
+# example playtests, the hard budgets in budgets.toml, and the check that the
+# wasm module gives the native command's state hashes and pixels.
 name: ci
 
 on:
@@ -8,13 +9,23 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # The [time] budgets are written for the reference machine; runners are slower.
+      RWGPU_TIME_BUDGET_SCALE: "4"
     steps:
       - uses: actions/checkout@v4
       # rust-toolchain.toml pins the version, components and the wasm target;
@@ -22,5 +33,8 @@ jobs:
       - name: Install toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@v2
+      # Node is on every GitHub runner; the wasm check needs it.
+      - name: Node version
+        run: node --version
       - name: cargo xtask ci
         run: cargo xtask ci

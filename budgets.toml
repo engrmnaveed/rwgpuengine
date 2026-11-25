@@ -24,6 +24,9 @@ runtime_crates = 20
 # Proc-macro crates anywhere in the runtime tree. Zero is the policy (ADR 0004).
 proc_macro_crates = 0
 
+# The [time] limits are for the reference machine (an Apple M5 Pro). On
+# slower machines set RWGPU_TIME_BUDGET_SCALE (CI uses 4): the limits are
+# multiplied, so a large regression still fails there.
 [time]
 # new -> check -> run 300 -> shot -> inspect -> test with the release binary.
 smoke_chain_ms = 4_000

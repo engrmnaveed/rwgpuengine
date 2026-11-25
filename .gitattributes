@@ -1,0 +1,6 @@
+# One line ending everywhere: files are read as bytes, and spans, columns and
+# bundles must be the same on every system.
+* text=auto eol=lf
+*.png binary
+*.pdf binary
+*.wasm binary
