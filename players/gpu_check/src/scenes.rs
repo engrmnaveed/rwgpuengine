@@ -7,12 +7,10 @@
 //! - 200 random scenes, each under a random camera, the same on every run:
 //!   they look for what the hand-made scenes miss.
 //!
-//! Two things are kept out of these scenes on purpose, because there the
-//! reference's own picture is decided by rounding (ADR 0021, "what the
-//! reference leaves to rounding"): a tile larger than one cell under a
-//! turned camera, and a sprite that reaches below its anchor onto a floor at
-//! exactly its height. Sprites seen at another size than their own stand two
-//! pixels above their anchor for the same reason, as the example games' do.
+//! One thing is kept out of these scenes on purpose, because there the
+//! reference's own picture is decided by rounding (ADR 0021, "what stays
+//! undefined"): two faces that are not level, in one plane and over each
+//! other, as when two boxes stand in one cell and their sides coincide.
 
 use std::path::Path;
 
@@ -66,6 +64,9 @@ const CAMERAS: [Cam; 9] = [
 /// Instances: boxes and flat rectangles under the light, level faces in one
 /// plane by rank (a tile on the ground and on a box, a block of height 0 on
 /// a tile), a tile under the foot of a box, boxes on boxes, a box in the air.
+/// Some flat things are larger or smaller than what they lie on (a terrace
+/// of four cells, a skylight on one cell of a roof, a raft over the water),
+/// and of two tiles in one plane the first one stays.
 const SOLIDS: &str = r##"
 [ground]
 map = ["ggggwwgg", "ggggwwgg", "ggppppgg", "ggpggpgg", "ggpggpgg", "ggppppgg", "gggggggg", "gggggggg"]
@@ -156,9 +157,31 @@ block = { height = 0.25, color = "#707070" }
 [[entity]]
 cells = [[7, 3], [7, 4], [7, 5]]
 block = { height = 0.8, color = "#3f6f3f" }
+
+[[entity]]
+name = "terrace"
+pos = [4, 4]
+footprint = [2, 2]
+tile = { color = "#c96f4a" }
+
+[[entity]]
+name = "inlay"
+pos = [5, 5]
+tile = { color = "#ffffff" }
+
+[[entity]]
+name = "skylight"
+pos = [1, 0, 1.5]
+tile = { color = "#9fd8ff" }
+
+[[entity]]
+name = "raft"
+pos = [4, 0]
+footprint = [2, 2]
+block = { height = 0, color = "#8a6a3a" }
 "##;
 
-/// Cards: every sprite shape and text, upright above their anchor. A tall
+/// Cards: every sprite shape and text, standing on their anchor. A tall
 /// sprite in front of a wall, a sprite behind a box, a card on top of its
 /// entity's block, a label in front of its own sprite, a sprite wider than
 /// its cell. Sprites grow with the camera; text keeps its size.
@@ -175,7 +198,7 @@ block = { height = 2.5, color = "#606878" }
 [[entity]]
 name = "tall"
 pos = [2, 1]
-sprite = { shape = "rect", color = "#ff8800", size = [14, 70], offset = [0, -2] }
+sprite = { shape = "rect", color = "#ff8800", size = [14, 70] }
 
 [[entity]]
 name = "ball"
@@ -185,26 +208,26 @@ sprite = { shape = "circle", color = "#ff3030", size = [30, 22], offset = [0, -3
 [[entity]]
 name = "gem"
 pos = [3, 2]
-sprite = { shape = "diamond", color = "#4fc3f7", size = [21, 27], offset = [0, -2] }
+sprite = { shape = "diamond", color = "#4fc3f7", size = [21, 27] }
 
 [[entity]]
 name = "hero"
 pos = [2, 4]
-sprite = { shape = "rect", color = "#2060c0", size = [18, 30], offset = [0, -2] }
+sprite = { shape = "rect", color = "#2060c0", size = [18, 30] }
 label = { text = "Hero", color = "#ffffff", offset = [0, -12] }
 
 [[entity]]
 name = "pillar"
 pos = [4, 3]
 block = { height = 1.5, color = "#907040" }
-sprite = { shape = "circle", color = "#ffe060", size = [20, 20], offset = [0, -2] }
+sprite = { shape = "circle", color = "#ffe060", size = [20, 20] }
 label = { text = "Top {n}", scale = 2 }
 props = { n = 3 }
 
 [[entity]]
 name = "hidden"
 pos = [4, 2]
-sprite = { shape = "rect", color = "#ff00ff", size = [16, 24], offset = [0, -2] }
+sprite = { shape = "rect", color = "#ff00ff", size = [16, 24] }
 
 [[entity]]
 name = "sign"
@@ -214,7 +237,7 @@ label = { text = "Sign\nq~j|", color = "#202020", scale = 3 }
 [[entity]]
 name = "wide"
 pos = [5, 5]
-sprite = { shape = "rect", color = "#30a060", size = [60, 16], offset = [0, -2] }
+sprite = { shape = "rect", color = "#30a060", size = [60, 16], offset = [0, 3] }
 
 [[entity]]
 name = "post"
@@ -265,9 +288,9 @@ pos = [2, 3]
 block = { height = 1, color = "#508050" }
 "##;
 
-/// Cards that reach below their anchor onto the floor they stand on. In the
-/// scene's starting view the reference decides this exactly (the floor
-/// stays; a label, one step nearer, shows), so that is the one camera here.
+/// Cards that reach below their anchor onto the floor they stand on: the
+/// ground, a tile, a tile of four cells, the top of their own box. The floor
+/// does not cut them; a box in front does.
 const CARDS_ON_A_FLOOR: &str = r##"
 [ground]
 size = [5, 5]
@@ -299,6 +322,27 @@ name = "plate"
 pos = [2, 2]
 tile = { color = "#d9c27a" }
 sprite = { shape = "rect", color = "#208020", size = [20, 20], offset = [0, 8] }
+
+[[entity]]
+name = "early"
+pos = [0, 3]
+sprite = { shape = "circle", color = "#ff8800", size = [24, 24], offset = [0, 12] }
+
+[[entity]]
+name = "lawn"
+pos = [0, 3]
+footprint = [2, 2]
+tile = { color = "#5fae5f" }
+
+[[entity]]
+name = "front"
+pos = [2, 4]
+block = { height = 1.5, color = "#4060a0" }
+
+[[entity]]
+name = "shadow"
+pos = [3, 2]
+sprite = { shape = "rect", color = "#00000060", size = [40, 30], offset = [0, 22] }
 "##;
 
 /// See-through things: tiles, boxes, sprites and text, over solid things and
@@ -317,12 +361,12 @@ block = { color = "#101010", top = "#202020", height = 2 }
 [[entity]]
 name = "pane"
 pos = [1, 1]
-sprite = { shape = "rect", color = "#ffffff80", size = [40, 80], offset = [0, -2] }
+sprite = { shape = "rect", color = "#ffffff80", size = [40, 80] }
 
 [[entity]]
 name = "far"
 pos = [-1, -1]
-sprite = { shape = "rect", color = "#ff0000", size = [20, 120], offset = [0, -2] }
+sprite = { shape = "rect", color = "#ff0000", size = [20, 120] }
 
 [[entity]]
 name = "plate"
@@ -347,17 +391,17 @@ block = { color = "#208040", top = "#ffffff80", height = 1 }
 [[entity]]
 name = "smoke1"
 pos = [1, 4]
-sprite = { shape = "circle", color = "#ff000099", size = [50, 40], offset = [0, -2] }
+sprite = { shape = "circle", color = "#ff000099", size = [50, 40] }
 
 [[entity]]
 name = "smoke2"
 pos = [2, 5]
-sprite = { shape = "circle", color = "#0000ff99", size = [50, 40], offset = [0, -2] }
+sprite = { shape = "circle", color = "#0000ff99", size = [50, 40], offset = [0, 6] }
 
 [[entity]]
 name = "smoke3"
 pos = [2, 4]
-sprite = { shape = "diamond", color = "#00ff0066", size = [50, 50], offset = [0, -2] }
+sprite = { shape = "diamond", color = "#00ff0066", size = [50, 50] }
 
 [[entity]]
 name = "note"
@@ -393,7 +437,7 @@ block = { height = 2 }
 [[entity]]
 name = "walker"
 pos = [1, 1]
-sprite = { shape = "rect", color = "#ff0000", size = [16, 24], offset = [0, -2] }
+sprite = { shape = "rect", color = "#ff0000", size = [16, 24] }
 
 [[entity]]
 name = "hud"
@@ -459,7 +503,7 @@ label = { text = "off" }
 [[entity]]
 name = "d"
 pos = [2, 2]
-sprite = { shape = "circle", color = "#ffff00", size = [20, 20], offset = [0, -2] }
+sprite = { shape = "circle", color = "#ffff00", size = [20, 20] }
 
 [[entity]]
 name = "e"
@@ -496,7 +540,7 @@ block = { height = 0.25, color = "#8090a0", top = "#c0b090" }
 [[entity]]
 name = "here"
 pos = [19, 19, 0.25]
-sprite = { color = "#ff0000", size = [8, 8], offset = [0, -2] }
+sprite = { color = "#ff0000", size = [8, 8] }
 
 [[entity]]
 name = "post"
@@ -587,7 +631,7 @@ pub fn all(root: &Path) -> Result<Vec<Scene>, String> {
     rule(&mut out, "solids", SOLIDS, &CAMERAS, false)?;
     rule(&mut out, "cards", CARDS, &CAMERAS, false)?;
     rule(&mut out, "cards below their anchor", CARDS_BELOW, &CAMERAS, false)?;
-    rule(&mut out, "cards on a floor", CARDS_ON_A_FLOOR, &CAMERAS[..1], false)?;
+    rule(&mut out, "cards on a floor", CARDS_ON_A_FLOOR, &CAMERAS, false)?;
     rule(&mut out, "see-through", SEE_THROUGH, &CAMERAS, false)?;
     rule(&mut out, "2D layer", OVERLAY, &[CAMERAS[0], CAMERAS[6]], false)?;
     rule(&mut out, "disabled", DISABLED, &[CAMERAS[0], CAMERAS[2], CAMERAS[5]], true)?;
@@ -601,47 +645,32 @@ pub fn all(root: &Path) -> Result<Vec<Scene>, String> {
     Ok(out)
 }
 
-/// A case outside the gate: its name, the part to count, its scenes.
-pub type Gap = (&'static str, rwgpuengine_render::Part, Vec<Scene>);
-
-/// The cases outside the gate (see the top of this file), each under every
-/// camera: a name, the part to count, the scenes. The thing counted is pure
-/// red and nothing else in the scene is.
-pub fn gaps() -> Result<Vec<Gap>, String> {
-    use rwgpuengine_render::Part;
-    let tile =
-        "[ground]\nsize = [6, 6]\n\n[[entity]]\npos = [1, 1]\nfootprint = [3, 3]\ntile = { color = \"#ff0000\" }\n";
-    let sprites = |sprite: &str| {
-        let mut s = String::from("[ground]\nsize = [6, 6]\n");
-        for y in 0..6 {
-            for x in (y % 2..6).step_by(2) {
-                s.push_str(&format!(
-                    "\n[[entity]]\npos = [{x}, {y}]\nsprite = {{ shape = \"rect\", color = \"#ff0000\", {sprite} }}\n"
-                ));
-            }
-        }
-        s
-    };
+/// The case outside the gate (see the top of this file), under every
+/// camera: two boxes in one cell, the red one listed second or first. Their
+/// sides coincide up to the lower one's height. Only the red box is pure red.
+pub fn gaps() -> Result<Vec<(&'static str, Vec<Scene>)>, String> {
+    let grey = "\n[[entity]]\npos = [2, 2]\nblock = { height = 2, color = \"#808080\", top = \"#a0a0a0\" }\n";
+    let red = "\n[[entity]]\npos = [2, 2]\nblock = { height = 1, color = \"#ff0000\", top = \"#ff0000\" }\n";
     let mut out = Vec::new();
-    for (name, part, scene) in [
-        ("a tile of 3 x 3 cells on the ground", Part::Tile, tile.to_string()),
-        ("sprites wholly below their anchor", Part::Sprite, sprites("size = [16, 10], offset = [0, 10]")),
-        ("sprites standing on their anchor", Part::Sprite, sprites("size = [16, 20]")),
+    for (name, scene) in [
+        ("two boxes in one cell, the lower one second", format!("[ground]\nsize = [5, 5]\n{grey}{red}")),
+        ("two boxes in one cell, the lower one first", format!("[ground]\nsize = [5, 5]\n{red}{grey}")),
     ] {
         let mut scenes = Vec::new();
         rule(&mut scenes, "", &scene, &CAMERAS, false)?;
         for s in &mut scenes {
             s.name = s.name.trim_start_matches(": ").to_string();
         }
-        out.push((name, part, scenes));
+        out.push((name, scenes));
     }
     Ok(out)
 }
 
 /// A random scene under a random camera, the same for the same seed: a
-/// ground, boxes, one-cell tiles, sprites and text (some see-through, some
-/// on boxes, some disabled) and a HUD. It keeps to what the gate's scenes
-/// keep to (the top of this file), and solid things never share a cell.
+/// ground, boxes, flat things of one to nine cells (tiles and blocks of
+/// height 0, over each other, under boxes and on top of them), sprites and
+/// text that stand on, above or below their anchor, some see-through, some
+/// disabled, and a HUD. Boxes never share a cell (the top of this file).
 /// The gate draws the first [`RANDOM_SCENES`];
 /// `cargo xtask gpu --fast -- --random N` draws the first N alone.
 pub fn random(seed: u64) -> Result<Scene, String> {
@@ -656,33 +685,38 @@ pub fn random(seed: u64) -> Result<Scene, String> {
     };
     let shapes = ["rect", "circle", "diamond"];
     let heights = ["0", "0.25", "0.4", "0.5", "0.8", "1", "1.2", "1.5", "2", "2.75"];
-    // Solid things never share a cell: where two of them are in one plane
-    // the reference's picture is decided by rounding.
-    let mut taken = vec![false; (size * size) as usize];
-    let free = |taken: &[bool], x: i32, y: i32| x < size && y < size && !taken[(y * size + x) as usize];
+    // A footprint of up to 3 x 3 cells that stays on the ground.
+    let footprint = |rng: &mut Rng, x: i32, y: i32| {
+        let (w, h) = (rng.range_i32(1, 3).min(size - x), rng.range_i32(1, 3).min(size - y));
+        if w * h == 1 { String::new() } else { format!("footprint = [{w}, {h}]\n") }
+    };
+    let mut boxed = vec![false; (size * size) as usize];
+    let free = |boxed: &[bool], x: i32, y: i32| x < size && y < size && !boxed[(y * size + x) as usize];
     for k in 0..rng.range_i32(6, 14) {
         let (x, y) = (rng.range_i32(0, size - 1), rng.range_i32(0, size - 1));
         let glass = rng.below(4) == 0;
         let enabled = if rng.below(8) == 0 { "enabled = false\n" } else { "" };
-        let kind = rng.below(6);
-        if kind < 3 && !free(&taken, x, y) {
+        let kind = rng.below(7);
+        let height = heights[rng.below(heights.len() as u32) as usize];
+        let flat = kind == 0 || height == "0";
+        if (1..=2).contains(&kind) && !flat && !free(&boxed, x, y) {
             continue;
         }
         scene.push_str(&format!("\n[[entity]]\nname = \"e{k}\"\npos = [{x}, {y}]\n{enabled}"));
         match kind {
             0 => {
-                taken[(y * size + x) as usize] = true;
-                scene.push_str(&format!("tile = {{ color = {} }}\n", color(&mut rng, glass)));
+                let cells = footprint(&mut rng, x, y);
+                scene.push_str(&format!("{cells}tile = {{ color = {} }}\n", color(&mut rng, glass)));
+            }
+            1 | 2 if flat => {
+                let cells = footprint(&mut rng, x, y);
+                scene.push_str(&format!("{cells}block = {{ height = 0, color = {} }}\n", color(&mut rng, glass)));
             }
             1 | 2 => {
-                let height = heights[rng.below(heights.len() as u32) as usize];
-                let wide = height != "0"
-                    && rng.below(4) == 0
-                    && free(&taken, x + 1, y)
-                    && free(&taken, x, y + 1)
-                    && free(&taken, x + 1, y + 1);
+                let wide =
+                    rng.below(4) == 0 && free(&boxed, x + 1, y) && free(&boxed, x, y + 1) && free(&boxed, x + 1, y + 1);
                 for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)].into_iter().take(if wide { 4 } else { 1 }) {
-                    taken[((y + dy) * size + x + dx) as usize] = true;
+                    boxed[((y + dy) * size + x + dx) as usize] = true;
                 }
                 let two = if wide { "footprint = [2, 2]\n" } else { "" };
                 let glass_top = glass && rng.below(2) == 0;
@@ -691,28 +725,37 @@ pub fn random(seed: u64) -> Result<Scene, String> {
                     color(&mut rng, glass),
                     color(&mut rng, glass_top)
                 ));
-                if rng.below(3) == 0 {
-                    scene.push_str(&format!("label = {{ text = \"B{k}\", color = {} }}\n", color(&mut rng, false)));
+                match rng.below(4) {
+                    0 => {
+                        scene.push_str(&format!("label = {{ text = \"B{k}\", color = {} }}\n", color(&mut rng, false)))
+                    }
+                    // Something flat on one cell of its top.
+                    1 => scene.push_str(&format!(
+                        "\n[[entity]]\nname = \"t{k}\"\npos = [{x}, {y}, {height}]\ntile = {{ color = {} }}\n",
+                        color(&mut rng, false)
+                    )),
+                    _ => {}
                 }
             }
-            3 | 4 => {
+            3..=5 => {
                 let (w, h) = (rng.range_i32(8, 44), rng.range_i32(8, 60));
                 scene.push_str(&format!(
                     "sprite = {{ shape = \"{}\", color = {}, size = [{w}, {h}], offset = [{}, {}] }}\n",
                     shapes[rng.below(3) as usize],
                     color(&mut rng, glass),
                     rng.range_i32(-6, 6),
-                    rng.range_i32(-8, -2)
+                    rng.range_i32(-8, 12)
                 ));
                 if rng.below(3) == 0 {
                     scene
-                        .push_str(&format!("label = {{ text = \"s{k}\", offset = [0, {}] }}\n", rng.range_i32(-20, 0)));
+                        .push_str(&format!("label = {{ text = \"s{k}\", offset = [0, {}] }}\n", rng.range_i32(-20, 8)));
                 }
             }
             _ => scene.push_str(&format!(
-                "label = {{ text = \"L{k} q\", scale = {}, color = {} }}\n",
+                "label = {{ text = \"L{k} q\", scale = {}, color = {}, offset = [0, {}] }}\n",
                 rng.range_i32(1, 3),
-                color(&mut rng, glass)
+                color(&mut rng, glass),
+                rng.range_i32(-4, 6)
             )),
         }
     }

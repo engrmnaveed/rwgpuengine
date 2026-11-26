@@ -503,21 +503,15 @@ fn study(gpu: &Gpu, scenes: &[Scene], a: &Args) -> Result<(), String> {
     ];
     let boxes = if gpu.real() { 50_000 } else { 5_000 };
     println!("\noptions on this adapter: pixels apart over {} scenes, and a frame of {boxes} boxes", scenes.len());
-    println!(
-        "{:<44} {:>8} {:>10} {:>8} {:>12} {:>20}",
-        "option", "apart", "not edge", "scenes", "frame ms", "of a 3 x 3 tile"
-    );
+    println!("{:<44} {:>8} {:>10} {:>8} {:>12}", "option", "apart", "not edge", "scenes", "frame ms");
     for (name, options) in variants {
         let rows = check(gpu, options, scenes, a, false)?;
-        // Outside the gate: how much of a tile larger than a cell this option shows, over all cameras.
-        let (shown, covered) = tile_shown(gpu, options)?;
         let frame = if a.timing { format!("{:.3}", town_times(gpu, options, boxes, false)?.0) } else { "-".into() };
         println!(
-            "{name:<44} {:>8} {:>10} {:>8} {frame:>12} {:>20}",
+            "{name:<44} {:>8} {:>10} {:>8} {frame:>12}",
             rows.iter().map(|r| r.differing).sum::<usize>(),
             rows.iter().map(|r| r.inside).sum::<usize>(),
             rows.iter().filter(|r| r.differing > 0).count(),
-            format!("{shown} / {covered}"),
         );
         for r in rows.iter().filter(|r| r.differing > 0) {
             println!("    {:<44} {:>6} {:>10}", r.name, r.differing, r.inside);
@@ -533,38 +527,26 @@ fn study(gpu: &Gpu, scenes: &[Scene], a: &Args) -> Result<(), String> {
     Ok(())
 }
 
-/// Three cases the gate leaves out, because there the reference's own
-/// picture is decided by rounding (ADR 0021). For each camera: how much of
-/// the thing the reference shows, how much the GPU shows, and how far apart
-/// the two pictures are.
+/// The case the gate leaves out, because there the reference's own picture
+/// is decided by rounding (ADR 0021): two boxes in one cell, whose sides
+/// coincide. For each camera: the red box's pixels in each picture, and how
+/// far apart the two pictures are.
 fn gaps(gpu: &Gpu, a: &Args) -> Result<(), String> {
-    use rwgpuengine_render::reference::coverage;
-    println!(
-        "\noutside the gate: what the reference leaves to rounding (pixels of the thing shown, of those it covers)"
-    );
-    println!("{:<64} {:>16} {:>16} {:>8} {:>10}", "case", "reference", "gpu", "apart", "not edge");
+    println!("\noutside the gate: two faces that are not level, in one plane (red pixels in each picture)");
+    println!("{:<78} {:>10} {:>10} {:>8} {:>10}", "case", "reference", "gpu", "apart", "not edge");
     let mut renderer = Renderer::new(&gpu.device, Options::default());
-    for (name, part, scenes) in scenes::gaps()? {
+    let red = |rgba: &[u8]| rgba.as_chunks::<4>().0.iter().filter(|p| p[0] > 100 && p[1] == 0 && p[2] == 0).count();
+    for (name, scenes) in scenes::gaps()? {
         for scene in scenes {
             let seen = project(&scene.list);
             let frame = render(&seen);
             let got = gpu_frame(gpu, &mut renderer, &scene.list)?;
             let outcome = compare(&seen, &frame, &got);
-            // The thing's pixels, and those of them each picture gives to it:
-            // every item of that part has one color no other thing has.
-            let cov = coverage(&seen, &frame);
-            let (mut covered, mut shown) = (0u32, 0u32);
-            for (k, _) in seen.items.iter().enumerate().filter(|(_, i)| i.part == part && i.entity.is_some()) {
-                covered += cov.items[k].drawn;
-                shown += cov.items[k].visible;
-            }
-            let red = |rgba: &[u8]| rgba.as_chunks::<4>().0.iter().filter(|p| **p == [255, 0, 0, 255]).count();
-            debug_assert_eq!(red(&frame.rgba) as u32, shown);
             println!(
-                "{:<64} {:>16} {:>16} {:>8} {:>10}",
+                "{:<78} {:>10} {:>10} {:>8} {:>10}",
                 format!("{name}, {}", scene.name),
-                format!("{shown} of {covered}"),
-                format!("{} of {covered}", red(&got)),
+                red(&frame.rgba),
+                red(&got),
                 outcome.differing,
                 outcome.inside
             );
@@ -574,23 +556,4 @@ fn gaps(gpu: &Gpu, a: &Args) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-/// Over all cameras: the pixels of a 3 × 3 tile on the ground that the GPU
-/// shows, and the pixels the tile covers.
-fn tile_shown(gpu: &Gpu, options: Options) -> Result<(usize, usize), String> {
-    use rwgpuengine_render::reference::coverage;
-    let mut renderer = Renderer::new(&gpu.device, options);
-    let (mut shown, mut covered) = (0, 0);
-    for (_, part, scenes) in scenes::gaps()?.into_iter().take(1) {
-        for scene in scenes {
-            let seen = project(&scene.list);
-            let cov = coverage(&seen, &render(&seen));
-            let tile = seen.items.iter().enumerate().filter(|(_, i)| i.part == part && i.entity.is_some());
-            covered += tile.map(|(k, _)| cov.items[k].drawn as usize).sum::<usize>();
-            let got = gpu_frame(gpu, &mut renderer, &scene.list)?;
-            shown += got.as_chunks::<4>().0.iter().filter(|p| **p == [255, 0, 0, 255]).count();
-        }
-    }
-    Ok((shown, covered))
 }
