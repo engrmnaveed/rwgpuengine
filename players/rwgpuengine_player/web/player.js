@@ -237,7 +237,11 @@ page.picture = async () => {
   let bytes;
   if (page.path === 'webgpu') {
     if (!rw.copy_frame()) throw new Error('nothing was drawn');
-    while (!(bytes = rw.copied())) await new Promise((r) => setTimeout(r, 0));
+    try {
+      while (!(bytes = rw.copied())) await new Promise((r) => setTimeout(r, 0));
+    } catch (e) {
+      throw new Error(`the frame did not come back from the GPU: ${e && e.message || e}; ${rw.stats()}`);
+    }
   } else {
     bytes = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
   }

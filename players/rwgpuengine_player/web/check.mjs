@@ -71,13 +71,19 @@ async function launch(program, flags) {
   r.on('error', () => {});
   const waiting = new Map();
   const events = [];
+  const notes = [];
   let id = 0, buf = '';
   r.on('data', (d) => {
     buf += d;
     for (let i; (i = buf.indexOf('\0')) >= 0; buf = buf.slice(i + 1)) {
       const m = JSON.parse(buf.slice(0, i));
       if (m.method === 'Runtime.exceptionThrown') events.push(m.params.exceptionDetails.exception?.description || 'an exception');
-      if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') events.push(m.params.args.map((a) => a.value ?? a.description).join(' '));
+      if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') {
+        events.push(m.params.args.map((a) => a.value ?? a.description).join(' '));
+      }
+      // What the browser itself says (WebGPU's validation messages, for one): reported, not judged.
+      if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'warning') notes.push(m.params.args.map((a) => a.value ?? a.description).join(' '));
+      if (m.method === 'Log.entryAdded' && ['error', 'warning'].includes(m.params.entry.level)) notes.push(`${m.params.entry.source}: ${m.params.entry.text}`);
       const p = waiting.get(m.id);
       if (p) { waiting.delete(m.id); m.error ? p[1](new Error(`${m.error.message}`)) : p[0](m.result); }
     }
@@ -91,11 +97,13 @@ async function launch(program, flags) {
   return {
     product,
     events,
+    notes,
     stderr: () => stderr,
     async open(url) {
       const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
       const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
       await send('Runtime.enable', {}, sessionId);
+      await send('Log.enable', {}, sessionId);
       await send('Page.navigate', { url }, sessionId);
       const evaluate = async (expression, seconds = 120) => {
         let timer;
@@ -104,7 +112,8 @@ async function launch(program, flags) {
         });
         try {
           const res = await Promise.race([timeout, send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sessionId)]);
-          if (res.exceptionDetails) throw new Error(res.exceptionDetails.exception?.description || res.exceptionDetails.text);
+          const ex = res.exceptionDetails;
+          if (ex) throw new Error(`${ex.exception?.description || ex.exception?.value || ex.text}\n  the page also said: ${[...events, ...notes].join(' | ')}`);
           return res.result.value;
         } finally {
           clearTimeout(timer);
@@ -215,6 +224,7 @@ async function main() {
     }
   } finally {
     result.errors = b.events;
+    result.notes = b.notes.slice(0, 50);
     await b.close();
   }
   writeFileSync(join(out, 'frames.txt'), frames.join('\n') + '\n');
