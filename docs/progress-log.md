@@ -7,6 +7,59 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-26 — wgpu runs on all three GitHub runners; the GPU picture can match the reference to a few edge pixels
+
+- Step 3, piece 1: a measurement before the GPU check is designed. A new workflow, `gpu-probe.yml`, runs the
+  study spikes `gpu_native` and `cpu_ref` on GitHub's hosted runners (runs 45756166643 and 45757026172; tables
+  and how to run it in [the spikes README](proposals/3d-architecture/spikes/README.md#on-githubs-runners)).
+- **Every runner draws the town, at the first try.** Each offers one adapter, and wgpu picks it by itself:
+
+  | runner | adapter | device type | install | ms per frame, 5,000 / 50,000 / 500,000 boxes |
+  |---|---|---|---|---|
+  | `ubuntu-latest` | Mesa lavapipe (Vulkan), Mesa 26.0.8 | `Cpu` | `mesa-vulkan-drivers`, 19 MB, 6 to 23 s | 7.5–9.1 / 49–69 / 364–479 |
+  | `ubuntu-latest` | Mesa llvmpipe (GL 4.5) | `Cpu` | `libegl1 libegl-mesa0`, 164 kB, 4 to 6 s | 9.0 / 49–55 / 440–481 |
+  | `windows-latest` | WARP, "Microsoft Basic Render Driver" (DX12) | `Cpu` | nothing; no `force_fallback_adapter` | 5.6–8.4 / 41–63 / 265–452 |
+  | `macos-latest` | Apple Paravirtual device (Metal) | `IntegratedGpu` | nothing | 0.75–1.1 / 2.7–2.9 / 9.3–9.7 |
+
+  On the software adapters the CPU reference is about as fast as the "GPU" at 5,000 boxes and faster above.
+- **The macOS runner's GPU pictures are byte-identical to the M5 Pro's**, so they differ from the reference in
+  the study's 1, 8 and 18 pixels.
+- **Lavapipe, llvmpipe and WARP differed in about 36,000 pixels (3.9 %), nearly all by one level.** Looked at:
+  all of those pixels are on the three face colors where color × 0.35 × 255 is an exact .5 tie (the
+  ambient-lit sides). They come in irregular patches over about 70 % of each such face, always one level down.
+  The software rasterizers interpolate the constant color with a tiny error. Two shader variants settled it.
+  Not interpolating the color (`flat`) made it worse: whole tie faces one level down, 50,966 pixels, the same
+  picture on all three software adapters. Also rounding to a whole level in the shader (`flat-rounded`) removed
+  every one-level difference: **3 pixels at 5,000 boxes and 10 to 13 at 50,000 on all three**, against Metal's 1
+  and 8. What remains, on every adapter, is coverage. Each is a lone pixel where two faces meet, painted in the
+  other face's color, 16 to 180 levels off, and always on an edge of the reference. No pixel differed by 2 to 15
+  levels anywhere.
+- **No GPU picture can be a reference image across systems.** Apart from the macOS runner against the M5 Pro,
+  every pair of GPU pictures differs: by 16,000 to 25,000 pixels with the study's shader, by 1 to 9 edge
+  pixels with `flat-rounded`. The CPU reference gave the same three hashes on all four runners and the M5 Pro.
+- **Recommendation for the step-3 check.**
+  - Backends: Vulkan on lavapipe on Linux, because it is wgpu's first choice there and the path players with
+    Vulkan drivers take. It is as fast as GL and gives the same `flat-rounded` picture at 5,000 boxes. GL on
+    llvmpipe works too and installs less. DX12 on WARP on Windows and Metal on macOS need nothing installed.
+  - The renderer writes whole 8-bit levels, rounded as the reference rounds them, with the color not
+    interpolated (`flat-rounded`, measured). Safer, not measured: give the GPU each face's 8-bit color as
+    computed by the reference's own function, so the GPU does no color arithmetic at all.
+  - The limit: no per-channel tolerance, no differing pixel inside a face (the reference knows each pixel's
+    owner, so "on an edge" can be checked), and a small count of edge pixels. The worst measured was 28 of
+    921,600 at 500,000 boxes (that one with the study's shader: the variants ran up to 50,000). A limit of
+    0.01 % (92 pixels) of a 1280 × 720 frame would leave three times that margin. The real check's scenes will
+    have far fewer edges, so set the count on them. If the study's smooth shader were kept instead, the
+    check would need both a 1-level tolerance over about 4 % of the pixels and a count.
+  - Cost: building wgpu and its dependencies took 42 to 57 s cold on Linux and macOS and 121 s on Windows, and
+    1 to 10 s with a warm cache. Linux adds 6 to 23 s of apt. Drawing a picture once takes under a second on
+    every adapter, even at 500,000 boxes, once the device is ready (0.1 to 0.5 s). Inside the existing `ci`
+    job that comes to an estimated 2 minutes more on Windows with a cold cache, and under 30 s with a warm one. A separate job, like the probe,
+    took 35 to 91 s with a warm cache and 90 to 192 s cold.
+- Not done or not tried: the variants at 500,000 boxes; the "8-bit color from the CPU" variant; Vulkan or GL on
+  Windows (the runner lists neither) and MoltenVK on macOS; arm64 Linux and Windows runners; llvmpipe without
+  installing `libegl1`; timing variance beyond two runs. The probe stays as a workflow that runs only when the
+  spikes change. The engine has no GPU code yet.
+
 ## 2026-11-26 — The 3D core: Tiny Town plays in 3D from its unchanged files
 
 - The owner said to start step 2 of the 3D order. Built, on the branch `3d-core`
