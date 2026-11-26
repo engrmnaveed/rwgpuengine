@@ -15,6 +15,7 @@ Every command accepts `--json` and then prints exactly one JSON object on stdout
 | [`rwgpu schema [KIND] [FLAGS]`](#rwgpu-schema) | Print the JSON Schema of a file format |
 | [`rwgpu docs [FLAGS]`](#rwgpu-docs) | Print the reference docs for this exact rwgpu version |
 | [`rwgpu serve [PATH] [FLAGS]`](#rwgpu-serve) | Serve the web player for a project (reloads when files change) |
+| [`rwgpu play [PATH] [FLAGS]`](#rwgpu-play) | Play a project in a window, drawn with the GPU (needs the native player) |
 | [`rwgpu help [COMMAND] [FLAGS]`](#rwgpu-help) | Show help for rwgpu or a command |
 | [`rwgpu version [FLAGS]`](#rwgpu-version) | Print the rwgpu version |
 
@@ -248,6 +249,38 @@ Opens nothing by itself; visit the printed URL. URL parameters: scene=PATH, inpu
 Examples:
   rwgpu serve examples/iso_garden
   rwgpu serve --port 8080
+```
+
+## rwgpu play
+
+```text
+rwgpu play — Play a project in a window, drawn with the GPU (needs the native player)
+
+Usage: rwgpu play [PATH] [FLAGS]
+
+Arguments:
+  [PATH]       Project folder, scene file or playtest file (default: current folder). The project is found by walking up to rwgpu.toml.
+
+Flags:
+  --input FILE       Drive the scene with a playtest's [[input]] (and use its scene and seed).
+  --seed N           Override the random seed.
+  --frames N         Close after N frames and print the result. Default: the playtest's frames with --input, else play until the window is closed.
+  --headless         No window: take the steps as fast as they go and draw each changed frame off screen. Needs --frames or --input.
+  --screenshot FILE  At the end, save what the window shows as a PNG (with --headless, the frame itself).
+  --json             Print one JSON object on stdout instead of text.
+
+Starts the native player, `rwgpu-player`, which `rwgpu` looks for next to itself and then on PATH: rwgpu itself never needs a GPU. The player steps the simulation at the project's tick rate whatever the display does, draws with the GPU only when the picture changed, and scales the frame to the window with bars around it. When the window closes it prints the frame and the state hash: with --input they match `rwgpu run` for the same file.
+
+Keys and taps, as in the web player: arrows or W A S D move, Enter or Space confirm, Escape cancel. A click is a tap; a drag of 12 frame pixels or more is a swipe along the iso axes (up-right is up).
+
+Camera: Q and E turn a quarter turn; right-drag turns freely; middle-drag or Shift + right-drag pans; the wheel, a pinch, - and = zoom; V switches between iso and perspective; Home goes back to the scene's camera.
+
+E0006 when the player is not installed: build it from a clone of the repository with `cargo install --locked --path players/rwgpuengine_player`.
+
+Examples:
+  rwgpu play examples/tiny_town
+  rwgpu play examples/tiny_town --input tests/turn_and_build.toml --screenshot out/turned.png
+  rwgpu play tests/build_town.toml --headless --json
 ```
 
 ## rwgpu help

@@ -8,8 +8,10 @@
 //! cargo xtask docs      regenerate docs/reference (`--check` to verify only)
 //! cargo xtask wasm-check  the wasm module against the native command (needs Node)
 //! cargo xtask gpu       the players' half: the wgpu renderer against the CPU
-//!                       reference, and the players' budgets (needs a GPU or a
-//!                       software adapter; not part of `ci`)
+//!                       reference, the native player against `rwgpu test`,
+//!                       and the players' budgets (needs a GPU or a software
+//!                       adapter; not part of `ci`). `--window` also plays in
+//!                       a real window.
 //! ```
 //!
 //! `render-bench` is internal: `budgets` runs it as a release build.
@@ -45,8 +47,8 @@ fn main() -> ExitCode {
         "gpu" => gpu(rest),
         _ => {
             eprintln!(
-                "usage: cargo xtask <ci | web | smoke | budgets | docs [--check] | wasm-check | gpu [--fast | --study] \
-                 [-- <options of players/gpu_check>]>"
+                "usage: cargo xtask <ci | web | smoke | budgets | docs [--check] | wasm-check | gpu [--fast | --study | \
+                 --window] [-- <options of players/gpu_check>]>"
             );
             return ExitCode::from(2);
         }
@@ -473,13 +475,20 @@ fn deps(dir: &Path, which: &[&str]) -> Result<(Vec<String>, Vec<String>)> {
     if !ok {
         return Err("cargo tree failed".into());
     }
-    let mut names: Vec<String> = tree
+    // `name vX.Y.Z ...`: a crate is counted once whatever its versions; a
+    // proc macro once per version that is in this tree, since each version is
+    // a compiler plugin of its own (and another system's version is not).
+    let mut found: Vec<(String, String)> = tree
         .lines()
-        .filter_map(|l| l.split_whitespace().next())
-        .filter(|n| !n.starts_with("rwgpuengine_") && *n != "gpu_check")
-        .map(str::to_string)
+        .filter_map(|l| {
+            let mut words = l.split_whitespace();
+            Some((words.next()?.to_string(), words.next()?.trim_start_matches('v').to_string()))
+        })
+        .filter(|(n, _)| !n.starts_with("rwgpuengine_") && n != "gpu_check")
         .collect();
-    names.sort();
+    found.sort();
+    found.dedup();
+    let mut names: Vec<String> = found.iter().map(|(n, _)| n.clone()).collect();
     names.dedup();
 
     let (ok, meta) = capture("cargo", &["metadata", "--format-version", "1"], dir)?;
@@ -490,13 +499,15 @@ fn deps(dir: &Path, which: &[&str]) -> Result<(Vec<String>, Vec<String>)> {
     let mut proc_macros = Vec::new();
     for pkg in meta.get("packages").and_then(Json::as_array).unwrap_or(&[]) {
         let name = pkg.get("name").and_then(Json::as_str).unwrap_or("");
+        let version = pkg.get("version").and_then(Json::as_str).unwrap_or("");
         let is_pm = pkg.get("targets").and_then(Json::as_array).unwrap_or(&[]).iter().any(|t| {
             t.get("kind").and_then(Json::as_array).unwrap_or(&[]).iter().any(|k| k.as_str() == Some("proc-macro"))
         });
-        if is_pm && names.iter().any(|n| n == name) {
-            proc_macros.push(name.to_string());
+        if is_pm && found.iter().any(|(n, v)| n == name && v == version) {
+            proc_macros.push(format!("{name} {version}"));
         }
     }
+    proc_macros.sort();
     Ok((names, proc_macros))
 }
 
@@ -508,14 +519,19 @@ fn deps(dir: &Path, which: &[&str]) -> Result<(Vec<String>, Vec<String>)> {
 ///
 /// - `--fast`: only the picture check, built incrementally. For the edit loop.
 /// - `--study`: the options ADR 0021 chose between, measured on this adapter.
+/// - `--window`: also replay a playtest in a real window (a desktop, or a
+///   virtual display such as `xvfb-run`), and compare what the window showed.
 /// - anything after `--` goes to the check itself (`players/gpu_check`).
 fn gpu(args: &[String]) -> Result {
     let split = args.iter().position(|a| a == "--").unwrap_or(args.len());
     let (flags, pass) = (&args[..split], &args[(split + 1).min(args.len())..]);
     let pass: Vec<&str> = pass.iter().map(String::as_str).collect();
-    if let Some(bad) = flags.iter().find(|a| !["--fast", "--study"].contains(&a.as_str())) {
-        return Err(format!("unknown option `{bad}`: gpu takes --fast, --study, and `-- <options of the check>`"));
+    if let Some(bad) = flags.iter().find(|a| !["--fast", "--study", "--window"].contains(&a.as_str())) {
+        return Err(format!(
+            "unknown option `{bad}`: gpu takes --fast, --study, --window, and `-- <options of the check>`"
+        ));
     }
+    let window = flags.iter().any(|a| a == "--window");
     let players = root().join("players");
     let b = Budgets::load()?;
     let pixels = b.limit("players", "pixels_apart").to_string();
@@ -546,7 +562,11 @@ fn gpu(args: &[String]) -> Result {
     eprintln!("ok: no GPU or window crate in Cargo.lock");
 
     step("players: format");
-    run_in(&players, "cargo", &["fmt", "--check", "-p", "rwgpuengine_gpu", "-p", "gpu_check"])?;
+    run_in(
+        &players,
+        "cargo",
+        &["fmt", "--check", "-p", "rwgpuengine_gpu", "-p", "rwgpuengine_player", "-p", "gpu_check"],
+    )?;
     step("players: clippy (native)");
     run_in(&players, "cargo", &["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])?;
     step("players: clippy (wasm): the renderer must build for the browser");
@@ -576,12 +596,12 @@ fn gpu(args: &[String]) -> Result {
     r.add("players.crates", crates as i64, b.limit("players", "crates"));
     r.add("players.proc_macro_crates", macros as i64, b.limit("players", "proc_macro_crates"));
 
-    step("players: clean release build");
-    // Emptied first, so nothing is reused; the check then runs from there,
-    // so nothing is built twice.
+    step("players: clean release build (the check and the player)");
+    // Emptied first, so nothing is reused; the check and the player then run
+    // from there, so nothing is built twice.
     let _ = std::fs::remove_dir_all(&built);
     let start = Instant::now();
-    run_in(&players, "cargo", &["build", "--release", "-p", "gpu_check", "--target-dir", &built_s])?;
+    run_in(&players, "cargo", &["build", "--release", "--workspace", "--target-dir", &built_s])?;
     r.add(
         "players.clean_release_build_ms",
         start.elapsed().as_millis() as i64,
@@ -606,9 +626,170 @@ fn gpu(args: &[String]) -> Result {
         let limit = if measured("real_gpu") == Some(1) { b.scaled("players", "gpu_frame_us") } else { 0 };
         r.add("players.gpu_frame_us", us, limit);
     }
+    let programs = player_programs(&built, b.limit("players", "pixels_apart"), window);
     let budgets = r.print_and_check();
     checked?;
+    programs?;
     budgets?;
     eprintln!("\ngpu: all green");
     Ok(())
+}
+
+/// The `rwgpu-player` program, run as a person or an agent runs it.
+///
+/// - Every example playtest, replayed with no window, ends in the state hash
+///   `rwgpu test` reports for it.
+/// - `rwgpu play` finds the program on PATH and passes its arguments on.
+/// - With `window`, a playtest replayed in a real window reaches its hash
+///   too, and the picture read back from the window is the reference's
+///   picture, scaled.
+fn player_programs(built: &Path, pixels_apart: i64, window: bool) -> Result {
+    step("players: the rwgpu-player program against `rwgpu test`");
+    let bin = built.join("release");
+    let player = bin.join(format!("rwgpu-player{}", std::env::consts::EXE_SUFFIX)).to_string_lossy().into_owned();
+    run("cargo", &["build", "--quiet", "--bin", "rwgpu"])?;
+    let rwgpu = root().join("target/debug").join(format!("rwgpu{}", std::env::consts::EXE_SUFFIX));
+    let rwgpu = rwgpu.to_string_lossy().into_owned();
+    let json = |program: &str, args: &[&str], path: Option<&Path>| -> Result<Json> {
+        let mut cmd = Command::new(program);
+        cmd.args(args).current_dir(root());
+        if let Some(dir) = path {
+            let mut dirs = vec![dir.to_path_buf()];
+            dirs.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+            cmd.env("PATH", std::env::join_paths(dirs).map_err(|e| e.to_string())?);
+        }
+        let out = finish_within(cmd, 180)?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let j = Json::parse(&text).map_err(|e| {
+            format!("{program} {}: bad JSON ({e}): {text}{}", args.join(" "), String::from_utf8_lossy(&out.stderr))
+        })?;
+        if j.get("ok").and_then(Json::as_bool) != Some(true) {
+            return Err(format!("{program} {} failed: {}", args.join(" "), j.to_pretty()));
+        }
+        Ok(j)
+    };
+    let field = |j: &Json, k: &str| j.get(k).map(|v| v.as_str().map_or_else(|| v.to_compact(), str::to_string));
+    let mut expected = Vec::new();
+    for example in EXAMPLES {
+        let tests = json(&rwgpu, &["test", example, "--json"], None)?;
+        for t in tests.get("tests").and_then(Json::as_array).unwrap_or(&[]) {
+            let (path, hash) = (field(t, "path").unwrap_or_default(), field(t, "state_hash").unwrap_or_default());
+            let got = json(&player, &[example, "--input", &path, "--headless", "--json"], None)?;
+            let ok = field(&got, "state_hash").as_deref() == Some(hash.as_str())
+                && field(&got, "frame") == field(t, "frames");
+            eprintln!(
+                "{} {example}/{path}: rwgpu test {hash}, rwgpu-player {} at frame {} ({} frames drawn)",
+                if ok { "ok  " } else { "FAIL" },
+                field(&got, "state_hash").unwrap_or_default(),
+                field(&got, "frame").unwrap_or_default(),
+                field(&got, "frames_drawn").unwrap_or_default(),
+            );
+            if !ok {
+                return Err(format!("rwgpu-player does not reach `rwgpu test`'s state for {example}/{path}"));
+            }
+            expected.push((example, path, hash));
+        }
+    }
+    let (example, path, hash) = expected.last().cloned().ok_or("no example playtests")?;
+    let got = json(&rwgpu, &["play", example, "--input", &path, "--headless", "--json"], Some(&bin))?;
+    if field(&got, "state_hash").as_deref() != Some(hash.as_str()) {
+        return Err(format!("`rwgpu play` (the player found on PATH) did not reach {hash}: {}", got.to_pretty()));
+    }
+    eprintln!("ok   rwgpu play {example} --input {path} --headless: found rwgpu-player on PATH, state {hash}");
+
+    if !window {
+        return Ok(());
+    }
+    step("players: a replay in a real window");
+    let shot = root().join("target/player/window.png");
+    let reference = root().join("target/player/reference.png");
+    let _ = std::fs::remove_file(&shot);
+    let start = Instant::now();
+    let got = json(&player, &[example, "--input", &path, "--screenshot", &shot.to_string_lossy(), "--json"], None)?;
+    let took = start.elapsed().as_secs_f64();
+    let window_json = got.get("window").map(Json::to_compact).unwrap_or_default();
+    if field(&got, "state_hash").as_deref() != Some(hash.as_str())
+        || got.get("headless").and_then(Json::as_bool) != Some(false)
+    {
+        return Err(format!("the replay in a window did not reach {hash}: {}", got.to_pretty()));
+    }
+    eprintln!("ok   {example}/{path} in a window ({took:.1} s): state {hash}; window {window_json}");
+    let scene_test = format!("{example}/{path}");
+    json(&rwgpu, &["shot", &scene_test, "--out", &reference.to_string_lossy(), "--json"], None)?;
+    let read = |p: &Path| -> Result<rwgpuengine_render::image::Image> {
+        let bytes = std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?;
+        rwgpuengine_render::image::decode_png(&bytes)
+    };
+    let (win, refr) = (read(&shot)?, read(&reference)?);
+    let scale = win.width / refr.width.max(1);
+    if scale == 0 || win.width != refr.width * scale || win.height != refr.height * scale {
+        eprintln!(
+            "note: the window is {} x {}, not a whole multiple of the {} x {} frame; its picture is not compared",
+            win.width, win.height, refr.width, refr.height
+        );
+        return Ok(());
+    }
+    // Each frame pixel is a block of scale x scale window pixels.
+    let at = |img: &rwgpuengine_render::image::Image, x: u32, y: u32| {
+        let i = ((y * img.width + x) * 4) as usize;
+        [img.rgba[i], img.rgba[i + 1], img.rgba[i + 2]]
+    };
+    let mut apart = 0i64;
+    for y in 0..refr.height {
+        for x in 0..refr.width {
+            if (0..scale * scale).any(|k| at(&win, x * scale + k % scale, y * scale + k / scale) != at(&refr, x, y)) {
+                apart += 1;
+            }
+        }
+    }
+    eprintln!(
+        "{} the window's picture, read back, against the reference: {apart} of {} frame pixels apart (limit {pixels_apart})",
+        if apart <= pixels_apart { "ok  " } else { "FAIL" },
+        refr.width * refr.height
+    );
+    if apart > pixels_apart {
+        return Err(format!("the window showed {apart} pixels apart from the reference (see {})", shot.display()));
+    }
+    Ok(())
+}
+
+/// Run `cmd` and collect its output, killing it after `seconds`: a window
+/// that never opens must fail the gate, not hang it.
+fn finish_within(mut cmd: Command, seconds: u64) -> Result<std::process::Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("{cmd:?}: {e}"))?;
+    // Read both pipes while waiting, so a full pipe cannot stop the child.
+    let drain = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut bytes);
+            }
+            bytes
+        })
+    };
+    let stdout = drain(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+    let stderr = drain(child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+    let start = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            break status;
+        }
+        if start.elapsed().as_secs() >= seconds {
+            let _ = child.kill();
+            let _ = child.wait();
+            let err = stderr.join().unwrap_or_default();
+            return Err(format!(
+                "{cmd:?} did not finish in {seconds} s and was stopped: {}",
+                String::from_utf8_lossy(&err)
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    Ok(std::process::Output {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    })
 }

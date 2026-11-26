@@ -6,7 +6,8 @@
 # It never needs a GPU and never compiles wgpu.
 #
 # `gpu` is `cargo xtask gpu`: the players' half. It holds the wgpu renderer
-# to the CPU reference renderer and enforces the players' budgets (ADR 0021).
+# to the CPU reference renderer, replays every example playtest with the
+# native player, and enforces the players' budgets (ADR 0021, ADR 0022).
 name: ci
 
 on:
@@ -66,14 +67,42 @@ jobs:
           workspaces: |
             . -> target
             players -> target
-      - name: Install Mesa's software Vulkan driver
+      # And, for a window, a virtual X display and the keyboard library winit loads.
+      - name: Install Mesa's software Vulkan driver and a virtual display
         if: runner.os == 'Linux'
         # Without `apt-get update` first when the image's package lists still resolve.
         run: |
-          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 \
-            || { sudo apt-get update -q && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1; }
+          pkgs="mesa-vulkan-drivers libvulkan1 xvfb libxkbcommon-x11-0"
+          sudo apt-get install -y --no-install-recommends $pkgs \
+            || { sudo apt-get update -q && sudo apt-get install -y --no-install-recommends $pkgs; }
       - name: cargo xtask gpu
         run: cargo xtask gpu
+      # A probe, not a gate (to be removed): can this runner open a real window?
+      # Five replays of a playtest in a window, then, on Linux, one with no display.
+      - name: probe a real window
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          P=players/target-release/release/rwgpu-player
+          mkdir -p target/player
+          for i in 1 2 3 4 5; do
+            start=$(date +%s)
+            args="examples/tiny_town --input tests/turn_and_build.toml --screenshot target/player/probe$i.png --json"
+            if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1280x1024x24" $P $args > target/player/probe$i.json; else $P $args > target/player/probe$i.json; fi
+            code=$?
+            echo "run $i: exit $code in $(( $(date +%s) - start )) s"
+            head -c 2500 target/player/probe$i.json; echo
+          done
+          if [ "$RUNNER_OS" = Linux ]; then env -u DISPLAY -u WAYLAND_DISPLAY $P examples/tiny_town --frames 10; echo "no display: exit $?"; fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: player-probe-${{ matrix.os }}
+          path: target/player
+          retention-days: 14
+          if-no-files-found: ignore
       # A measurement, not a gate: the options ADR 0021 chose between, on this
       # runner's adapter. It reuses the build of the step before.
       - name: cargo xtask gpu --study

@@ -115,14 +115,19 @@ pub fn check(p: &Parsed) -> Outcome {
 }
 
 // ---------------------------------------------------------------------------
-// run / shot / inspect share session loading
+// run / shot / inspect share session loading (and so does the native player,
+// players/rwgpuengine_player, which parses `rwgpu play`'s arguments)
 
-struct Loaded {
-    loc: Located,
-    session: Session,
+/// A session loaded from the command line, and the project it came from.
+#[derive(Debug)]
+pub struct Loaded {
+    pub loc: Located,
+    pub session: Session,
 }
 
-fn load_session(p: &Parsed, games: &GameFactory) -> Result<Loaded, Outcome> {
+/// Load the session a command line names: the project found from the first
+/// argument, the scene or playtest it points at, `--input` and `--seed`.
+pub fn load_session(p: &Parsed, games: &GameFactory) -> Result<Loaded, Outcome> {
     let mut loc = locate(p.positional(0)).map_err(|d| Outcome::failed(vec![d]))?;
     let seed = p.number("--seed").map_err(Outcome::usage)?;
     let script = match p.value("--input") {
@@ -940,6 +945,61 @@ pub fn docs_cmd(p: &Parsed) -> Outcome {
     o
 }
 
+// ---------------------------------------------------------------------------
+// play
+
+/// The native player's program name. It lives in the players' half
+/// (`players/rwgpuengine_player`); `rwgpu` never links it.
+pub const PLAYER: &str = "rwgpu-player";
+
+/// Where `rwgpu play` looks for the player, in order: the folder `rwgpu`
+/// itself is in, then each folder on `PATH`.
+pub fn player_places() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.canonicalize().ok().or(Some(exe)))
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        .into_iter()
+        .collect();
+    if let Some(path) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&path).filter(|d| !d.as_os_str().is_empty()));
+    }
+    dirs
+}
+
+/// The player program in the first of `dirs` that has one.
+pub fn find_player(dirs: &[PathBuf]) -> Option<PathBuf> {
+    let file = format!("{PLAYER}{}", std::env::consts::EXE_SUFFIX);
+    dirs.iter().map(|d| d.join(&file)).find(|p| p.is_file())
+}
+
+/// `rwgpu play`: run the native player with the same arguments. It prints
+/// its own result (text or `--json`), so on success there is nothing left to
+/// print and the player's exit code is returned. `args` are the words after
+/// `play`, already checked against the command's flags.
+pub fn play(args: &[String]) -> Result<i32, Outcome> {
+    let places = player_places();
+    let Some(player) = find_player(&places) else {
+        let looked: Vec<String> = places.iter().take(4).map(|d| display_path(d)).collect();
+        let more = places.len().saturating_sub(looked.len());
+        let d = Diagnostic::new(
+            &codes::PLAYER_NOT_FOUND,
+            format!("the native player `{PLAYER}` is not installed (rwgpu itself never needs a GPU)"),
+        )
+        .hint("build it from a clone of the rwgpuengine repository: `cargo install --locked --path players/rwgpuengine_player`")
+        .note(format!(
+            "looked next to rwgpu, then on PATH: {}{}",
+            looked.join(", "),
+            if more > 0 { format!(" and {more} more") } else { String::new() }
+        ));
+        return Err(Outcome::failed(vec![d]));
+    };
+    match std::process::Command::new(&player).args(args).status() {
+        Ok(status) => Ok(status.code().unwrap_or(crate::out::EXIT_FAILED)),
+        Err(e) => Err(Outcome::failed(vec![io_err(&player.display().to_string(), &e)])),
+    }
+}
+
 pub fn help(p: &Parsed) -> Outcome {
     let mut o = Outcome::new(true);
     match p.positional(0) {
@@ -971,4 +1031,35 @@ pub fn version() -> Outcome {
         .with("json_format", rwgpuengine_core::JSON_FORMAT_VERSION)
         .with("diagnostic_codes", codes::ALL.len());
     o
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rwgpu_play_finds_the_player_in_the_first_place_that_has_it() {
+        let base = std::env::temp_dir().join(format!("rwgpu-find-player-{}", std::process::id()));
+        let (empty, first, second) = (base.join("empty"), base.join("first"), base.join("second"));
+        let file = format!("{PLAYER}{}", std::env::consts::EXE_SUFFIX);
+        for d in [&empty, &first, &second] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        // A folder named like the program is not the program.
+        std::fs::create_dir_all(empty.join(&file)).unwrap();
+        assert_eq!(find_player(std::slice::from_ref(&empty)), None);
+        std::fs::write(first.join(&file), b"").unwrap();
+        std::fs::write(second.join(&file), b"").unwrap();
+        let dirs = [empty.clone(), first.clone(), second.clone()];
+        assert_eq!(find_player(&dirs), Some(first.join(&file)));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn the_folder_rwgpu_is_in_comes_before_path() {
+        let places = player_places();
+        let exe = std::env::current_exe().unwrap();
+        let exe = exe.canonicalize().unwrap_or(exe);
+        assert_eq!(places.first().map(PathBuf::as_path), exe.parent());
+    }
 }

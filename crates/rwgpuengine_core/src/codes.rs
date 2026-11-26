@@ -4,7 +4,8 @@
 //! - A code is never reused or renumbered once released. Retire, don't recycle.
 //! - `E` = error (fails the command), `W` = warning (reported, does not fail).
 //! - Ranges: `x00xx` CLI/IO, `x01xx` file format, `x02xx` references and
-//!   static checks, `x03xx` runtime and frame report, `x04xx` playtests.
+//!   static checks, `x03xx` runtime and frame report, `x04xx` playtests,
+//!   `x05xx` the native player (graphics adapter and window).
 //! - Every code has an explanation, printed by `rwgpu explain <CODE>`.
 
 use crate::diag::Severity;
@@ -71,6 +72,17 @@ Fix: check the path in the message and that its parent folder is writable.";
 never overwrite your work.
 
 Fix: choose a new folder name, or empty the folder first.";
+
+    PLAYER_NOT_FOUND = "E0006", "player-not-found", Error, "The native player is not installed",
+"`rwgpu play` starts a separate program, `rwgpu-player`, which draws the game
+with the GPU in a window. `rwgpu` itself never needs a GPU, so the player is
+built and installed on its own. `rwgpu play` looks for it next to the `rwgpu`
+program first, then in each folder on `PATH`.
+
+Fix: from a clone of the rwgpuengine repository, run
+`cargo install --locked --path players/rwgpuengine_player`. It puts
+`rwgpu-player` in cargo's bin folder, which is on `PATH` after a normal Rust
+install. Or copy `rwgpu-player` next to `rwgpu`.";
 
     // ---- x01xx: file format ----------------------------------------------
     TOML_SYNTAX = "E0101", "toml-syntax", Error, "Invalid TOML syntax",
@@ -291,6 +303,36 @@ look at the image to confirm it is right before committing it.";
 "`rwgpu test` found no `.toml` files in `tests/`.
 
 Fix: add a playtest; see the playtest format in `rwgpu docs`.";
+
+    // ---- x05xx: the native player ------------------------------------------
+    NO_GPU_ADAPTER = "E0501", "no-gpu-adapter", Error, "No graphics adapter",
+"The player found no graphics adapter that can draw (and, with a window, show
+the picture in it). It needs Vulkan (Linux, Windows), Metal (macOS) or
+Direct3D 12 (Windows). The message names the backends it tried.
+
+Fix: install or update the graphics driver. On Linux without a graphics card,
+Mesa's software Vulkan driver works: `sudo apt-get install mesa-vulkan-drivers
+libvulkan1`. `WGPU_BACKEND=vulkan` (or `metal`, `dx12`) picks a backend.
+Everything else rwgpu does needs no GPU: `rwgpu run`, `shot` and `test` draw
+with the CPU.";
+
+    NO_WINDOW_SYSTEM = "E0502", "no-window-system", Error, "No window system",
+"The player could not open a window: there is no desktop session it can reach.
+On Linux that means neither `WAYLAND_DISPLAY` nor `DISPLAY` leads to a running
+display server, as in an SSH session or a container.
+
+Fix: run it on a desktop, or with `--headless`, which plays the same steps and
+draws the same frames with no window. On a Linux server, a virtual X display
+works: `xvfb-run -a rwgpu play ...`.";
+
+    GPU_FAILED = "E0503", "gpu-failed", Error, "The graphics device failed",
+"The graphics adapter was found but refused a request: it would not give a
+device, could not draw into the window, reported an error while drawing, or
+could not hand a picture back for `--screenshot`. The message has the driver's
+own words.
+
+Fix: update the graphics driver, or try another backend with `WGPU_BACKEND`.
+If it happens with one project only, report it with that project attached.";
 }
 
 /// Look up a code such as `E0103` (case-insensitive) or a slug such as

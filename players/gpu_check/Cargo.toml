@@ -14,6 +14,7 @@ rwgpuengine_data.workspace = true
 rwgpuengine_render.workspace = true
 rwgpuengine_runtime.workspace = true
 rwgpuengine_gpu.workspace = true
+rwgpuengine_player.workspace = true
 wgpu.workspace = true
 
 [lints]

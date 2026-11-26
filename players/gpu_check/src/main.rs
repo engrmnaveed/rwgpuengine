@@ -26,6 +26,7 @@
 // This tool measures wall-clock time on purpose; the ban is for the engine.
 #![allow(clippy::disallowed_methods)]
 
+mod player;
 mod scenes;
 #[path = "../../../xtask/src/town.rs"]
 mod town;
@@ -411,6 +412,22 @@ fn run() -> Result<bool, String> {
                 println!("\nshowing the frame: FAILED: {e}");
                 ok = false;
             }
+        }
+    }
+    let mut worst = worst;
+    if a.only.is_none() && a.random == 0 {
+        println!(
+            "\nthe native player: each example playtest replayed by its loop, with no window (the state must be the \
+             engine's; the last frame drawn within {} pixels of the reference)",
+            a.max_pixels
+        );
+        let replayed = player::check(&root(), &a)?;
+        let failed: Vec<&str> = replayed.iter().filter(|r| !r.ok).map(|r| r.name.as_str()).collect();
+        worst = worst.max(replayed.iter().map(|r| r.differing).max().unwrap_or(0));
+        println!("{} playtests, {} failed", replayed.len(), failed.len());
+        if !failed.is_empty() {
+            println!("failed: {}", failed.join(", "));
+            ok = false;
         }
     }
     // For `cargo xtask gpu`, which puts these next to the other budgets.
