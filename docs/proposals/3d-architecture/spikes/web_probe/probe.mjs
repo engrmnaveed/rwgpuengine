@@ -44,6 +44,9 @@ const FLAGS = {
   'unsafe, Vulkan, no blocklist': ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--ignore-gpu-blocklist'],
   'unsafe, adapter swiftshader': ['--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader'],
   'unsafe, no blocklist': ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist'],
+  // SwiftShader may draw Chrome's own GL too: a WebGPU canvas on SwiftShader keeps its device then.
+  'unsafe, no blocklist, unsafe SwiftShader': ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'],
+  'unsafe, ANGLE SwiftShader': ['--enable-unsafe-webgpu', '--use-angle=swiftshader'],
 };
 
 async function run(browser, flags) {
@@ -89,19 +92,22 @@ async function run(browser, flags) {
   }
   child.kill();
   await new Promise((ok) => { if (child.exitCode !== null) ok(); else child.on('exit', ok); });
-  rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+  // On Windows Chrome's crash handler can hold the folder a moment longer: a temporary folder left behind is fine.
+  try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch (_) { /* left */ }
   return { ...out, ms: Date.now() - t0 };
 }
 
 const adapter = (a) => !a ? 'none' : a.error ? `error: ${a.error}`
   : `${a.vendor || '?'} / ${a.architecture || '?'}${a.fallback ? ' (fallback)' : ''}, clear ${a.px && a.px.join(',') === '255,128,64,255' ? 'read back' : 'WRONG ' + a.px}`;
-const rows = ['| browser | flags | navigator.gpu | default adapter | fallback adapter | time |', '|---|---|---|---|---|---|'];
+const shown = (c) => !c ? 'no adapter' : c.error ? `error: ${c.error}` : [c.px ? `read back ${c.px.join(',')}` : `NOT read back: ${c.mapError}`,
+  c.errors && c.errors.length ? `errors: ${c.errors.join('; ')}` : '', c.lost ? `lost: ${c.lost}` : ''].filter(Boolean).join('; ');
+const rows = ['| browser | flags | navigator.gpu | default adapter | fallback adapter | 60 frames on a canvas, then a read-back | time |', '|---|---|---|---|---|---|---|'];
 for (const browser of found()) {
   for (const [name, flags] of Object.entries(FLAGS)) {
     const r = await run(browser, flags);
     const row = r.error
-      ? `| ${browser} | ${name} | ${r.error} ${r.stderr ? JSON.stringify(r.stderr) : ''} | | | ${r.ms} ms |`
-      : `| ${r.product} | ${name} | ${r.gpu ? 'yes' : 'no'} | ${adapter(r.default)} | ${adapter(r.forced)} | ${r.ms} ms |`;
+      ? `| ${browser} | ${name} | ${r.error} ${r.stderr ? JSON.stringify(r.stderr) : ''} | | | | ${r.ms} ms |`
+      : `| ${r.product} | ${name} | ${r.gpu ? 'yes' : 'no'} | ${adapter(r.default)} | ${adapter(r.forced)} | ${shown(r.canvas)} | ${r.ms} ms |`;
     console.log(row);
     rows.push(row);
   }

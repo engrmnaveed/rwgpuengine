@@ -264,6 +264,18 @@ fn one_check(
             };
             let frame = row.get("frame").map(Json::to_compact).unwrap_or_default();
             let mut fine = s(row, "state") == want.state && frame == want.frames;
+            // Each playtest drawn by the path it was meant for: a device lost on the way would hand the
+            // game to the CPU, reach the same state, and prove nothing about WebGPU.
+            if s(row, "path") != path {
+                fine = false;
+                bad.push(format!(
+                    "{path}: {}/{} ended drawn by {} ({})",
+                    want.example,
+                    want.test,
+                    s(row, "path"),
+                    s(row, "fallback")
+                ));
+            }
             if path == "cpu" {
                 // The canvas holds the reference's pixels: `rwgpu shot`'s image hash.
                 let native = shot_hash(rwgpu, want)?;

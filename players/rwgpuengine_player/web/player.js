@@ -224,10 +224,13 @@ page.play = async (input, { realtime = false } = {}) => {
   } else {
     handle(rw.replay(frames));
   }
+  // A browser reports a lost device later, in a promise: let a few animation frames pass (the loop goes
+  // on ticking a finished session, and falls back if it must) before saying which path drew.
+  for (let i = 0; i < 3; i++) await new Promise((ok) => requestAnimationFrame(ok));
   status();
   return {
     frame: rw.frame(), width: rw.width(), height: rw.height(), state: rw.state_hash(), image: rw.image_hash(),
-    path: page.path, ms: performance.now() - t0, stats: JSON.parse(rw.stats()),
+    path: page.path, fallback: page.fallback, ms: performance.now() - t0, stats: JSON.parse(rw.stats()),
   };
 };
 

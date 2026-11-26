@@ -133,7 +133,8 @@ async function launch(program, flags) {
       };
       await quit(5000);
       if (child.exitCode === null) { child.kill(); await quit(5000); }
-      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      // On Windows Chrome's crash handler can hold the folder a moment longer; it is under <out>, which is ignored.
+      try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch (_) { /* left */ }
     },
   };
 }
@@ -163,12 +164,15 @@ async function main() {
     console.log(JSON.stringify({ browser: null }));
     return;
   }
-  // Headless, Chrome gives a WebGPU adapter on GitHub's Windows runner (WARP) only with both of these, and
+  // Headless, Chrome gives a WebGPU adapter on GitHub's Windows runner (WARP) only with the first two, and
   // on the Linux runner (SwiftShader) with the first; the fallback adapter (?renderer=software) needs the
-  // first too (ADR 0024). RWGPU_BROWSER_FLAGS adds more.
-  const flags = ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist',
+  // first too. With SwiftShader, a WebGPU canvas loses its device a few frames in ("A valid external
+  // Instance reference no longer exists") unless Chrome may use SwiftShader for its own GL as well: the
+  // third. Measured with web_probe's canvas test (ADR 0024). RWGPU_BROWSER_FLAGS adds more.
+  const flags = ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader',
     ...(process.env.RWGPU_BROWSER_FLAGS || '').split(' ').filter(Boolean)];
-  rmSync(out, { recursive: true, force: true });
+  // A profile folder an earlier run could not remove may still be held: what is written here is new anyway.
+  try { rmSync(out, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch (_) { /* left */ }
   mkdirSync(out, { recursive: true });
   const download = WEB_FILES.map((name) => {
     const bytes = readFileSync(join(player, name));
@@ -198,7 +202,8 @@ async function main() {
         const tests = JSON.parse(await tab.evaluate(`fetch('project').then((r) => r.json()).then((p) => JSON.stringify(p.tests))`));
         for (const test of tests) {
           const r = JSON.parse(await tab.evaluate(`window.rwgpu.play(${JSON.stringify(test)}).then(JSON.stringify)`));
-          const row = { example: name, test, path: r.path, frame: r.frame, state: r.state, image: r.image, draws: r.stats.draws };
+          const row = { example: name, test, path: r.path, fallback: r.fallback, frame: r.frame, state: r.state, image: r.image,
+            draws: r.stats.draws };
           // What the GPU drew, or what the 2D canvas shows: RGBA bytes in a file.
           const bytes = Buffer.from(await tab.evaluate('window.rwgpu.picture()'), 'base64');
           row.picture = `${path}__${name}__${basename(test, '.toml')}.rgba`;

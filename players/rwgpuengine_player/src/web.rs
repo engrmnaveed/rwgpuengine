@@ -389,9 +389,12 @@ pub async fn gpu_open(canvas: web_sys::HtmlCanvasElement, software: bool) -> Res
     let mut config = surface
         .get_default_config(&gpu.adapter, 1, 1)
         .ok_or_else(|| fail(failed(format!("{} cannot show a picture on this canvas", describe(&gpu.info)))))?;
-    // The frame's bytes are what the screen should show (ADR 0021).
+    // The frame's bytes are what the screen should show (ADR 0021). The browser's preferred format comes
+    // first; it is kept when it encodes no sRGB (`rgba8unorm` on Linux), since another costs a copy.
     let plain = [wgpu::TextureFormat::Bgra8Unorm, wgpu::TextureFormat::Rgba8Unorm];
-    if let Some(f) = plain.into_iter().find(|f| caps.formats.contains(f)) {
+    if !plain.contains(&config.format)
+        && let Some(f) = plain.into_iter().find(|f| caps.formats.contains(f))
+    {
         config.format = f;
     }
     config.alpha_mode = wgpu::CompositeAlphaMode::Opaque;

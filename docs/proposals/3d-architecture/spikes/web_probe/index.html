@@ -21,10 +21,51 @@ async function info(opts) {
     return { vendor: i.vendor, architecture: i.architecture, device: i.device, description: i.description, fallback: !!(a.isFallbackAdapter ?? i.isFallbackAdapter), px };
   } catch (e) { return { error: String(e) }; }
 }
+// What the web player does, in plain WebGPU: 60 frames drawn into a 640 x 480 texture and shown on
+// a canvas, then that texture copied to a buffer and read back. Errors and a lost device are recorded.
+async function canvasThenRead(opts) {
+  try {
+    const a = await navigator.gpu.requestAdapter(opts);
+    if (!a) return null;
+    const d = await a.requestDevice();
+    const errors = [];
+    let lost = null;
+    d.onuncapturederror = (e) => errors.push(e.error.message);
+    d.lost.then((i) => { lost = `${i.reason}: ${i.message}`; });
+    const canvas = document.createElement('canvas');
+    canvas.width = 724; canvas.height = 543;
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext('webgpu');
+    const format = navigator.gpu.getPreferredCanvasFormat();
+    ctx.configure({ device: d, format, alphaMode: 'opaque' });
+    const frame = d.createTexture({ size: [640, 480], format: 'rgba8unorm',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC | GPUTextureUsage.TEXTURE_BINDING });
+    for (let i = 0; i < 60; i++) {
+      const enc = d.createCommandEncoder();
+      const shade = { r: i / 60, g: 0.5, b: 0.25, a: 1 };
+      enc.beginRenderPass({ colorAttachments: [{ view: frame.createView(), loadOp: 'clear', storeOp: 'store', clearValue: shade }] }).end();
+      enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: shade }] }).end();
+      d.queue.submit([enc.finish()]);
+      await new Promise((ok) => requestAnimationFrame(ok));
+    }
+    const buf = d.createBuffer({ size: 2560 * 480, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const enc = d.createCommandEncoder();
+    enc.copyTextureToBuffer({ texture: frame }, { buffer: buf, bytesPerRow: 2560, rowsPerImage: 480 }, [640, 480]);
+    d.queue.submit([enc.finish()]);
+    let px, mapError = null;
+    try {
+      await buf.mapAsync(GPUMapMode.READ);
+      px = Array.from(new Uint8Array(buf.getMappedRange(), 0, 4));
+    } catch (e) { mapError = String(e); }
+    await new Promise((ok) => setTimeout(ok, 100));
+    return { format, px, mapError, errors, lost };
+  } catch (e) { return { error: String(e) }; }
+}
 if (navigator.gpu) {
   r.preferred = navigator.gpu.getPreferredCanvasFormat();
   r.default = await info({});
   r.forced = await info({ forceFallbackAdapter: true });
+  r.canvas = await canvasThenRead({ powerPreference: 'high-performance' });
 }
 window.__result = r;
 out.textContent = JSON.stringify(r);
