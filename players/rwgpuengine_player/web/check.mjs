@@ -60,8 +60,12 @@ function browser() {
 async function launch(program, flags) {
   mkdirSync(out, { recursive: true });
   const profile = mkdtempSync(join(out, 'profile-'));
+  // The page runs on animation frames and timers: Chrome must not slow them for a tab it thinks is in the
+  // background or covered (a fresh tab on the Windows runner once drew nothing for 60 s without these).
   const args = ['--headless', '--remote-debugging-pipe', `--user-data-dir=${profile}`, '--no-first-run',
-    '--no-default-browser-check', '--use-mock-keychain', '--password-store=basic', '--mute-audio', ...flags, 'about:blank'];
+    '--no-default-browser-check', '--use-mock-keychain', '--password-store=basic', '--mute-audio',
+    '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding', ...flags, 'about:blank'];
   const child = spawn(program, args, { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
   let stderr = '';
   child.stderr.on('data', (d) => { stderr = (stderr + d).slice(-4000); });
@@ -119,9 +123,17 @@ async function launch(program, flags) {
           clearTimeout(timer);
         }
       };
-      const ready = await evaluate(`new Promise((ok) => { const t = setInterval(() => { const p = window.rwgpu;
-        if (p && ((p.ready && p.firstFrameMs !== null) || p.error)) { clearInterval(t); ok(JSON.stringify({ error: p.error, path: p.path, adapter: p.adapter,
-        fallback: p.fallback, firstFrameMs: p.firstFrameMs })); } }, 10); })`, 60);
+      let ready;
+      try {
+        ready = await evaluate(`new Promise((ok) => { const t = setInterval(() => { const p = window.rwgpu;
+          if (p && ((p.ready && p.firstFrameMs !== null) || p.error)) { clearInterval(t); ok(JSON.stringify({ error: p.error, path: p.path, adapter: p.adapter,
+          fallback: p.fallback, firstFrameMs: p.firstFrameMs })); } }, 10); })`, 60);
+      } catch (e) {
+        // Say what the page was doing.
+        const state = await evaluate(`JSON.stringify({ url: location.href, readyState: document.readyState, hidden: document.hidden,
+          visibility: document.visibilityState, now: performance.now(), page: window.rwgpu || null })`, 5).catch((f) => String(f));
+        throw new Error(`${e.message.split('\n')[0]}; the page: ${state}`);
+      }
       return { ready: JSON.parse(ready), evaluate, close: () => send('Target.closeTarget', { targetId }) };
     },
     async close() {

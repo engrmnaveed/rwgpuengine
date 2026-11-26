@@ -362,7 +362,9 @@ async function main() {
   // The module steps at the project's rate whatever the display does, and
   // draws only when the picture changed. A hidden tab gets no animation
   // frames, so it costs nothing; on return at most five steps are caught up.
+  page.frames = 0;
   const loop = (now) => {
+    page.frames += 1;
     if (onFrame) onFrame();
     if (started && !paused) stepped(rw.tick(now));
     requestAnimationFrame(loop);
