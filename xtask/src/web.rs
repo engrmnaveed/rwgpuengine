@@ -264,6 +264,10 @@ fn one_check(
             };
             let frame = row.get("frame").map(Json::to_compact).unwrap_or_default();
             let mut fine = s(row, "state") == want.state && frame == want.frames;
+            if !s(row, "error").is_empty() {
+                fine = false;
+                bad.push(format!("{path}: {}/{}: {}", want.example, want.test, s(row, "error")));
+            }
             // Each playtest drawn by the path it was meant for: a device lost on the way would hand the
             // game to the CPU, reach the same state, and prove nothing about WebGPU.
             if s(row, "path") != path {
@@ -279,8 +283,9 @@ fn one_check(
             if path == "cpu" {
                 // The canvas holds the reference's pixels: `rwgpu shot`'s image hash.
                 let native = shot_hash(rwgpu, want)?;
-                let canvas = std::fs::read(out.join(s(row, "picture"))).map_err(|e| format!("{path}: {e}"))?;
-                let canvas = hash::hex(hash::fnv1a64(&canvas));
+                let canvas = std::fs::read(out.join(s(row, "picture")))
+                    .map(|b| hash::hex(hash::fnv1a64(&b)))
+                    .unwrap_or_else(|_| "no picture".into());
                 fine &= s(row, "image") == native && canvas == native;
                 if canvas != native {
                     bad.push(format!(

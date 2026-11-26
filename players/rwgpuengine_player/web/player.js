@@ -241,7 +241,11 @@ page.picture = async () => {
   if (page.path === 'webgpu') {
     if (!rw.copy_frame()) throw new Error('nothing was drawn');
     try {
-      while (!(bytes = rw.copied())) await new Promise((r) => setTimeout(r, 0));
+      const t0 = performance.now();
+      while (!(bytes = rw.copied())) {
+        if (performance.now() - t0 > 20000) throw new Error('no answer from the GPU in 20 s');
+        await new Promise((r) => setTimeout(r, 0));
+      }
     } catch (e) {
       throw new Error(`the frame did not come back from the GPU: ${e && e.message || e}; ${rw.stats()}`);
     }

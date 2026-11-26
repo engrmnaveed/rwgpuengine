@@ -765,11 +765,16 @@ pub fn copy_frame() -> bool {
 }
 
 /// The frame's RGBA bytes once the copy arrived (the page returns to the
-/// browser between asks). Throws if the copy failed.
+/// browser between asks). Throws if the copy failed, or if there is no copy
+/// to wait for: none was started, or the device was lost and the CPU path
+/// took over meanwhile.
 #[wasm_bindgen]
 pub fn copied() -> Result<Option<Vec<u8>>, JsValue> {
     with(|w| {
-        let Some(copy) = &w.copy else { return Ok(None) };
+        let Some(copy) = &w.copy else {
+            let why = w.fallback.clone().unwrap_or_else(|| "no copy of the frame was started".into());
+            return Err(JsValue::from_str(&why));
+        };
         match copy.take() {
             None => Ok(None),
             Some(r) => {

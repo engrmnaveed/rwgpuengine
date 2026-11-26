@@ -202,13 +202,18 @@ async function main() {
           const r = JSON.parse(await tab.evaluate(`window.rwgpu.play(${JSON.stringify(test)}).then(JSON.stringify)`));
           const row = { example: name, test, path: r.path, fallback: r.fallback, frame: r.frame, state: r.state, image: r.image,
             draws: r.stats.draws };
-          // What the GPU drew, or what the 2D canvas shows: RGBA bytes in a file.
-          const bytes = Buffer.from(await tab.evaluate('window.rwgpu.picture()'), 'base64');
-          row.picture = `${path}__${name}__${basename(test, '.toml')}.rgba`;
-          writeFileSync(join(out, row.picture), bytes);
-          if (r.path === 'webgpu') frames.push(`${name} ${test} ${r.frame} ${r.width} ${r.height} ${row.picture}`);
+          // What the GPU drew, or what the 2D canvas shows: RGBA bytes in a file. A picture that does not
+          // come back is that playtest's failure, said on its row; the others still run.
+          try {
+            const bytes = Buffer.from(await tab.evaluate('window.rwgpu.picture()', 40), 'base64');
+            row.picture = `${path}__${name}__${basename(test, '.toml')}.rgba`;
+            writeFileSync(join(out, row.picture), bytes);
+            if (r.path === 'webgpu') frames.push(`${name} ${test} ${r.frame} ${r.width} ${r.height} ${row.picture}`);
+          } catch (e) {
+            row.error = String(e.message || e).split('\n')[0];
+          }
           run.playtests.push(row);
-          log(`  ${test}: frame ${r.frame}, state ${r.state}, ${r.path}`);
+          log(`  ${test}: frame ${r.frame}, state ${r.state}, ${r.path}${row.error ? ': ' + row.error : ''}`);
         }
         if (measure && name === 'tiny_town' && path === 'webgpu') {
           const m = result.measure;
