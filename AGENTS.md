@@ -19,11 +19,12 @@ cargo xtask repo-check               # its first step, fast: no home path, no bu
 cargo xtask dist                     # release artifacts with no path of this machine (--agent: rwgpu + web module)
 cargo test                           # all unit tests (fast)
 cargo rwgpu <command> ...            # the CLI from source, e.g. cargo rwgpu check examples/iso_garden
-cargo xtask web                      # build the wasm web player
-cargo rwgpu serve examples/iso_garden   # web player at http://127.0.0.1:4410/
+cargo xtask web                      # build the CPU web player (the wasm module of the agent's half)
+cargo xtask web-player               # build the WebGPU web player into target/web-player (the players' half)
+cargo rwgpu serve examples/tiny_town # web player at http://127.0.0.1:4410/ (WebGPU if built, else the CPU player)
 cargo xtask docs                     # regenerate docs/reference after changing commands/formats/codes
 cargo xtask budgets                  # measure size/time/dependency budgets
-cargo xtask gpu                      # the players' gate: the wgpu renderer against the CPU reference, the native player against `rwgpu test`, players' budgets
+cargo xtask gpu                      # the players' gate: the wgpu renderer against the CPU reference, the native player and the web player (headless Chrome) against `rwgpu test`, players' budgets
 cargo xtask gpu --fast               # only the picture check, built incrementally (the edit loop for players/)
 cargo xtask gpu --fast -- --random 3000   # random scenes: what the fixed ones miss
 cargo xtask gpu --window             # the gate plus a replay in a real window (needs a desktop or `xvfb-run`)
@@ -35,7 +36,9 @@ cargo install --locked --path players/rwgpuengine_player   # the native player o
 visual. When a scene fails it names the pixels and writes `target/gpu-check/<scene>.{reference,gpu,diff}.png`.
 The native player ([ADR 0022](docs/decisions/0022-native-player-winit-and-rwgpu-play.md)) reports like a
 command: `rwgpu play <project> --input <test> --headless --json` (or without `--headless`, in a window) prints
-the frame and the state hash, which must match `rwgpu run` for the same file.
+the frame and the state hash, which must match `rwgpu run` for the same file. The web player
+([ADR 0024](docs/decisions/0024-web-player-on-webgpu.md)) is checked in a headless Chrome by the same gate,
+on WebGPU and on its CPU fallback; it needs Node and a Chromium browser (`RWGPU_BROWSER` names one).
 
 ## Rules
 
@@ -74,6 +77,7 @@ the frame and the state hash, which must match `rwgpu run` for the same file.
 | new command | `rwgpuengine_cli/src/args.rs` (Command entry with examples) → `lib.rs` dispatch → `commands.rs` → `cargo xtask docs` |
 | new event kind | `rwgpuengine_sim/src/events.rs` + `schema::EVENT_KINDS` (a test keeps them equal) |
 | player input or window | `players/rwgpuengine_player`: `input.rs` (keys, taps, camera gestures; the web player's mapping for the game's input) and the `play` entry's text in `rwgpuengine_cli/src/args.rs` (a test keeps them equal), `window.rs` (the event loop), `clock.rs` (the fixed step) → `cargo xtask docs` → `cargo xtask gpu --window`. No game rule and no visual feature here: those go in the engine and the reference |
+| web player | `players/rwgpuengine_player/src/web.rs` (what the page calls) and `web/player.js` (the page: canvas, events, animation frames; nothing that decides); bindings stay in `input.rs`, shared with the window (a test keeps the page's help equal) → `cargo xtask web-player`, `cargo rwgpu serve examples/tiny_town` → `cargo xtask gpu` (the browser check: `web/check.mjs`, then `gpu_check --web-frames`) |
 | visual change | the reference first (`reference.rs`, `list.rs`, `camera.rs`): run `cargo rwgpu test examples/iso_garden`; if refs differ on purpose, `--update-refs`, then look at the PNG → the same rule in `players/rwgpuengine_gpu` (`pack.rs` for what the CPU prepares, `shader.wgsl` for what the GPU draws) → a scene for it in `players/gpu_check/src/scenes.rs` under an iso and a perspective camera → `cargo xtask gpu` → a few thousand random scenes, `cargo xtask gpu --fast -- --random 3000` (the hand-made scenes were green twice while a real fault was there) |
 
 ## Commits

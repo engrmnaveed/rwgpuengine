@@ -9,7 +9,7 @@ How rwgpuengine is built, as of v0.1.0 (first milestone). Decisions behind each 
                 ┌──────────────────────────────────────────────────────────────┐
  agent surface  │ rwgpuengine_cli   `rwgpu` binary + library: commands, --json,       │
                 │             help/docs from registries, dev server (serve)      │
-                │ rwgpuengine_web   wasm32 cdylib, C ABI for web/player.js             │
+                │ rwgpuengine_web   wasm32 cdylib, C ABI for web/player.js (the CPU player) │
                 └───────────────┬──────────────────────────────┬───────────────┘
                                 │                              │
                 ┌───────────────▼──────────────────────────────▼───────────────┐
@@ -33,7 +33,7 @@ How rwgpuengine is built, as of v0.1.0 (first milestone). Decisions behind each 
                 │             colors, suggestions. Zero dependencies.            │
                 └──────────────────────────────────────────────────────────────┘
  rented         toml_edit (parsing) · png (encode/decode)
- dev tooling    xtask: ci, repo-check, dist, web, smoke, budgets, docs, wasm-check, gpu
+ dev tooling    xtask: ci, repo-check, dist, web, web-player, smoke, budgets, docs, wasm-check, gpu
 ```
 
 Dependency rule: arrows only point down. `rwgpuengine_sim` knows nothing about rendering; `rwgpuengine_render` reads
@@ -49,9 +49,10 @@ its own gate, `cargo xtask gpu` ([ADR 0021](decisions/0021-wgpu-renderer-held-to
  players/                                              the agent's half (crates/)
  ┌──────────────────────────────────────────────┐
  │ rwgpuengine_player  `rwgpu-player`: a winit  │────► rwgpuengine_cli     (play's arguments, load_session,
- │                  window, the clock, keys and │                           output and diagnostics)
- │                  taps; steps the Session     │────► rwgpuengine_runtime (Session::step, render_list,
- │                                              │                           move_camera)
+ │                  window; and, built for      │                           output and diagnostics; native only)
+ │                  wasm32, the web player on a │────► rwgpuengine_runtime (Session::step, render_list,
+ │                  canvas. The clock, keys and │                           move_camera, Presenter)
+ │                  taps; steps the Session     │
  │ gpu_check        draws every reference scene │────► rwgpuengine_runtime (sessions of the example games)
  │                  with both renderers and     │────► rwgpuengine_render  (the reference picture, owners)
  │                  compares the pictures;      │
@@ -60,13 +61,14 @@ its own gate, `cargo xtask gpu` ([ADR 0021](decisions/0021-wgpu-renderer-held-to
  │                  wgpu; no window, no blocking│                           a card's place, a face's color)
  └──────────────────────────────────────────────┘
  rented         wgpu 30.0.2 (Vulkan, Metal, Direct3D 12, WebGPU) · winit 0.30.13 (X11, Wayland, AppKit, Win32)
-                [later: audio, text]
+                · wasm-bindgen 0.2.130 (the browser; its tool writes the page's glue) [later: audio, text]
 ```
 
 The players' crates depend on the agent's, never the other way round. wgpu and winit are not in the root
 `Cargo.lock`, so no command in the agent's half can compile them. `rwgpu play` runs the player as a separate
 program, found next to `rwgpu` or on `PATH` ([ADR 0022](decisions/0022-native-player-winit-and-rwgpu-play.md)).
-The browser canvas comes next (step 4).
+`rwgpu serve` serves the web player's built files as they are
+([ADR 0024](decisions/0024-web-player-on-webgpu.md)).
 
 | crate | owns | must not |
 |---|---|---|
@@ -76,9 +78,9 @@ The browser canvas comes next (step 4).
 | `rwgpuengine_render` | the camera, the render list, the CPU reference renderer, frame report, picking, PNG | change the world |
 | `rwgpuengine_runtime` | sessions, scripted input, playtests, the `Game` trait | touch the filesystem (the CLI does) |
 | `rwgpuengine_cli` | commands, output envelope, docs generation, templates, dev server | contain engine logic |
-| `rwgpuengine_web` | the wasm C ABI | contain engine logic |
+| `rwgpuengine_web` | the CPU player's wasm C ABI | contain engine logic |
 | `rwgpuengine_gpu` (players) | the render list drawn with wgpu: frame, copy to bytes, show on a target | open a window, block, decide what a frame looks like (the reference does) |
-| `rwgpuengine_player` (players) | `rwgpu-player`: the window, the clock, keys, taps and camera gestures, `--headless` and `--screenshot` | have a game rule or a visual feature (the engine and the reference do), load a project its own way |
+| `rwgpuengine_player` (players) | `rwgpu-player`: the window, the clock, keys, taps and camera gestures, `--headless` and `--screenshot`; the web player (`web`, for wasm32) and its page | have a game rule or a visual feature (the engine and the reference do), load a project its own way |
 | `gpu_check` (players) | the scenes both renderers draw, the comparison, frame times | be depended on |
 
 ## Data flow of one command
@@ -277,12 +279,25 @@ same steps with no window and no clock; `--frames` and `--input` end a run and p
 
 ## The web player
 
-ADR 0008. `rwgpuengine_web` compiles to a wasm module with zero imports (about 620 KB with the 3D reference
-renderer; budget 800,000). `web/player.js` (no framework, no build step) loads it, fetches the project as a
-bundle (`path\0text\0…`), steps at the project's tick rate, and asks `rwgpu_present` each frame: only when
-the picture changed does it copy the pixels to the canvas with `putImageData`. `rwgpu serve` (std-only HTTP) rebuilds
-the bundle from disk per request; the page polls a content hash and reloads on change, showing
-diagnostics in the page. Touch first: tap = tap, swipe = move along the iso axes, on-screen pad.
+[ADR 0024](decisions/0024-web-player-on-webgpu.md). `rwgpuengine_player`'s library built for wasm32 is one
+module (670 KB, with the glue the `wasm-bindgen` tool writes; 768 KB to download in all, budget 1,500,000).
+It holds the engine, the GPU renderer on WebGPU and the CPU reference painter. The page's own script
+(`players/rwgpuengine_player/web/player.js`, no framework, no build step) hands it the canvas, the events
+and the animation frames:
+
+```text
+ animation frame ──► tick(now): the steps that are due (Steps, at most 5) ──► Session::step
+ keys, pointers, wheel ──► input.rs (the window's bindings) ──► LiveInput, Session::move_camera
+ list changed? ── WebGPU ──► Renderer::draw ──► Renderer::present onto the canvas (device pixels, bars)
+                └ no WebGPU, no adapter, a lost device ──► Presenter (the reference's pixels) ──► 2D canvas
+```
+
+`rwgpu serve` finds the built player (`cargo xtask web-player`, `target/web-player`) and serves its four
+files, the project as a bundle rebuilt from disk per request, and a content hash the page polls to reload.
+Without it, it serves the CPU player of ADR 0008: `rwgpuengine_web` (a wasm module with zero imports, about
+620 KB, budget 800,000), driven by `web/player.js`, which copies the pixels to the canvas only when the
+picture changed. Diagnostics show in the page. Touch first: tap = tap, swipe = move along the iso axes,
+on-screen pad; the WebGPU player adds the camera's bindings and a two-finger pinch.
 
 ## Extension points
 
@@ -298,4 +313,4 @@ diagnostics in the page. Touch first: tap = tap, swipe = move along the iso axes
 ## Known limits of v0.1 (by design, for now)
 
 See [mvp-plan.md](mvp-plan.md#known-limitations) — no images or audio; ASCII text only; no rotation or
-dragging; the command and the web player render on the CPU; the GPU draws only in the native player.
+dragging; the command renders on the CPU; the GPU draws in the players, natively and in a browser.

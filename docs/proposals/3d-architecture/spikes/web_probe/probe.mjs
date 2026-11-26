@@ -54,6 +54,9 @@ async function run(browser, flags) {
   let stderr = '';
   child.stderr.on('data', (d) => { stderr += d; });
   const [w, r] = [child.stdio[3], child.stdio[4]];
+  // A browser that exits resets its end of the pipes (seen on Linux): not an error here.
+  w.on('error', () => {});
+  r.on('error', () => {});
   const waiting = new Map();
   let id = 0, buf = '';
   r.on('data', (d) => {

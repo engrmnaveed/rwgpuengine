@@ -241,14 +241,18 @@ Arguments:
   [PATH]       Project folder, scene file or playtest file (default: current folder). The project is found by walking up to rwgpu.toml.
 
 Flags:
-  --port N           Port on 127.0.0.1 (default 4410).
-  --wasm FILE        Path to rwgpuengine_web.wasm (default: the workspace build, see `cargo xtask web`).
+  --port N           Port on 127.0.0.1 (default 4410; 0 picks a free one and prints it).
+  --web-player DIR   Folder of the WebGPU player (default: `web-player` next to rwgpu, then the workspace build, see `cargo xtask web-player`).
+  --wasm FILE        Path to rwgpuengine_web.wasm, the CPU player served when there is no WebGPU player (default: the workspace build, see `cargo xtask web`).
 
-Opens nothing by itself; visit the printed URL. URL parameters: scene=PATH, input=PATH, frames=N (run N frames immediately, then pause). The page shows the frame number and state hash, which match `rwgpu run` for the same input.
+Opens nothing by itself; visit the printed URL. It serves the WebGPU player when it finds one (--web-player, the RWGPU_WEB_PLAYER folder, `web-player` next to rwgpu, or the workspace build): the frame is drawn with WebGPU where the browser has it, and by the CPU reference renderer where it has not, and the page says which in one line. Without the WebGPU player it serves the CPU player (rwgpuengine_web.wasm), and says so. rwgpu itself never needs a GPU: it only serves files. URL parameters: scene=PATH, input=PATH, frames=N (run N frames immediately, then pause), renderer=cpu (draw with the CPU reference renderer). The page shows the frame number and state hash, which match `rwgpu run` for the same input.
+
+The WebGPU player has the bindings of `rwgpu play` (see `rwgpu help play`): keys, taps, swipes and the camera, with a two-finger pinch on a touch screen. The CPU player has keys, taps and swipes.
 
 Examples:
-  rwgpu serve examples/iso_garden
+  rwgpu serve examples/tiny_town
   rwgpu serve --port 8080
+  rwgpu serve examples/iso_garden --wasm target/wasm32-unknown-unknown/web/rwgpuengine_web.wasm
 ```
 
 ## rwgpu play

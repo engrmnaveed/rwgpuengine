@@ -5,7 +5,7 @@
 //! - `E` = error (fails the command), `W` = warning (reported, does not fail).
 //! - Ranges: `x00xx` CLI/IO, `x01xx` file format, `x02xx` references and
 //!   static checks, `x03xx` runtime and frame report, `x04xx` playtests,
-//!   `x05xx` the native player (graphics adapter and window).
+//!   `x05xx` the players (graphics adapter and window).
 //! - Every code has an explanation, printed by `rwgpu explain <CODE>`.
 
 use crate::diag::Severity;
@@ -83,6 +83,21 @@ Fix: from a clone of the rwgpuengine repository, run
 `cargo install --locked --path players/rwgpuengine_player`. It puts
 `rwgpu-player` in cargo's bin folder, which is on `PATH` after a normal Rust
 install. Or copy `rwgpu-player` next to `rwgpu`.";
+
+    WEB_TOOL_MISSING = "E0007", "web-tool-missing", Error, "The wasm-bindgen tool is missing",
+"The WebGPU web player is a wasm module and the JavaScript glue that the
+`wasm-bindgen` tool writes for it. The tool must be the exact version of the
+`wasm-bindgen` crate in `players/Cargo.lock`, or its glue does not fit the
+module. `cargo xtask web-player` (and `cargo xtask gpu`, `cargo xtask dist`)
+looks for that version in `WASM_BINDGEN`, then in `target/tools/`, then on
+`PATH`, and installs it into `target/tools/` with `cargo install --locked` when
+it finds none. This error means that the install failed (with no network, for
+example) or that the tool found does not run.
+
+Fix: run the command again with a network, or install the tool by hand with
+the command in the message and name it in `WASM_BINDGEN` or put it on `PATH`.
+Nothing else needs it: without the WebGPU player, `rwgpu serve` serves the CPU
+player.";
 
     // ---- x01xx: file format ----------------------------------------------
     TOML_SYNTAX = "E0101", "toml-syntax", Error, "Invalid TOML syntax",
@@ -304,7 +319,7 @@ look at the image to confirm it is right before committing it.";
 
 Fix: add a playtest; see the playtest format in `rwgpu docs`.";
 
-    // ---- x05xx: the native player ------------------------------------------
+    // ---- x05xx: the players ------------------------------------------------
     NO_GPU_ADAPTER = "E0501", "no-gpu-adapter", Error, "No graphics adapter",
 "The player found no graphics adapter that can draw (and, with a window, show
 the picture in it). It needs Vulkan (Linux, Windows), Metal (macOS) or
@@ -314,7 +329,8 @@ Fix: install or update the graphics driver. On Linux without a graphics card,
 Mesa's software Vulkan driver works: `sudo apt-get install mesa-vulkan-drivers
 libvulkan1`. `WGPU_BACKEND=vulkan` (or `metal`, `dx12`) picks a backend.
 Everything else rwgpu does needs no GPU: `rwgpu run`, `shot` and `test` draw
-with the CPU.";
+with the CPU. In a browser the web player shows the game with the CPU
+reference renderer instead, and its status line names this code.";
 
     NO_WINDOW_SYSTEM = "E0502", "no-window-system", Error, "No window system",
 "The player could not open a window: there is no desktop session it can reach.
@@ -332,7 +348,9 @@ could not hand a picture back for `--screenshot`. The message has the driver's
 own words.
 
 Fix: update the graphics driver, or try another backend with `WGPU_BACKEND`.
-If it happens with one project only, report it with that project attached.";
+If it happens with one project only, report it with that project attached. In
+a browser (a lost device, too) the web player goes on with the CPU reference
+renderer, and its status line names this code.";
 }
 
 /// Look up a code such as `E0103` (case-insensitive) or a slug such as

@@ -3,13 +3,17 @@
 //!
 //! The engine crates never read the time (ADR 0005); the player is where the
 //! clock lives. [`Steps`] is plain arithmetic on nanoseconds, so it is tested
-//! without waiting; [`Watch`] is the one place that reads the wall clock.
+//! without waiting, and both players use it; [`Watch`] is the one place that
+//! reads the wall clock: `std::time::Instant` natively, the page's
+//! `performance.now()` in a browser, where `Instant` does not exist.
 
 // The player reads the wall clock on purpose: it is what paces the steps and
 // times the frames. The ban (clippy.toml) is for the engine crates.
 #![allow(clippy::disallowed_methods)]
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 
 /// The most steps taken at one wake-up. A player that falls further behind
 /// (a slow frame, a window being dragged, a laptop waking up) takes these
@@ -72,9 +76,11 @@ impl Steps {
 }
 
 /// The wall clock: the start of the run, and timings.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Copy, Debug)]
 pub struct Watch(Instant);
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Watch {
     pub fn start() -> Watch {
         Watch(Instant::now())
@@ -95,6 +101,50 @@ impl Watch {
     }
 }
 
+/// The wall clock in a browser: `performance.now()`, in milliseconds since
+/// the page started, with a fraction (browsers round it to 5 µs or 100 µs).
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Copy, Debug)]
+pub struct Watch(f64);
+
+#[cfg(target_arch = "wasm32")]
+mod page {
+    use wasm_bindgen::prelude::wasm_bindgen;
+
+    #[wasm_bindgen]
+    extern "C" {
+        #[wasm_bindgen(js_namespace = performance, js_name = now)]
+        pub fn now() -> f64;
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Watch {
+    pub fn start() -> Watch {
+        Watch(page::now())
+    }
+
+    /// The watch started at `ms` on the page's clock (an animation frame's
+    /// time stamp, say).
+    pub fn started_at(ms: f64) -> Watch {
+        Watch(ms)
+    }
+
+    /// The time since the start at `ms` on the page's clock.
+    pub fn since(&self, ms: f64) -> Duration {
+        Duration::from_secs_f64(((ms - self.0) / 1000.0).max(0.0))
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        self.since(page::now())
+    }
+
+    /// Microseconds since the start, for timings.
+    pub fn micros(&self) -> u64 {
+        self.elapsed().as_micros() as u64
+    }
+}
+
 /// Timings in microseconds, summed up as a median and a maximum.
 #[derive(Clone, Debug, Default)]
 pub struct Timings(Vec<u64>);
@@ -110,6 +160,11 @@ impl Timings {
 
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// All of them together.
+    pub fn sum(&self) -> u64 {
+        self.0.iter().sum()
     }
 
     /// (median, maximum), or zeros when nothing was timed.

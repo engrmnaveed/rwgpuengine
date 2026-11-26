@@ -44,9 +44,15 @@ impl std::fmt::Debug for Player {
 
 impl Player {
     pub fn new(session: Session, device: &wgpu::Device, end: Option<u64>) -> Player {
+        Player::with_renderer(session, Renderer::new(device, Options::default()), end)
+    }
+
+    /// A player that draws with a renderer made before, so its pipelines are
+    /// not built again: for a page that restarts the game or loads new files.
+    pub fn with_renderer(session: Session, renderer: Renderer, end: Option<u64>) -> Player {
         Player {
             session,
-            renderer: Renderer::new(device, Options::default()),
+            renderer,
             drawn: None,
             pending: None,
             end,
@@ -101,28 +107,9 @@ impl Player {
         self.session.move_camera(m);
     }
 
-    /// The move for [`Does::View`] and [`Does::Home`].
+    /// The move for [`Does::View`] and [`Does::Home`] ([`key_move`]).
     pub fn key_move(&self, does: Does) -> CameraMove {
-        let now = self.session.camera;
-        match does {
-            Does::View => CameraMove {
-                view: Some(match now.view {
-                    CameraView::Iso => CameraView::Perspective,
-                    CameraView::Perspective => CameraView::Iso,
-                }),
-                ..STILL
-            },
-            Does::Home => {
-                let home = Camera::new(&self.session.scene);
-                CameraMove {
-                    view: Some(home.view),
-                    turn: home.turn - now.turn,
-                    zoom: home.zoom / now.zoom,
-                    pan: [home.center[0] - now.center[0], home.center[1] - now.center[1]],
-                }
-            }
-            _ => STILL,
-        }
+        key_move(&self.session, does)
     }
 
     /// The pan of a drag by `d` frame pixels ([`pan_move`]).
@@ -160,6 +147,31 @@ impl Player {
             Some(Err(e)) => Err(failed(e)),
             None => Err(failed("the frame did not arrive from the GPU".into())),
         }
+    }
+}
+
+/// The move for [`Does::View`] (the other view) and [`Does::Home`] (back to
+/// the scene's camera, as one move); [`STILL`] for anything else.
+pub fn key_move(session: &Session, does: Does) -> CameraMove {
+    let now = session.camera;
+    match does {
+        Does::View => CameraMove {
+            view: Some(match now.view {
+                CameraView::Iso => CameraView::Perspective,
+                CameraView::Perspective => CameraView::Iso,
+            }),
+            ..STILL
+        },
+        Does::Home => {
+            let home = Camera::new(&session.scene);
+            CameraMove {
+                view: Some(home.view),
+                turn: home.turn - now.turn,
+                zoom: home.zoom / now.zoom,
+                pan: [home.center[0] - now.center[0], home.center[1] - now.center[1]],
+            }
+        }
+        _ => STILL,
     }
 }
 

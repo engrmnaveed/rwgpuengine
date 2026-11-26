@@ -7,7 +7,8 @@
 #
 # `gpu` is `cargo xtask gpu`: the players' half. It holds the wgpu renderer
 # to the CPU reference renderer, replays every example playtest with the
-# native player, and enforces the players' budgets (ADR 0021, ADR 0022).
+# native player and with the web player in a headless Chrome (WebGPU and the
+# CPU fallback), and enforces the players' budgets (ADR 0021, 0022, 0024).
 name: ci
 
 on:
@@ -54,9 +55,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       RWGPU_TIME_BUDGET_SCALE: "4"
+      # The browser check runs this many times in a row: a new check is
+      # trusted only after it held several times (ADR 0024).
+      RWGPU_BROWSER_RUNS: "3"
     steps:
       - uses: actions/checkout@v7
       - name: Install toolchain
@@ -67,6 +71,8 @@ jobs:
           workspaces: |
             . -> target
             players -> target
+          # The pinned wasm-bindgen tool, installed there by xtask on first use (ADR 0024).
+          cache-directories: target/tools
       # And, for a window, a virtual X display and the keyboard library winit loads.
       - name: Install Mesa's software Vulkan driver and a virtual display
         if: runner.os == 'Linux'
@@ -92,7 +98,8 @@ jobs:
         if: always()
         run: cargo xtask gpu --study -- --no-timing
       # The reference's picture, the GPU's and their difference, for every scene
-      # that failed; and what the window showed (target/player).
+      # that failed; what the window showed (target/player); and the browser's
+      # frames and results (target/web-check).
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
@@ -100,5 +107,7 @@ jobs:
           path: |
             target/gpu-check
             target/player
+            target/web-check/*.rgba
+            target/web-check/frames.txt
           retention-days: 14
           if-no-files-found: ignore

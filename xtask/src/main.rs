@@ -6,16 +6,20 @@
 //!                       output, oversized files (the first step of `ci`)
 //! cargo xtask dist      the release artifacts, with no path of this machine
 //!                       (`--agent`: only the rwgpu command and the web module)
-//! cargo xtask web       build rwgpuengine_web.wasm (web profile)
+//! cargo xtask web       build rwgpuengine_web.wasm (web profile): the CPU player
+//! cargo xtask web-player  build the WebGPU web player into target/web-player
+//!                       (the players' half; installs the pinned wasm-bindgen
+//!                       tool into target/tools the first time)
 //! cargo xtask smoke     the first-milestone command chain on a fresh project
 //! cargo xtask budgets   measure and enforce budgets.toml
 //! cargo xtask docs      regenerate docs/reference (`--check` to verify only)
 //! cargo xtask wasm-check  the wasm module against the native command (needs Node)
 //! cargo xtask gpu       the players' half: the wgpu renderer against the CPU
 //!                       reference, the native player against `rwgpu test`,
-//!                       and the players' budgets (needs a GPU or a software
-//!                       adapter; not part of `ci`). `--window` also plays in
-//!                       a real window.
+//!                       the web player in a headless browser, and the
+//!                       players' budgets (needs a GPU or a software adapter;
+//!                       not part of `ci`). `--window` also plays in a real
+//!                       window.
 //! ```
 //!
 //! `render-bench` is internal: `budgets` runs it as a release build.
@@ -31,6 +35,7 @@ use std::time::Instant;
 mod dist;
 mod repo;
 mod town;
+mod web;
 
 use rwgpuengine_core::diag::SourceFile;
 use rwgpuengine_core::json::Json;
@@ -47,6 +52,7 @@ fn main() -> ExitCode {
         "repo-check" => repo_check(),
         "dist" => dist_all(rest),
         "web" => web().map(|_| ()),
+        "web-player" => dist::Machine::here(&root()).and_then(|m| web::build(&m)).map(|_| ()),
         "smoke" => smoke().map(|_| ()),
         "budgets" => budgets(),
         "docs" => docs(rest.iter().any(|a| a == "--check")),
@@ -55,8 +61,8 @@ fn main() -> ExitCode {
         "gpu" => gpu(rest),
         _ => {
             eprintln!(
-                "usage: cargo xtask <ci | repo-check | dist [--agent] | web | smoke | budgets | docs [--check] | \
-                 wasm-check | gpu [--fast | --study | --window] [-- <options of players/gpu_check>]>"
+                "usage: cargo xtask <ci | repo-check | dist [--agent] | web | web-player | smoke | budgets | \
+                 docs [--check] | wasm-check | gpu [--fast | --study | --window] [-- <options of players/gpu_check>]>"
             );
             return ExitCode::from(2);
         }
@@ -214,6 +220,16 @@ fn dist_all(args: &[String]) -> Result {
         let programs = players_release(&machine, &root().join("players/target-release"))?;
         dist::check_artifacts(&machine, &root(), &programs)?;
         artifacts.extend(programs);
+        step("dist: the web player");
+        let dir = web::build(&machine)?;
+        // Beside the release `rwgpu`, where `rwgpu serve` looks first.
+        let beside = root().join("target/release").join(rwgpuengine_cli::serve::WEB_PLAYER_DIR);
+        let _ = std::fs::remove_dir_all(&beside);
+        std::fs::create_dir_all(&beside).map_err(|e| format!("{}: {e}", beside.display()))?;
+        for f in rwgpuengine_cli::serve::WEB_PLAYER_FILES {
+            std::fs::copy(dir.join(f), beside.join(f)).map_err(|e| format!("{f}: {e}"))?;
+            artifacts.push(beside.join(f));
+        }
     }
     eprintln!("\nrelease artifacts, with no path of this machine:");
     for a in &artifacts {
@@ -645,8 +661,19 @@ fn gpu(args: &[String]) -> Result {
     )?;
     step("players: clippy (native)");
     run_in(&players, "cargo", &["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])?;
-    step("players: clippy (wasm): the renderer must build for the browser");
-    let wasm = ["clippy", "-p", "rwgpuengine_gpu", "--target", "wasm32-unknown-unknown", "--", "-D", "warnings"];
+    step("players: clippy (wasm): the renderer and the web player must build for the browser");
+    let wasm = [
+        "clippy",
+        "-p",
+        "rwgpuengine_gpu",
+        "-p",
+        "rwgpuengine_player",
+        "--target",
+        "wasm32-unknown-unknown",
+        "--",
+        "-D",
+        "warnings",
+    ];
     run_in(&players, "cargo", &wasm)?;
     step("players: tests");
     run_in(&players, "cargo", &["test", "--workspace"])?;
@@ -667,8 +694,16 @@ fn gpu(args: &[String]) -> Result {
         crates = crates.max(external.len());
         macros = macros.max(proc_macros.len());
     }
-    let (web, _) = deps(&players, &["-p", "rwgpuengine_gpu", "--target", "wasm32-unknown-unknown"])?;
-    eprintln!("wasm32-unknown-unknown (the renderer alone): {} rented crates", web.len());
+    // The web player: the players' workspace built for the browser.
+    let (web, web_macros) = deps(&players, &["--workspace", "--target", "wasm32-unknown-unknown"])?;
+    eprintln!(
+        "wasm32-unknown-unknown (the web player): {} rented crates; {} proc macros ({})",
+        web.len(),
+        web_macros.len(),
+        web_macros.join(", ")
+    );
+    crates = crates.max(web.len());
+    macros = macros.max(web_macros.len());
     r.add("players.crates", crates as i64, b.limit("players", "crates"));
     r.add("players.proc_macro_crates", macros as i64, b.limit("players", "proc_macro_crates"));
 
@@ -705,9 +740,39 @@ fn gpu(args: &[String]) -> Result {
         r.add("players.gpu_frame_us", us, limit);
     }
     let played = player_programs(&built, b.limit("players", "pixels_apart"), window);
+
+    // The web player: built, measured, and played in a browser.
+    let mut browser = Ok(web::Measured::default());
+    match web::build(&machine) {
+        Ok(dir) => {
+            r.add("players.web_download_bytes", web::download_bytes(&dir)?, b.limit("players", "web_download_bytes"));
+            if let Ok(expected) = &played {
+                let rwgpu = root().join("target/debug").join(format!("rwgpu{}", std::env::consts::EXE_SUFFIX));
+                browser = web::check(&dir, &rwgpu, &exe, expected, b.limit("players", "pixels_apart"));
+                if let Ok(m) = &browser
+                    && let Some(px) = m.pixels_apart
+                {
+                    r.add("players.web_pixels_apart", px, b.limit("players", "pixels_apart"));
+                }
+            }
+        }
+        Err(e) => browser = Err(e),
+    }
     let budgets = r.print_and_check();
+    if let Ok(m) = &browser
+        && m.ran
+    {
+        eprintln!(
+            "
+the web player in a browser:"
+        );
+        for line in &m.summary {
+            eprintln!("  {line}");
+        }
+    }
     checked?;
     played?;
+    browser?;
     paths?;
     budgets?;
     eprintln!("\ngpu: all green");
@@ -722,7 +787,7 @@ fn gpu(args: &[String]) -> Result {
 /// - With `window`, a playtest replayed in a real window reaches its hash
 ///   too, and the picture read back from the window is the reference's
 ///   picture, scaled.
-fn player_programs(built: &Path, pixels_apart: i64, window: bool) -> Result {
+fn player_programs(built: &Path, pixels_apart: i64, window: bool) -> Result<Vec<web::Expected>> {
     step("players: the rwgpu-player program against `rwgpu test`");
     let bin = built.join("release");
     let player = bin.join(format!("rwgpu-player{}", std::env::consts::EXE_SUFFIX)).to_string_lossy().into_owned();
@@ -766,10 +831,12 @@ fn player_programs(built: &Path, pixels_apart: i64, window: bool) -> Result {
             if !ok {
                 return Err(format!("rwgpu-player does not reach `rwgpu test`'s state for {example}/{path}"));
             }
-            expected.push((example, path, hash));
+            let frames = field(t, "frames").unwrap_or_default();
+            expected.push(web::Expected { example, test: path, frames, state: hash });
         }
     }
-    let (example, path, hash) = expected.last().cloned().ok_or("no example playtests")?;
+    let last = expected.last().cloned().ok_or("no example playtests")?;
+    let (example, path, hash) = (last.example, last.test, last.state);
     let got = json(&rwgpu, &["play", example, "--input", &path, "--headless", "--json"], Some(&bin))?;
     if field(&got, "state_hash").as_deref() != Some(hash.as_str()) {
         return Err(format!("`rwgpu play` (the player found on PATH) did not reach {hash}: {}", got.to_pretty()));
@@ -777,7 +844,7 @@ fn player_programs(built: &Path, pixels_apart: i64, window: bool) -> Result {
     eprintln!("ok   rwgpu play {example} --input {path} --headless: found rwgpu-player on PATH, state {hash}");
 
     if !window {
-        return Ok(());
+        return Ok(expected);
     }
     step("players: a replay in a real window");
     let shot = root().join("target/player/window.png");
@@ -806,7 +873,7 @@ fn player_programs(built: &Path, pixels_apart: i64, window: bool) -> Result {
             "note: the window is {} x {}, not a whole multiple of the {} x {} frame; its picture is not compared",
             win.width, win.height, refr.width, refr.height
         );
-        return Ok(());
+        return Ok(expected);
     }
     // Each frame pixel is a block of scale x scale window pixels.
     let at = |img: &rwgpuengine_render::image::Image, x: u32, y: u32| {
@@ -829,7 +896,7 @@ fn player_programs(built: &Path, pixels_apart: i64, window: bool) -> Result {
     if apart > pixels_apart {
         return Err(format!("the window showed {apart} pixels apart from the reference (see {})", shot.display()));
     }
-    Ok(())
+    Ok(expected)
 }
 
 /// Run `cmd` and collect its output, killing it after `seconds`: a window

@@ -40,6 +40,11 @@ decision in [open-questions.md](open-questions.md).
    - ~~release builds without local paths, and a repository check in the gate~~: built on 2026-11-26
      ([ADR 0023](decisions/0023-release-builds-without-local-paths.md)). `cargo xtask dist` builds every
      artifact with no path of the machine that built it, and both gates check that.
+   - ~~the player on WebGPU, with the CPU fallback~~: built on 2026-11-26
+     ([ADR 0024](decisions/0024-web-player-on-webgpu.md)). One module, 768 KB to download (budget 1.5 MB);
+     `rwgpu serve` shows the town on WebGPU, or with the CPU reference renderer where the browser has no
+     WebGPU; `cargo xtask gpu` plays every example playtest in a headless Chrome on both paths.
+   - next: `rwgpu export web` and a link that opens the town.
 9. Then, in the order the proposal gives (its section 7): the simulation at scale;
    shapes as text and the town reference game; Rust game code; templates per kind of game. Then demos, the
    MCP adapter and the desktop app.

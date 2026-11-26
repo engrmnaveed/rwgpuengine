@@ -1,6 +1,6 @@
 [package]
 name = "rwgpuengine_player"
-description = "The native player: a project in a window, stepped by the engine's Session and drawn by rwgpuengine_gpu. `rwgpu play` runs it."
+description = "The players: a project in a native window (`rwgpu-player`, which `rwgpu play` runs) or on a browser canvas (the web player), stepped by the engine's Session and drawn by rwgpuengine_gpu."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -21,9 +21,19 @@ rwgpuengine_data.workspace = true
 rwgpuengine_sim.workspace = true
 rwgpuengine_render.workspace = true
 rwgpuengine_runtime.workspace = true
-rwgpuengine_cli.workspace = true
 rwgpuengine_gpu.workspace = true
+
+# The native window and command line.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rwgpuengine_cli.workspace = true
 winit.workspace = true
+
+# The browser canvas: `cargo xtask web-player` builds the library as a wasm
+# module and writes its glue with the `wasm-bindgen` tool (ADR 0024).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+web-sys.workspace = true
 
 [lints]
 workspace = true

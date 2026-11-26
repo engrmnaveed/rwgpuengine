@@ -65,15 +65,21 @@ cargo build --release            # target/release/rwgpu
 cargo rwgpu test examples/iso_garden
 ```
 
-Web player (same engine compiled to wasm, same pixels as native):
+In a browser, drawn with WebGPU where the browser has it and by the CPU reference renderer where it has not
+(the page says which in one line under the picture):
 
 ```bash
-cargo xtask web                  # builds target/wasm32-unknown-unknown/web/rwgpuengine_web.wasm
-cargo rwgpu serve examples/iso_garden   # open http://127.0.0.1:4410/
+cargo xtask web-player                  # once: the web player in target/web-player (installs wasm-bindgen 0.2.130 into target/tools the first time)
+cargo rwgpu serve examples/tiny_town    # open http://127.0.0.1:4410/
 ```
 
-Add `?input=tests/walkthrough.toml&frames=300` to the URL to replay a playtest; the state hash on the
-page matches `rwgpu run`. Edit any file in the project and the page reloads it.
+Tested headless in Chrome 157 and 158 and Edge 157 and 158; the 3D proposal lists the other browsers with
+WebGPU. Add
+`?input=tests/turn_and_build.toml&frames=90` to the URL to replay a playtest; the state hash on the page
+matches `rwgpu run`. `?renderer=cpu` draws with the CPU reference renderer. Edit any file in the project and
+the page reloads it. Without `cargo xtask web-player`, `rwgpu serve` serves the CPU player instead
+(`cargo xtask web` builds it); its first line says which it serves
+([ADR 0024](docs/decisions/0024-web-player-on-webgpu.md)).
 
 A window, drawn with the GPU (Vulkan, Metal or Direct3D 12; on Linux without a graphics card, Mesa's
 `mesa-vulkan-drivers`). The native player is a program of its own, so `rwgpu` never needs a GPU; build and
@@ -91,7 +97,8 @@ leaves those paths out and checks that it did ([ADR 0023](docs/decisions/0023-re
 
 Arrows or W A S D, Enter or Space and Escape are the game's keys, and a click is a tap. Q and E turn the
 camera, right-drag turns it freely, middle-drag pans, the wheel zooms and V switches to perspective
-(`rwgpu help play` lists them all).
+(`rwgpu help play` lists them all). The web player has the same bindings, and on a touch screen a finger
+taps and swipes and two fingers pinch.
 
 ## Repository map
 
@@ -103,15 +110,15 @@ camera, right-drag turns it freely, middle-drag pans, the wheel zooms and V swit
 | `crates/rwgpuengine_render` | the camera, the render list, the CPU reference renderer (3D), frame report, picking, PNG |
 | `crates/rwgpuengine_runtime` | sessions, scripted input, playtests, the `Game` trait for Rust code |
 | `crates/rwgpuengine_cli` | the `rwgpu` command line (+ project template, dev server) |
-| `crates/rwgpuengine_web` | wasm build with a small C ABI; `web/` holds the page and JS glue |
+| `crates/rwgpuengine_web` | the CPU player's wasm module, with a small C ABI; `web/` holds its page and JS glue |
 | `players/rwgpuengine_gpu` | the players' renderer: the render list drawn with wgpu, no window (its own workspace, `players/`) |
-| `players/rwgpuengine_player` | the native player, `rwgpu-player`: a project in a winit window, stepped by the engine and drawn by that renderer; `rwgpu play` starts it |
+| `players/rwgpuengine_player` | the players: `rwgpu-player`, a project in a winit window (`rwgpu play` starts it), and the web player on WebGPU, the same code built for the browser with its page in `web/` (`rwgpu serve` serves it); both stepped by the engine and drawn by that renderer |
 | `players/gpu_check` | holds that renderer to the CPU reference renderer, scene by scene, and replays every example playtest with the player |
 | `examples/iso_garden` | reference example: plate opens gate, goal raises flag; 2 playtests |
 | `examples/coin_vault` | reference example for data logic: coin counter on a HUD, vault opens at 3, AND lock held by a pushed crate; 4 playtests |
 | `examples/tiny_town` | **reference game 1** ([spec](docs/games/tiny-town.md)): a builder — terrain map, tap to build 2 × 2 houses, trees and a well within a coin budget, clear with refund, a job card that counts copies, hints that say why nothing was built; 4 playtests, one of which turns the camera and builds in perspective |
-| `xtask` | `cargo xtask ci | repo-check | dist | web | smoke | budgets | docs | wasm-check | gpu` |
-| `web/` | the web player's page and glue, and `check.mjs`, which holds the wasm module to the native command |
+| `xtask` | `cargo xtask ci | repo-check | dist | web | web-player | smoke | budgets | docs | wasm-check | gpu` |
+| `web/` | the CPU player's page and glue, and `check.mjs`, which holds its wasm module to the native command |
 | `docs/` | vision, architecture, decisions (ADRs), proposals, roadmap, open questions, reference |
 
 ## Development
@@ -119,7 +126,7 @@ camera, right-drag turns it freely, middle-drag pans, the wheel zooms and V swit
 ```bash
 cargo xtask ci        # repository check, fmt, clippy (native+wasm), tests, docs drift, examples, budgets, wasm check — what CI runs
 cargo xtask dist      # release artifacts to share: no path of the machine that built them (ADR 0023)
-cargo xtask gpu       # the players' half: the wgpu renderer against the CPU reference, the native player, players' budgets (needs a GPU)
+cargo xtask gpu       # the players' half: the wgpu renderer against the CPU reference, the native player, the web player in a headless Chrome, players' budgets (needs a GPU)
 ```
 
 Hard limits in [budgets.toml](budgets.toml) fail the build (wasm size, CLI size, dependency count,

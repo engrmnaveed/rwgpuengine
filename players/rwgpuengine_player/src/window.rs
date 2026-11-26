@@ -14,15 +14,15 @@ use rwgpuengine_gpu::wgpu;
 use rwgpuengine_runtime::Session;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::PhysicalKey;
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 use crate::clock::{Steps, Timings, Watch};
 use crate::fit;
 use crate::gpu::{self, Gpu, failed};
-use crate::input::{Gesture, Input};
+use crate::input::{Button, Gesture, Input};
 use crate::play::Player;
 
 /// A picture the window showed, read back for `--screenshot`.
@@ -290,7 +290,7 @@ impl ApplicationHandler for App {
             WindowEvent::ModifiersChanged(m) => self.input.shift(m.state().shift_key()),
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
-                    let g = self.input.key(code, event.state == ElementState::Pressed, event.repeat);
+                    let g = self.input.key(&code_name(code), event.state == ElementState::Pressed, event.repeat);
                     self.gesture(g);
                 }
             }
@@ -305,7 +305,7 @@ impl ApplicationHandler for App {
                     .cursor()
                     .zip(self.open.as_ref())
                     .and_then(|(at, o)| fit::to_frame(o.area, o.player.frame_size(), at));
-                self.input.button(button, state == ElementState::Pressed, at);
+                self.input.button(button_of(button), state == ElementState::Pressed, at);
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let g = match delta {
@@ -352,6 +352,22 @@ impl ApplicationHandler for App {
             return;
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.watch.at(self.steps.next())));
+    }
+}
+
+/// A key's W3C `code`, the name the bindings use ([`crate::input::KEYS`]).
+/// winit names its `KeyCode`s after those codes, so the name is the
+/// variant's.
+fn code_name(code: KeyCode) -> String {
+    format!("{code:?}")
+}
+
+fn button_of(b: MouseButton) -> Button {
+    match b {
+        MouseButton::Left => Button::Left,
+        MouseButton::Right => Button::Right,
+        MouseButton::Middle => Button::Middle,
+        _ => Button::Other,
     }
 }
 
@@ -448,5 +464,37 @@ mod tests {
             "could not open a window: neither WAYLAND_DISPLAY nor WAYLAND_SOCKET nor DISPLAY is set."
         );
         assert_eq!(no_window("no luck".into()).message, "could not open a window: no luck");
+    }
+
+    /// The window names winit's keys as a browser does, so both players use
+    /// one table of bindings.
+    #[test]
+    fn winits_key_names_are_the_codes_the_bindings_use() {
+        let bound = [
+            KeyCode::ArrowUp,
+            KeyCode::ArrowDown,
+            KeyCode::ArrowLeft,
+            KeyCode::ArrowRight,
+            KeyCode::KeyW,
+            KeyCode::KeyS,
+            KeyCode::KeyA,
+            KeyCode::KeyD,
+            KeyCode::Enter,
+            KeyCode::NumpadEnter,
+            KeyCode::Space,
+            KeyCode::Escape,
+            KeyCode::KeyQ,
+            KeyCode::KeyE,
+            KeyCode::Minus,
+            KeyCode::NumpadSubtract,
+            KeyCode::Equal,
+            KeyCode::NumpadAdd,
+            KeyCode::KeyV,
+            KeyCode::Home,
+        ];
+        let names: Vec<String> = bound.iter().map(|k| code_name(*k)).collect();
+        let table: Vec<&str> = crate::input::KEYS.iter().map(|(k, _, _)| *k).collect();
+        assert_eq!(names, table);
+        assert_eq!(button_of(MouseButton::Back), Button::Other);
     }
 }

@@ -1,13 +1,12 @@
 # A measurement, not a gate: which browsers on GitHub's hosted runners give WebGPU
 # when run headless, and with which flags (ADR 0024). The runners have no real
 # graphics card. Each job prints a table to its summary; see
-# docs/proposals/3d-architecture/spikes/web_probe/probe.mjs.
+# docs/proposals/3d-architecture/spikes/web_probe/probe.mjs. The results of the
+# first run (45841919897) are in docs/decisions/0024-web-player-on-webgpu.md.
 name: web-probe
 
 on:
   workflow_dispatch:
-  push:
-    branches: [web-gpu-probe]
   pull_request:
     paths:
       - docs/proposals/3d-architecture/spikes/web_probe/**

@@ -7,6 +7,35 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-26 — The web player on WebGPU, with the CPU reference renderer as its fallback
+
+- Step 4, piece 2 ([ADR 0024](decisions/0024-web-player-on-webgpu.md)). `cargo xtask web-player` builds
+  `rwgpuengine_player`'s library for wasm32 (its `web` module) with wasm-bindgen 0.2.130 and copies the page;
+  `cargo rwgpu serve examples/tiny_town` shows the town on WebGPU, or with the CPU reference renderer where the
+  browser has no WebGPU, no adapter, or loses the device. The page says which in one line.
+- **Headless WebGPU, measured** (`web_probe`, Node only): this Mac's Chrome 158 gives the Metal adapter with no
+  flags; GitHub's macOS runner its Paravirtual device; the Windows runner WARP only with
+  `--enable-unsafe-webgpu --ignore-gpu-blocklist`; the Linux runner SwiftShader with `--enable-unsafe-webgpu`
+  (Mesa's lavapipe never shows). So every runner can play the web player on WebGPU, with no new software.
+- **The shape, measured.** One module holding the engine, the GPU renderer and the CPU painter: 767,824 bytes
+  to download (297,481 gzipped) against the budget of 1,500,000. Two modules would save 12 KB on the WebGPU
+  path and 125 KB on the fallback, but a lost device would end the game and the bindings would be written
+  twice. winit's web backend would add 146 KB of wasm, 28 KB of glue, 8 crates and a proc macro, against a
+  page script of 14 KB.
+- **The glue tool** is installed by xtask into `target/tools/` with `cargo install --locked`, the crate's exact
+  version: 24 to 25 s once; CI caches it.
+- **Shared with the native player:** `Player`, `fit`, `clock::Steps`, the bindings (now keyed by W3C key codes,
+  which are winit's names too) and the camera moves. Added: a two-finger pinch for touch screens.
+- **The proof, in `cargo xtask gpu`:** a headless Chrome plays all ten example playtests on WebGPU and on the
+  CPU path; every state hash is `rwgpu test`'s; the WebGPU frames are 0 pixels apart from the reference (Metal,
+  and SwiftShader by hand); the CPU canvas holds the reference's pixels; a device lost halfway through a
+  playtest hands the game to the CPU path at the same state; a still scene draws one frame in 3 s. Green 12 of
+  12 times here; CI runs it three times per job.
+- **Timings, this Mac:** navigation to the first frame 39 to 95 ms; with the camera turning, 0.25 to 0.4 ms of
+  the page's time per drawn frame.
+- Not done: `rwgpu export web` (piece 3), WebGL2, offline pages, sound, gamepads, phone shells; the CPU player
+  of ADR 0008 has no camera bindings.
+
 ## 2026-11-26 — Release builds without local paths; the gate keeps paths and build output out of git
 
 - Step 4, piece 1 ([ADR 0023](decisions/0023-release-builds-without-local-paths.md)). It pays the debt the

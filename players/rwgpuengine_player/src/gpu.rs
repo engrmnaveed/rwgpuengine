@@ -31,6 +31,7 @@ pub fn instance() -> wgpu::Instance {
 }
 
 /// Run a future that never really waits: natively, wgpu's are ready at once.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn block_on<F: Future>(f: F) -> F::Output {
     let mut f = std::pin::pin!(f);
     let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
@@ -59,27 +60,42 @@ impl Gpu {
     /// The adapter wgpu prefers (`HighPerformance`), one that can show a
     /// picture on `surface` when there is one, and a device with no features
     /// and the downlevel limits: all `rwgpuengine_gpu` needs (ADR 0021).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn open(instance: &wgpu::Instance, surface: Option<&wgpu::Surface<'_>>) -> Result<Gpu, Diagnostic> {
         let software = std::env::var("WGPU_FORCE_FALLBACK_ADAPTER").is_ok_and(|v| v == "1");
-        let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            force_fallback_adapter: software,
-            compatible_surface: surface,
-            ..Default::default()
-        }))
-        .map_err(|e| {
-            let backend = std::env::var("WGPU_BACKEND").map(|b| format!(" (WGPU_BACKEND={b})")).unwrap_or_default();
-            let what = if surface.is_some() { "that can show a picture in this window" } else { "that can draw" };
-            Diagnostic::new(&codes::NO_GPU_ADAPTER, format!("no graphics adapter {what}{backend}: {e}")).hint(
-                "install or update the graphics driver (Vulkan, Metal or Direct3D 12); on Linux without a graphics \
+        block_on(Gpu::request(instance, surface, software))
+    }
+
+    /// [`Gpu::open`] for a caller that can wait: a browser, where the adapter
+    /// and the device come in promises. `software` asks for a fallback
+    /// (software) adapter only.
+    pub async fn request(
+        instance: &wgpu::Instance,
+        surface: Option<&wgpu::Surface<'_>>,
+        software: bool,
+    ) -> Result<Gpu, Diagnostic> {
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                force_fallback_adapter: software,
+                compatible_surface: surface,
+                ..Default::default()
+            })
+            .await
+            .map_err(|e| {
+                let backend = std::env::var("WGPU_BACKEND").map(|b| format!(" (WGPU_BACKEND={b})")).unwrap_or_default();
+                let what = if surface.is_some() { "that can show a picture in this window" } else { "that can draw" };
+                Diagnostic::new(&codes::NO_GPU_ADAPTER, format!("no graphics adapter {what}{backend}: {e}")).hint(
+                    "install or update the graphics driver (Vulkan, Metal or Direct3D 12); on Linux without a graphics \
                  card: `sudo apt-get install mesa-vulkan-drivers libvulkan1`",
-            )
-        })?;
+                )
+            })?;
         let info = adapter.get_info();
         let limits = wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
-        let (device, queue) =
-            block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_limits: limits, ..Default::default() }))
-                .map_err(|e| failed(format!("{} gave no device: {e}", describe(&info))))?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor { required_limits: limits, ..Default::default() })
+            .await
+            .map_err(|e| failed(format!("{} gave no device: {e}", describe(&info))))?;
         let errors = Arc::new(Mutex::new(None));
         let sink = errors.clone();
         device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| note(&sink, e.to_string())));

@@ -99,5 +99,15 @@ gpu_frame_us = 4_000
 # picture; there is no per-channel tolerance. Measured over the 271 scenes:
 # at most 7 on Metal (an Apple M5 Pro and the macOS runner), 5 on WARP, 12 on
 # Mesa lavapipe, each for the town of 5,000 boxes through a turned camera.
-# The limit is twice the worst; the proposal allowed 50.
+# The limit is twice the worst; the proposal allowed 50. The web player's
+# frames in a browser are held to it too (ADR 0024): 0 apart on this Mac.
 pixels_apart = 24
+# The bytes a browser downloads for the web player (ADR 0024): the four files
+# `cargo xtask web-player` writes to target/web-player and `rwgpu serve`
+# serves as they are, uncompressed: index.html, player.js (the page's
+# script), rwgpu_web.js (the glue written by wasm-bindgen) and
+# rwgpu_web_bg.wasm (the engine, the renderer, wgpu's WebGPU backend and the
+# CPU reference painter for the fallback). A game's own files (the bundle)
+# are not counted. Approved in the 3D proposal, section 5. Measured 770,648
+# bytes (297,321 gzipped) on 2026-11-26.
+web_download_bytes = 1_500_000

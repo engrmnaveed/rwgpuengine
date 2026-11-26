@@ -79,7 +79,10 @@ and `stats()` says what the last `draw` did (passes, draws, what was sent to the
 
 The crate compiles for `wasm32-unknown-unknown` (the gate checks it) and uses wgpu's WebGPU backend there.
 Nothing waits: `draw` and `present` return at once, and `FrameCopy::take` returns `None` until the browser
-has delivered the bytes.
+has delivered the bytes. The web player (`rwgpuengine_player`'s `web` module,
+[ADR 0024](../../docs/decisions/0024-web-player-on-webgpu.md)) gets its device with `Gpu::request`, shows
+the frame on a canvas configured `Bgra8Unorm` or `Rgba8Unorm`, and asks for `take` again at each animation
+frame. In Chrome its frames are 0 pixels apart from the reference on Metal and on SwiftShader.
 
 ## Working on it
 

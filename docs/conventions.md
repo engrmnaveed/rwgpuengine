@@ -32,7 +32,7 @@ How the gate enforces it ([ADR 0023](decisions/0023-release-builds-without-local
   only exception is the placeholder name `someone`, in `xtask/src/repo.rs`.
 - After every release build, xtask reads the artifact's bytes for this machine's home folder, the repository
   and Cargo's home. `cargo xtask ci` checks the `rwgpu` command and the web module; `cargo xtask gpu` the
-  players' programs (`gpu_check` and `rwgpu-player`).
+  players' programs (`gpu_check` and `rwgpu-player`) and the web player's files.
 
 ## Commits
 

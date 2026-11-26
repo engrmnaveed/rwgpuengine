@@ -17,6 +17,8 @@
 //! --study               measure the options of ADR 0021 on this adapter
 //! --no-timing           skip the frame times
 //! --random N            N random scenes instead of the fixed ones
+//! --web-frames DIR      only compare the web player's frames in DIR with the
+//!                       reference (written by the browser check; no GPU here)
 //! ```
 //!
 //! wgpu's own variables choose the adapter: `WGPU_BACKEND` (vulkan, metal,
@@ -30,6 +32,7 @@ mod player;
 mod scenes;
 #[path = "../../../xtask/src/town.rs"]
 mod town;
+mod web;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -60,6 +63,7 @@ struct Args {
     timing: bool,
     random: u64,
     out: PathBuf,
+    web_frames: Option<PathBuf>,
 }
 
 /// The repository: the nearest folder at or above the current one that holds
@@ -81,6 +85,7 @@ fn args() -> Result<Args, String> {
         timing: true,
         random: 0,
         out: root().join("target/gpu-check"),
+        web_frames: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -99,6 +104,7 @@ fn args() -> Result<Args, String> {
             "--study" => a.study = true,
             "--no-timing" => a.timing = false,
             "--random" => a.random = value("--random")?.parse().map_err(|e| format!("--random: {e}"))?,
+            "--web-frames" => a.web_frames = Some(PathBuf::from(value("--web-frames")?)),
             other => return Err(format!("unknown option `{other}` (see the top of players/gpu_check/src/main.rs)")),
         }
     }
@@ -371,6 +377,18 @@ fn check(gpu: &Gpu, options: Options, scenes: &[Scene], a: &Args, loud: bool) ->
 
 fn run() -> Result<bool, String> {
     let a = args()?;
+    if let Some(dir) = &a.web_frames {
+        println!(
+            "the web player's frames against the reference (limit: {} pixels apart, all of them on an edge)",
+            a.max_pixels
+        );
+        let (count, worst, ok) = web::check(&root(), &a, dir)?;
+        println!("{count} pictures; the most pixels apart in one: {worst}");
+        std::fs::create_dir_all(&a.out).map_err(|e| format!("{}: {e}", a.out.display()))?;
+        std::fs::write(a.out.join("web-results.txt"), format!("pixels_apart {worst}\n")).map_err(|e| e.to_string())?;
+        println!("\nweb frames: {}", if ok { "all green" } else { "FAILED" });
+        return Ok(ok);
+    }
     let gpu = gpu()?;
     println!("adapter: {}", describe(&gpu.info));
     let mut scenes = match a.random {

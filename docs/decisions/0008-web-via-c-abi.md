@@ -1,6 +1,9 @@
 # ADR 0008: Web via a wasm32 cdylib with a hand-written C ABI
 
-- Status: accepted, 2026-11-24
+- Status: accepted, 2026-11-24. For the player, replaced by [ADR 0024](0024-web-player-on-webgpu.md)
+  (2026-11-26): the web player on WebGPU is built with wasm-bindgen. This record stands for the CPU module
+  `rwgpuengine_web`, which `rwgpu serve` serves when the WebGPU player is not built and which the agent's
+  gate checks under Node.
 
 ## Context
 The first milestone must work in the browser; web and tablets come first. wasm-bindgen/wasm-pack add a

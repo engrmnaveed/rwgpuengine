@@ -11,6 +11,7 @@ Codes are stable: never renumbered or reused. `E` codes are errors (the command 
 | [E0004](#e0004) | `io-error` | Could not read or write a file |
 | [E0005](#e0005) | `already-exists` | Target folder is not empty |
 | [E0006](#e0006) | `player-not-found` | The native player is not installed |
+| [E0007](#e0007) | `web-tool-missing` | The wasm-bindgen tool is missing |
 | [E0101](#e0101) | `toml-syntax` | Invalid TOML syntax |
 | [E0102](#e0102) | `wrong-type` | Value has the wrong type |
 | [E0103](#e0103) | `unknown-key` | Unknown key |
@@ -106,6 +107,24 @@ Fix: from a clone of the rwgpuengine repository, run
 `cargo install --locked --path players/rwgpuengine_player`. It puts
 `rwgpu-player` in cargo's bin folder, which is on `PATH` after a normal Rust
 install. Or copy `rwgpu-player` next to `rwgpu`.
+
+## E0007
+
+**The wasm-bindgen tool is missing** (`web-tool-missing`, error)
+
+The WebGPU web player is a wasm module and the JavaScript glue that the
+`wasm-bindgen` tool writes for it. The tool must be the exact version of the
+`wasm-bindgen` crate in `players/Cargo.lock`, or its glue does not fit the
+module. `cargo xtask web-player` (and `cargo xtask gpu`, `cargo xtask dist`)
+looks for that version in `WASM_BINDGEN`, then in `target/tools/`, then on
+`PATH`, and installs it into `target/tools/` with `cargo install --locked` when
+it finds none. This error means that the install failed (with no network, for
+example) or that the tool found does not run.
+
+Fix: run the command again with a network, or install the tool by hand with
+the command in the message and name it in `WASM_BINDGEN` or put it on `PATH`.
+Nothing else needs it: without the WebGPU player, `rwgpu serve` serves the CPU
+player.
 
 ## E0101
 
@@ -425,7 +444,8 @@ Fix: install or update the graphics driver. On Linux without a graphics card,
 Mesa's software Vulkan driver works: `sudo apt-get install mesa-vulkan-drivers
 libvulkan1`. `WGPU_BACKEND=vulkan` (or `metal`, `dx12`) picks a backend.
 Everything else rwgpu does needs no GPU: `rwgpu run`, `shot` and `test` draw
-with the CPU.
+with the CPU. In a browser the web player shows the game with the CPU
+reference renderer instead, and its status line names this code.
 
 ## E0502
 
@@ -449,4 +469,6 @@ could not hand a picture back for `--screenshot`. The message has the driver's
 own words.
 
 Fix: update the graphics driver, or try another backend with `WGPU_BACKEND`.
-If it happens with one project only, report it with that project attached.
+If it happens with one project only, report it with that project attached. In
+a browser (a lost device, too) the web player goes on with the CPU reference
+renderer, and its status line names this code.

@@ -50,6 +50,12 @@ wgpu = { version = "=30.0.2", default-features = false, features = [
 # Wayland title bar (`wayland-csd-adwaita`, 9 crates more): ADR 0022 has the
 # measured choices.
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
+# The browser (wasm32 only). wgpu's WebGPU backend is built on these, so they
+# add no crate to the players' tree; `wasm-bindgen` is pinned to the exact
+# version of the `wasm-bindgen` tool that writes the page's glue (ADR 0024).
+wasm-bindgen = { version = "=0.2.130", default-features = false, features = ["std"] }
+wasm-bindgen-futures = { version = "=0.4.80", default-features = false, features = ["std"] }
+web-sys = { version = "=0.3.107", default-features = false, features = ["std", "HtmlCanvasElement"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -71,3 +77,21 @@ opt-level = 2
 [profile.release]
 debug = false
 strip = true
+
+# The web player (cargo xtask web-player): size-first, except the hot path,
+# as the agent's half's `web` profile (ADR 0017, ADR 0024).
+[profile.web]
+inherits = "release"
+# The `wasm-bindgen` tool reads the module's `target_features` section, which
+# stripping removes; it drops the names and custom sections itself.
+strip = false
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.web.package.rwgpuengine_render]
+opt-level = 3
+
+[profile.web.package.rwgpuengine_core]
+opt-level = 3
