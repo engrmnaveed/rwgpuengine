@@ -10,6 +10,7 @@ download wgpu and its dependencies from crates.io on the first build.
 | `gpu_native` | N instanced boxes through wgpu 30 with no window: time until the GPU finished, and one frame written as raw RGBA. | `cargo run --release -- <output folder>` |
 | `gpu_web` | The same through wgpu's WebGPU backend in a browser, with a hash of the pixels. | `cargo build --release --target wasm32-unknown-unknown`, then `wasm-bindgen --target web --out-dir web/pkg target/wasm32-unknown-unknown/release/gpu_web.wasm`, then serve `web/` and open it. Add `--features webgl` to the build to measure the size of the WebGL2 fallback. |
 | `cpu_ref` | A deterministic CPU renderer for the same town, with depth and an owner per pixel; compares itself with `gpu_native`'s frames if they are in the output folder. | `cargo run --release -- <output folder>` |
+| `web_probe` | Which browsers give WebGPU when run headless, and with which flags: the default and the fallback adapter, a device on each, a texture cleared and read back. Node only, no build. | `node web_probe/probe.mjs`; on GitHub's runners `.github/workflows/web-probe.yml` (ADR 0024) |
 | `scale_bench` | Moving N actors on a grid with today's storage, with a cell index, and with positions in a column. | `cargo run --release` |
 
 The engine's own scale figures in the proposal came from `rwgpu run` on generated scenes of N wandering
