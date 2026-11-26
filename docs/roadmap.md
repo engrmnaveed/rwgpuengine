@@ -31,8 +31,13 @@ decision in [open-questions.md](open-questions.md).
    - ~~the renderer, its check and the players' budgets~~: built on 2026-11-26
      ([ADR 0021](decisions/0021-wgpu-renderer-held-to-the-reference.md)). `rwgpuengine_gpu` draws the render
      list with wgpu, and `cargo xtask gpu` holds its picture to the CPU reference on Metal, lavapipe and WARP;
-   - a native window around it: next.
-8. Then, in the order the proposal gives (its section 7): the web player on wgpu; the simulation at scale;
+   - ~~a native window around it~~: built on 2026-11-26
+     ([ADR 0022](decisions/0022-native-player-winit-and-rwgpu-play.md)). `rwgpu-player` plays a project in a
+     winit window and `rwgpu play` starts it; it replays every example playtest to `rwgpu test`'s state
+     hashes, and its window shows the reference's picture. Step 3 is done when this lands on `gpu-players`.
+8. **Next: the web player on wgpu** (step 4): the same renderer on WebGPU in a browser, the CPU reference as the
+   fallback, and `rwgpu export web`.
+9. Then, in the order the proposal gives (its section 7): the simulation at scale;
    shapes as text and the town reference game; Rust game code; templates per kind of game. Then demos, the
    MCP adapter and the desktop app.
 

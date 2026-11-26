@@ -21,14 +21,19 @@ cargo xtask web                      # build the wasm web player
 cargo rwgpu serve examples/iso_garden   # web player at http://127.0.0.1:4410/
 cargo xtask docs                     # regenerate docs/reference after changing commands/formats/codes
 cargo xtask budgets                  # measure size/time/dependency budgets
-cargo xtask gpu                      # the players' gate: the wgpu renderer against the CPU reference, players' budgets
+cargo xtask gpu                      # the players' gate: the wgpu renderer against the CPU reference, the native player against `rwgpu test`, players' budgets
 cargo xtask gpu --fast               # only the picture check, built incrementally (the edit loop for players/)
 cargo xtask gpu --fast -- --random 3000   # random scenes: what the fixed ones miss
+cargo xtask gpu --window             # the gate plus a replay in a real window (needs a desktop or `xvfb-run`)
+cargo install --locked --path players/rwgpuengine_player   # the native player, so `cargo rwgpu play examples/tiny_town` opens a window
 ```
 
 `cargo xtask ci` never needs a GPU. `cargo xtask gpu` needs one, or a software adapter (on Linux:
 `mesa-vulkan-drivers`); run it before every commit that touches `players/`, `rwgpuengine_render` or anything
 visual. When a scene fails it names the pixels and writes `target/gpu-check/<scene>.{reference,gpu,diff}.png`.
+The native player ([ADR 0022](docs/decisions/0022-native-player-winit-and-rwgpu-play.md)) reports like a
+command: `rwgpu play <project> --input <test> --headless --json` (or without `--headless`, in a window) prints
+the frame and the state hash, which must match `rwgpu run` for the same file.
 
 ## Rules
 
@@ -61,6 +66,7 @@ visual. When a scene fails it names the pixels and writes `target/gpu-check/<sce
 | new diagnostic | `rwgpuengine_core/src/codes.rs` (next free number in range) → emit with `.at(src, span).hint(..)` → test asserts the code |
 | new command | `rwgpuengine_cli/src/args.rs` (Command entry with examples) → `lib.rs` dispatch → `commands.rs` → `cargo xtask docs` |
 | new event kind | `rwgpuengine_sim/src/events.rs` + `schema::EVENT_KINDS` (a test keeps them equal) |
+| player input or window | `players/rwgpuengine_player`: `input.rs` (keys, taps, camera gestures; the web player's mapping for the game's input) and the `play` entry's text in `rwgpuengine_cli/src/args.rs` (a test keeps them equal), `window.rs` (the event loop), `clock.rs` (the fixed step) → `cargo xtask docs` → `cargo xtask gpu --window`. No game rule and no visual feature here: those go in the engine and the reference |
 | visual change | the reference first (`reference.rs`, `list.rs`, `camera.rs`): run `cargo rwgpu test examples/iso_garden`; if refs differ on purpose, `--update-refs`, then look at the PNG → the same rule in `players/rwgpuengine_gpu` (`pack.rs` for what the CPU prepares, `shader.wgsl` for what the GPU draws) → a scene for it in `players/gpu_check/src/scenes.rs` under an iso and a perspective camera → `cargo xtask gpu` → a few thousand random scenes, `cargo xtask gpu --fast -- --random 3000` (the hand-made scenes were green twice while a real fault was there) |
 
 ## Commits

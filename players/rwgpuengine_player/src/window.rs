@@ -95,8 +95,14 @@ pub fn play(session: Session, end: Option<u64>, screenshot: bool) -> Result<Ran,
     })
 }
 
-/// E0502.
+/// E0502. winit's errors start with the place in its own source
+/// (`os error at <path>/winit-0.30.13/src/...rs:765: `): only the sentence
+/// after it is for the reader.
 fn no_window(why: String) -> Diagnostic {
+    let why = match why.strip_prefix("os error at ") {
+        Some(rest) => rest.split_once(".rs:").and_then(|(_, r)| r.split_once(": ")).map_or(why.as_str(), |(_, s)| s),
+        None => why.as_str(),
+    };
     Diagnostic::new(&codes::NO_WINDOW_SYSTEM, format!("could not open a window: {why}")).hint(
         "run it on a desktop, or add --headless to play without a window; on a Linux server `xvfb-run -a` gives it \
          a virtual display",
@@ -177,32 +183,36 @@ impl App {
     }
 
     /// Show the frame on the window. With `capture`, read the shown picture
-    /// back for `--screenshot`.
+    /// back for `--screenshot`; when the window gives no texture to show it
+    /// on (covered, minimized, being resized), draw it off screen instead.
     fn present(&mut self, capture: bool) {
         let Some(open) = self.open.as_mut() else { return };
         let t = self.watch.micros();
         let texture = match open.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
+            wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                // Asked again after the next resize or wake-up.
+                // Shown again after the next resize or wake-up.
                 open.surface.configure(&open.gpu.device, &open.config);
-                return;
+                None
             }
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => return,
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => None,
             wgpu::CurrentSurfaceTexture::Validation => {
                 self.error = Some(failed("the window's surface reported a validation error".into()));
                 return;
             }
         };
-        let view = texture.texture.create_view(&Default::default());
-        let g = &open.gpu;
-        open.player.renderer.present(&g.device, &g.queue, &view, open.config.format, Some(open.area), false);
-        let readback = (capture && open.readable).then(|| Readback::start(g, &texture.texture));
-        g.queue.present(texture);
-        self.present_us.add(self.watch.micros() - t);
+        let mut readback = None;
+        if let Some(texture) = texture {
+            let view = texture.texture.create_view(&Default::default());
+            let g = &open.gpu;
+            open.player.renderer.present(&g.device, &g.queue, &view, open.config.format, Some(open.area), false);
+            readback = (capture && open.readable).then(|| Readback::start(g, &texture.texture));
+            g.queue.present(texture);
+            self.present_us.add(self.watch.micros() - t);
+        }
         if capture {
             let shot = match readback {
-                Some(r) => r.finish(g, "window"),
+                Some(r) => r.finish(&open.gpu, "window"),
                 None => offscreen(open),
             };
             match shot {
@@ -256,6 +266,9 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => {
                 self.closed_early = self.open.as_ref().is_some_and(|o| !o.player.finished());
+                if self.screenshot && self.shot.is_none() {
+                    self.present(true);
+                }
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => {
@@ -416,4 +429,24 @@ fn offscreen(open: &mut Open) -> Result<Shot, Diagnostic> {
     let view = texture.create_view(&Default::default());
     open.player.renderer.present(&g.device, &g.queue, &view, open.config.format, Some(open.area), false);
     Readback::start(g, &texture).finish(g, "offscreen")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_display_is_e0502_in_winits_own_words_without_its_source_path() {
+        let d = no_window(
+            "os error at /home/someone/.cargo/registry/src/x/winit-0.30.13/src/platform_impl/linux/mod.rs:765: \
+             neither WAYLAND_DISPLAY nor WAYLAND_SOCKET nor DISPLAY is set."
+                .into(),
+        );
+        assert_eq!(d.code, "E0502");
+        assert_eq!(
+            d.message,
+            "could not open a window: neither WAYLAND_DISPLAY nor WAYLAND_SOCKET nor DISPLAY is set."
+        );
+        assert_eq!(no_window("no luck".into()).message, "could not open a window: no luck");
+    }
 }

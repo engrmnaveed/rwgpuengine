@@ -7,6 +7,33 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-26 — The native player: Tiny Town in a window, drawn with the GPU, replaying every playtest to its state hash
+
+- Step 3, piece 3 ([ADR 0022](decisions/0022-native-player-winit-and-rwgpu-play.md)). `players/rwgpuengine_player`
+  is the program `rwgpu-player`; `rwgpu play` finds it next to itself or on `PATH` and runs it (E0006 when it
+  is not installed). The simulation is the engine's `Session`, stepped at the project's fixed rate with the
+  web player's input; the picture is `rwgpuengine_gpu`'s, drawn only when the list changed. With this, step 3
+  ("wgpu players") is done when it lands on `gpu-players`.
+- **The window library, counted before building.** winit 0.30.13 with X11 and Wayland: Linux 105 rented
+  crates (limit 130), Windows 87, macOS 84; 6, 6 and 5 proc macros (limit 6). The drawn Wayland title bar
+  would cost 9 crates more; X11 only would save 19 and a proc macro on Linux. SDL3 and GLFW count few crates
+  because their window system is a C library the count does not see.
+- **A counting bug found on the way.** The gate matched proc macros by name across the lockfile. winit
+  brings `thiserror` 1 on Linux only, and the gate then counted its `thiserror-impl` on Windows and macOS too
+  (7 on Windows, over the limit). It now matches name and version.
+- **Proof without a person.** `cargo xtask gpu` replays the ten example playtests three ways: the player's
+  loop inside the check (same state hashes as the engine; the last frame 0 pixels apart from the reference
+  on Metal), the `rwgpu-player` program with `--headless` (the hashes `rwgpu test` prints), and `rwgpu play`
+  through `PATH`. With `--window` it replays `turn_and_build` in a real window and compares the picture read
+  back from the window with the reference: on this Mac 0 of 307,200 frame pixels apart, each a 2 × 2 block.
+- **Measured on an Apple M5 Pro**, Tiny Town in the window: per drawn frame on the CPU the list 38 µs,
+  `Renderer::draw` 589 µs, showing it 214 µs; a still scene costs 0.8 % of one core. Clean release build of
+  the players' workspace 13.6 to 17.8 s (limit 60).
+- **The window on GitHub's runners.** Each runner opened a real window and replayed `turn_and_build` in it
+  five times out of five: lavapipe under `xvfb-run` on Linux, WARP on Windows, the virtual Metal device on
+  macOS. Every replay reached the hash, and the picture read back from the window was 1 pixel apart from the
+  reference on Linux and 0 on the others. So the `gpu` job now runs `cargo xtask gpu --window` everywhere.
+
 ## 2026-11-26 — The reference keeps its own rules: level faces by their plane, cards on their floor
 
 - The defect the GPU check found in the reference renderer (Q17) is fixed, on the step branch

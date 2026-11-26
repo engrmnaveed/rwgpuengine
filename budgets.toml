@@ -62,18 +62,22 @@ startup_ms = 0
 # `cargo xtask gpu`, not by `cargo xtask ci` (ADR 0021).
 [players]
 # Rented crates in the normal dependency tree of the players' workspace, on
-# the system where that is the most. Measured without a window library:
-# Windows 76, macOS 67, Linux 65 (and 54 for the renderer alone on wasm32).
-# The proposal measured that winit adds 51 on Linux and 11 on Windows, which
-# will make Linux the widest at about 116.
+# the system where that is the most. Measured with the window library
+# (winit 0.30.13 with X11 and Wayland, ADR 0022): Linux 105, Windows 87,
+# macOS 84 (and 54 for the renderer alone on wasm32). Without it they were
+# Windows 76, macOS 67, Linux 65.
 crates = 130
-# Proc-macro crates in that tree, on the system where that is the most.
-# Measured: Windows 6 (`windows-implement` and `windows-interface` come with
-# Direct3D 12), macOS and Linux 4. Windows has nothing to spare.
+# Proc-macro crates in that tree, each version once, on the system where
+# that is the most. Measured: Linux 6 (winit brings `thiserror` 1 beside 2,
+# and Wayland `wayland-scanner`), Windows 6 (`windows-implement` and
+# `windows-interface` come with Direct3D 12), macOS 5. Neither Linux nor
+# Windows has one to spare.
 proc_macro_crates = 6
-# A clean release build of the check (wgpu, the renderer, and the agent's
-# crates it draws with). A time budget: scaled by RWGPU_TIME_BUDGET_SCALE.
-# Measured 12 to 17 s on an Apple M5 Pro; 37 to 113 s on GitHub's runners.
+# A clean release build of the players' workspace: the check and the native
+# player (wgpu, winit, the renderer, and the agent's crates they use). A time
+# budget: scaled by RWGPU_TIME_BUDGET_SCALE. Measured 13.6 to 17.8 s on an
+# Apple M5 Pro (12 to 17 s for the check alone, before the player); 37 to
+# 113 s on GitHub's runners for the check alone.
 clean_release_build_ms = 60_000
 # One frame of 50,000 boxes on a 224 x 224 ground at 1280x720, with nothing
 # uploaded, until the GPU has finished it. Enforced only on a real GPU (a
