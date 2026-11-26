@@ -164,12 +164,10 @@ async function main() {
     console.log(JSON.stringify({ browser: null }));
     return;
   }
-  // Headless, Chrome gives a WebGPU adapter on GitHub's Windows runner (WARP) only with the first two, and
+  // Headless, Chrome gives a WebGPU adapter on GitHub's Windows runner (WARP) only with both of these, and
   // on the Linux runner (SwiftShader) with the first; the fallback adapter (?renderer=software) needs the
-  // first too. With SwiftShader, a WebGPU canvas loses its device a few frames in ("A valid external
-  // Instance reference no longer exists") unless Chrome may use SwiftShader for its own GL as well: the
-  // third. Measured with web_probe's canvas test (ADR 0024). RWGPU_BROWSER_FLAGS adds more.
-  const flags = ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader',
+  // first too (ADR 0024). RWGPU_BROWSER_FLAGS adds more.
+  const flags = ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist',
     ...(process.env.RWGPU_BROWSER_FLAGS || '').split(' ').filter(Boolean)];
   // A profile folder an earlier run could not remove may still be held: what is written here is new anyway.
   try { rmSync(out, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch (_) { /* left */ }

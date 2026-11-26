@@ -22,7 +22,9 @@
 //! `{"ok": false, "diagnostics": [...]}`.
 
 use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
+use rwgpuengine_core::codes;
 use rwgpuengine_core::diag::Diagnostic;
 use rwgpuengine_core::hash;
 use rwgpuengine_core::json::Json;
@@ -58,6 +60,12 @@ struct Canvas {
     config: wgpu::SurfaceConfiguration,
     /// Lost on purpose, by [`lose_device`].
     lost: bool,
+    /// How the browser said it lost the device. The page never destroys its
+    /// device but on purpose, so every reason counts, `destroyed` too: Chrome
+    /// gives that one when its GPU process lets the device go (SwiftShader
+    /// showing a canvas, ADR 0024). Natively `Gpu` ignores `destroyed`, which
+    /// there means the program dropped the device itself.
+    lost_why: Arc<Mutex<Option<String>>>,
 }
 
 /// The CPU path: the session, painted by the reference's painter.
@@ -296,10 +304,14 @@ impl Web {
         if self.show {
             self.present(watch);
         }
-        let lost = self.canvas.as_ref().and_then(|c| match c.gpu.check() {
-            Err(d) => Some(format!("{} [{}]", d.message, d.code)),
-            Ok(()) if c.lost => Some("the device was lost".to_string()),
-            Ok(()) => None,
+        let lost = self.canvas.as_ref().and_then(|c| {
+            let why = c.lost_why.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            match (why, c.gpu.check()) {
+                (Some(why), _) => Some(why),
+                (None, Err(d)) => Some(format!("{} [{}]", d.message, d.code)),
+                (None, Ok(())) if c.lost => Some("the device was lost".to_string()),
+                (None, Ok(())) => None,
+            }
         });
         if let Some(why) = lost {
             self.use_cpu(why);
@@ -399,9 +411,18 @@ pub async fn gpu_open(canvas: web_sys::HtmlCanvasElement, software: bool) -> Res
     }
     config.alpha_mode = wgpu::CompositeAlphaMode::Opaque;
     surface.configure(&gpu.device, &config);
+    let lost_why = Arc::new(Mutex::new(None));
+    let sink = lost_why.clone();
+    gpu.device.set_device_lost_callback(move |reason, message| {
+        let mut seen = sink.lock().unwrap_or_else(|p| p.into_inner());
+        if seen.is_none() {
+            let reason = format!("{reason:?}").to_lowercase();
+            *seen = Some(format!("the browser lost the device ({reason}): {message} [{}]", codes::GPU_FAILED.code));
+        }
+    });
     let name = describe(&gpu.info);
     with(|w| {
-        w.canvas = Some(Canvas { gpu, surface, config, lost: false });
+        w.canvas = Some(Canvas { gpu, surface, config, lost: false, lost_why });
         w.fallback = None;
         w.refit();
     });

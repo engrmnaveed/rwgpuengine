@@ -43,6 +43,27 @@ clears a texture and reads it back. On GitHub's runners it is `.github/workflows
 - Every runner gives a WebGPU adapter headless, with no new software: Chrome is on all three images and Node
   drives it over the DevTools protocol on a pipe. The gate passes `--enable-unsafe-webgpu
   --ignore-gpu-blocklist` everywhere; on this Mac they change nothing about the default adapter.
+- **On SwiftShader, Chrome loses a device that shows a WebGPU canvas.** Found on the Linux runner (run
+  45849007609: "the GPU could not map the frame for reading"), then shown in plain WebGPU, without wgpu:
+  web_probe's canvas test draws 60 frames into a 640 × 480 texture, shows each on a WebGPU canvas, then
+  reads the texture back. On the Linux runner (run 45852696750) it fails under all eight flag sets, with
+  Mesa's lavapipe or without: `mapAsync` rejects with "A valid external Instance reference no longer
+  exists", and the device is lost, reason `destroyed` ("Device was destroyed") or `unknown`. On the Windows
+  runner it fails the same way with the SwiftShader adapter and works with WARP; on the macOS runner it
+  works under every flag set. On this Mac it fails with SwiftShader unless `--enable-unsafe-swiftshader` or
+  `--use-angle=swiftshader` is given; on the Linux runner those two do not help, and on the Windows runner
+  the first kept a fresh tab from drawing after a device was destroyed, so the gate does not pass it.
+  Without the canvas the read-back works everywhere. A replay that never yields to the browser can finish
+  before the loss arrives, which is how a first run here passed by luck.
+- **The fault this found in the player.** Chrome reports that loss as reason `destroyed`, which `Gpu` ignores
+  (natively it means the program dropped its own device). The web player now records every loss the browser
+  reports and goes on with the CPU reference renderer, saying "the browser lost the device (destroyed): …
+  [E0503]". Shown on this Mac with SwiftShader as the default adapter: all four Tiny Town playtests reach
+  their states, drawn by the CPU after the loss.
+- **SwiftShader's edges depend on how Chrome starts it.** On this Mac, SwiftShader as the fallback adapter
+  draws all ten playtests 0 pixels apart from the reference; under `--use-webgpu-adapter=swiftshader` it
+  draws `turn_and_build` 61 apart, every one a lone pixel on a slanted edge of the perspective view, and the
+  other nine 0. The adapter's info, features and limits are the same both ways.
 - On Linux the adapter is SwiftShader, Chrome's own CPU implementation of Vulkan under its WebGPU (Dawn).
   It is a real WebGPU: the page, wgpu's WebGPU backend, the browser's WebGPU and its canvas all run.
 - Chrome on Windows names WARP only without its GPU blocklist. Edge gives SwiftShader with
@@ -128,7 +149,10 @@ the crate's exact version can write their JavaScript. Measured on an Apple M5 Pr
    `rwgpu serve` for each example and a headless Chromium with a profile folder of its own under
    `target/web-check/`. For every playtest of the three examples, on the WebGPU path and on the CPU path, the
    page plays it to its end as fast as the steps go, drawing every frame whose list changed:
-   - the state hash must be `rwgpu test`'s, at its frame, on both paths;
+   - the state hash must be `rwgpu test`'s, at its frame, on both paths, and every playtest must be drawn by
+     the path it was meant for: a device lost on the way would hand the game to the CPU and still reach the
+     state. The page lets three animation frames pass after a replay, so that a loss the browser reports
+     late is seen;
    - the frame WebGPU drew (`Renderer::copy_frame`, read back in the page) goes to `gpu_check --web-frames`,
      which replays the playtest natively and holds the two pictures to `pixels_apart` with every differing
      pixel on an edge, the rule of ADR 0021;
