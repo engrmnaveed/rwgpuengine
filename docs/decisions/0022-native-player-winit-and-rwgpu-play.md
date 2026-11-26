@@ -140,8 +140,8 @@ All ten example playtests, measured on an Apple M5 Pro (Metal) unless a runner i
 | players: rented crates, widest system | Windows 76 | Linux 105 | 130 |
 | players: proc-macro crates, widest system | Windows 6 | Linux 6, Windows 6 | 6 |
 | players: clean release build (now the whole players' workspace) | 12–13 s | 13.6–17.8 s | 60 s |
-| `rwgpu` | 1,979,136 bytes | 2,014,768 | 3,000,000 |
-| web module | 619,866 bytes | 624,202 (the new codes' explanations) | 800,000 |
+| `rwgpu` (on the step branch with the reference fix) | 1,979,168 bytes | 2,031,296 | 3,000,000 |
+| web module (the same) | 623,739 bytes | 628,075 (the new codes' explanations) | 800,000 |
 | root `Cargo.lock` | 33 packages, no GPU or window crate | unchanged | — |
 
 `cargo install --locked --path players/rwgpuengine_player` builds and installs the player in 21 s on the
