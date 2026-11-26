@@ -156,12 +156,30 @@ pub fn serve(p: &Parsed) -> Outcome {
     let port = listener.local_addr().map_or(port, |a| u64::from(a.port()));
     println!("serving {} at http://127.0.0.1:{port}/  ({which}; Ctrl+C to stop)", display_path(&loc.root));
     let _ = std::io::stdout().flush();
-    for stream in listener.incoming().flatten() {
-        if let Err(e) = handle(stream, &loc.root, &player) {
-            eprintln!("serve: {e}");
-        }
-    }
+    accept(&listener, &loc.root, &player);
     Outcome::new(true)
+}
+
+/// How long a connection may stay silent before it is dropped.
+const IDLE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Answer every connection on a thread of its own. A browser opens
+/// connections ahead of time and may leave one idle; answered one at a time,
+/// that one held every request behind it (a page that never started, on the
+/// Windows runner: ADR 0024).
+fn accept(listener: &TcpListener, root: &Path, player: &Player) {
+    for stream in listener.incoming().flatten() {
+        let (root, player) = (root.to_path_buf(), player.clone());
+        std::thread::spawn(move || {
+            let _ = stream.set_read_timeout(Some(IDLE));
+            if let Err(e) = handle(stream, &root, &player)
+                && e.kind() != std::io::ErrorKind::WouldBlock
+                && e.kind() != std::io::ErrorKind::TimedOut
+            {
+                eprintln!("serve: {e}");
+            }
+        });
+    }
 }
 
 /// A file of the player being served: (content type, bytes), or `None`
@@ -265,6 +283,26 @@ mod tests {
         assert!(!is_web_player(&part) && is_web_player(&whole));
         let _ = std::fs::remove_dir_all(whole);
         let _ = std::fs::remove_dir_all(part);
+    }
+
+    /// A connection that sends nothing does not hold up the next one.
+    #[test]
+    fn an_idle_connection_does_not_hold_up_a_request() {
+        use std::io::Read;
+        let dir = folder("idle", &WEB_PLAYER_FILES);
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let player = Player::Gpu(dir.clone());
+        let root = dir.clone();
+        std::thread::spawn(move || accept(&listener, &root, &player));
+        let _idle = TcpStream::connect(addr).unwrap();
+        let mut asked = TcpStream::connect(addr).unwrap();
+        asked.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        asked.write_all(b"GET /player.js HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
+        let mut answer = String::new();
+        asked.read_to_string(&mut answer).unwrap();
+        assert!(answer.starts_with("HTTP/1.1 200 OK") && answer.ends_with("<player.js>"), "{answer}");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

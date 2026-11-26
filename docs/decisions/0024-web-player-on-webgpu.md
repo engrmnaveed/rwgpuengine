@@ -144,7 +144,10 @@ the crate's exact version can write their JavaScript. Measured on an Apple M5 Pr
    `RWGPU_WEB_PLAYER`, then `web-player` beside the `rwgpu` program, then (debug builds only) the workspace's
    `target/web-player`. Otherwise it serves the CPU player of ADR 0008, and it is not an error. Its first
    line says which it serves and where it looked. `rwgpu` links nothing of `players/`: it serves files.
-   `--port 0` picks a free port and prints it.
+   `--port 0` picks a free port and prints it. Each connection is answered on a thread of its own and is
+   dropped after 10 s of silence: answered one at a time, as before, a connection the browser opened ahead
+   of time and left idle held up every request behind it, and on the Windows runner a page then never
+   started (run 45861940621).
 8. **The browser check, in `cargo xtask gpu`.** `players/rwgpuengine_player/web/check.mjs` starts
    `rwgpu serve` for each example and a headless Chromium with a profile folder of its own under
    `target/web-check/`. For every playtest of the three examples, on the WebGPU path and on the CPU path, the
