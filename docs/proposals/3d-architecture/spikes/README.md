@@ -42,15 +42,15 @@ took a neighbour's reference color.
 card. It runs on pull requests that touch this folder or the workflow, and by hand (`gh workflow run
 gpu-probe.yml --ref <branch>`). Each job prints its numbers and its timing to the job summary and uploads the
 GPU frames. Measured 2026-11-26 in runs 45756166643 (cold cache) and 45757026172 (warm cache): wgpu 30.0.2,
-Rust 1.100.0. Each runner gave the same picture hashes in both runs.
+Rust 1.100.0. A third run, 45757795785, gave the same picture hashes on every runner as the first two.
 
 **What each runner offers.** Each job lists exactly one adapter, and it is the one wgpu picks by itself.
 Nothing needed `force_fallback_adapter`.
 
 | runner (image) | backend | adapter | wgpu device type | driver / driver info | installed |
 |---|---|---|---|---|---|
-| `ubuntu-latest` (ubuntu26 20261116, x64, 4 CPUs) | Vulkan | `llvmpipe (LLVM 21.1.8, 256 bits)`: Mesa lavapipe | `Cpu` | `llvmpipe` / Mesa 26.0.8 | `mesa-vulkan-drivers` (19 MB): 6 s, then 23 s |
-| `ubuntu-latest` | GL | `llvmpipe (LLVM 21.1.8, 256 bits)` | `Cpu` | GL 4.5 core, Mesa 26.0.8 | `libegl1 libegl-mesa0` (164 kB; the llvmpipe DRI driver is on the image): 4 s, then 6 s |
+| `ubuntu-latest` (ubuntu26 20261116, x64, 4 CPUs) | Vulkan | `llvmpipe (LLVM 21.1.8, 256 bits)`: Mesa lavapipe | `Cpu` | `llvmpipe` / Mesa 26.0.8 | `mesa-vulkan-drivers` (19 MB): 6, 23 and 28 s in three runs |
+| `ubuntu-latest` | GL | `llvmpipe (LLVM 21.1.8, 256 bits)` | `Cpu` | GL 4.5 core, Mesa 26.0.8 | `libegl1 libegl-mesa0` (164 kB; the llvmpipe DRI driver is on the image): 4, 6 and 19 s |
 | `windows-latest` (win25-vs2026 20261116, x64, 4 CPUs) | DX12 | `Microsoft Basic Render Driver`: WARP | `Cpu` | 10.0.26100.33648 | nothing. No GL or Vulkan adapter is listed |
 | `macos-latest` (macos26 20261117, arm64, 3 CPUs) | Metal | `Apple Paravirtual device` | `IntegratedGpu` (not `VirtualGpu`) | none reported | nothing |
 | Apple M5 Pro (the study's machine) | Metal | `Apple M5 Pro` | `IntegratedGpu` | none reported | — |
@@ -116,7 +116,7 @@ take well under a second per picture after the device is ready (0.1 to 0.5 s).
 
 Run 2 also ran the two shader variants (15 to 17 s on the software adapters, 2 s on Metal), which are included
 in its whole-job time. The 23 s Vulkan install in run 2 was apt itself: 9 s before it read its package lists
-and 7 s in triggers. The 19 MB download took 1 s both times.
+and 7 s in triggers. The 19 MB download took 1 s both times. So budget up to about 30 s for apt on Linux.
 
 What these numbers suggest for the step-3 check (backends, the shader's color, the limit, the minutes) is in
 the [progress log](../../../progress-log.md), entry of 2026-11-26.

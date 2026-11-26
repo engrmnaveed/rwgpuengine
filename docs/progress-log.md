@@ -10,14 +10,14 @@ findings that are not code (experiment results, surprises, things to remember).
 ## 2026-11-26 — wgpu runs on all three GitHub runners; the GPU picture can match the reference to a few edge pixels
 
 - Step 3, piece 1: a measurement before the GPU check is designed. A new workflow, `gpu-probe.yml`, runs the
-  study spikes `gpu_native` and `cpu_ref` on GitHub's hosted runners (runs 45756166643 and 45757026172; tables
+  study spikes `gpu_native` and `cpu_ref` on GitHub's hosted runners (runs 45756166643, 45757026172 and 45757795785, which gave the same picture hashes; tables
   and how to run it in [the spikes README](proposals/3d-architecture/spikes/README.md#on-githubs-runners)).
 - **Every runner draws the town, at the first try.** Each offers one adapter, and wgpu picks it by itself:
 
   | runner | adapter | device type | install | ms per frame, 5,000 / 50,000 / 500,000 boxes |
   |---|---|---|---|---|
-  | `ubuntu-latest` | Mesa lavapipe (Vulkan), Mesa 26.0.8 | `Cpu` | `mesa-vulkan-drivers`, 19 MB, 6 to 23 s | 7.5–9.1 / 49–69 / 364–479 |
-  | `ubuntu-latest` | Mesa llvmpipe (GL 4.5) | `Cpu` | `libegl1 libegl-mesa0`, 164 kB, 4 to 6 s | 9.0 / 49–55 / 440–481 |
+  | `ubuntu-latest` | Mesa lavapipe (Vulkan), Mesa 26.0.8 | `Cpu` | `mesa-vulkan-drivers`, 19 MB, 6 to 28 s | 7.5–9.1 / 49–69 / 364–479 |
+  | `ubuntu-latest` | Mesa llvmpipe (GL 4.5) | `Cpu` | `libegl1 libegl-mesa0`, 164 kB, 4 to 19 s | 9.0 / 49–55 / 440–481 |
   | `windows-latest` | WARP, "Microsoft Basic Render Driver" (DX12) | `Cpu` | nothing; no `force_fallback_adapter` | 5.6–8.4 / 41–63 / 265–452 |
   | `macos-latest` | Apple Paravirtual device (Metal) | `IntegratedGpu` | nothing | 0.75–1.1 / 2.7–2.9 / 9.3–9.7 |
 
@@ -51,13 +51,13 @@ findings that are not code (experiment results, surprises, things to remember).
     have far fewer edges, so set the count on them. If the study's smooth shader were kept instead, the
     check would need both a 1-level tolerance over about 4 % of the pixels and a count.
   - Cost: building wgpu and its dependencies took 42 to 57 s cold on Linux and macOS and 121 s on Windows, and
-    1 to 10 s with a warm cache. Linux adds 6 to 23 s of apt. Drawing a picture once takes under a second on
+    1 to 10 s with a warm cache. Linux adds 4 to 28 s of apt (the download is about 1 s; the rest is apt itself). Drawing a picture once takes under a second on
     every adapter, even at 500,000 boxes, once the device is ready (0.1 to 0.5 s). Inside the existing `ci`
     job that comes to an estimated 2 minutes more on Windows with a cold cache, and under 30 s with a warm one. A separate job, like the probe,
     took 35 to 91 s with a warm cache and 90 to 192 s cold.
 - Not done or not tried: the variants at 500,000 boxes; the "8-bit color from the CPU" variant; Vulkan or GL on
   Windows (the runner lists neither) and MoltenVK on macOS; arm64 Linux and Windows runners; llvmpipe without
-  installing `libegl1`; timing variance beyond two runs. The probe stays as a workflow that runs only when the
+  installing `libegl1`; timing variance beyond three runs. The probe stays as a workflow that runs only when the
   spikes change. The engine has no GPU code yet.
 
 ## 2026-11-26 — The 3D core: Tiny Town plays in 3D from its unchanged files
