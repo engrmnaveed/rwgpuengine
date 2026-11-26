@@ -110,6 +110,19 @@ pub const FACES: [([f32; 3], [[f32; 3]; 4]); 6] = [
     ([0.0, 0.0, -1.0], [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0], [1.0, 0.0, 0.0]]),
 ];
 
+/// The town sizes to draw: `SPIKE_BOXES` (a comma list such as `5000,50000`), or the study's three.
+pub fn sizes() -> Vec<usize> {
+    match std::env::var("SPIKE_BOXES") {
+        Ok(list) => list.split(',').map(|v| v.trim().parse().expect("SPIKE_BOXES: a comma list of box counts")).collect(),
+        Err(_) => vec![5_000, 50_000, 500_000],
+    }
+}
+
+/// FNV-1a over a frame's RGBA bytes: equal hashes mean equal pictures.
+pub fn fnv(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ *b as u64).wrapping_mul(0x0000_0100_0000_01b3))
+}
+
 /// The color of a face under the light, as both renderers must compute it.
 pub fn shade(color: [u8; 4], normal: [f32; 3]) -> [f32; 3] {
     let lambert = dot(normal, LIGHT).max(0.0);

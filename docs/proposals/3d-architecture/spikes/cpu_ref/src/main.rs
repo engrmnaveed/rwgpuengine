@@ -103,15 +103,67 @@ fn render(town: &[scene::Inst], vp: &[[f32; 4]; 4], f: &mut Frame) -> (u32, u32)
     (tris, drawn)
 }
 
-fn fnv(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ *b as u64).wrapping_mul(0x0000_0100_0000_01b3))
+/// How a GPU frame differs from the reference: how many pixels, by how much, and where.
+fn compare(f: &Frame, gpu: &[u8]) -> String {
+    let (w, h) = (scene::W as usize, scene::H as usize);
+    let px = |img: &[u8], i: usize| -> [u8; 4] { [img[i * 4], img[i * 4 + 1], img[i * 4 + 2], img[i * 4 + 3]] };
+    let (mut diff, mut max) = (0usize, 0u8);
+    // Pixels by their largest channel difference: 1, 2, 3 to 15, 16 or more.
+    let mut by = [0usize; 4];
+    // On an edge: a neighbour in the reference has another owner or another color.
+    // Neighbour's color: the GPU pixel equals the reference color of a neighbour, so the
+    // two renderers gave the pixel to different faces (coverage, not shading).
+    let (mut edge, mut neighbour) = (0usize, 0usize);
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * w + x;
+            let (a, b) = (px(&f.rgba, i), px(gpu, i));
+            if a == b {
+                continue;
+            }
+            diff += 1;
+            let d = (0..4).map(|k| a[k].abs_diff(b[k])).max().unwrap_or(0);
+            max = max.max(d);
+            by[match d {
+                0 | 1 => 0,
+                2 => 1,
+                3..=15 => 2,
+                _ => 3,
+            }] += 1;
+            let (mut on_edge, mut took) = (false, false);
+            for (dx, dy) in [(-1i64, -1i64), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                let (nx, ny) = (x as i64 + dx, y as i64 + dy);
+                if nx < 0 || ny < 0 || nx >= w as i64 || ny >= h as i64 {
+                    continue;
+                }
+                let j = ny as usize * w + nx as usize;
+                on_edge |= f.owner[j] != f.owner[i] || px(&f.rgba, j) != a;
+                took |= px(&f.rgba, j) == b;
+            }
+            edge += on_edge as usize;
+            neighbour += took as usize;
+        }
+    }
+    let n_px = w * h;
+    format!(
+        "against the GPU frame (image {:016x}): {diff} of {n_px} pixels differ ({:.3} %); largest channel difference {max}; \
+         pixels by largest difference 1: {}, 2: {}, 3-15: {}, 16+: {}; on an edge of the reference {edge}, inside a face {}; \
+         GPU has a neighbour's reference color {neighbour}",
+        scene::fnv(gpu),
+        diff as f64 * 100.0 / n_px as f64,
+        by[0],
+        by[1],
+        by[2],
+        by[3],
+        diff - edge
+    )
 }
 
 fn main() {
     let dir = std::env::args().nth(1).unwrap_or_else(|| ".".into());
     let n_px = (scene::W * scene::H) as usize;
     let mut f = Frame { rgba: vec![0; n_px * 4], depth: vec![1.0; n_px], owner: vec![0; n_px] };
-    for n in [5_000usize, 50_000, 500_000] {
+    for n in scene::sizes() {
         let town = scene::town(n);
         let vp = scene::view_proj(n);
         let reps = if n > 100_000 { 3 } else { 9 };
@@ -126,25 +178,18 @@ fn main() {
         let ms = times[times.len() / 2];
         let visible: std::collections::BTreeSet<u32> = f.owner.iter().copied().filter(|o| *o != 0).collect();
         std::fs::write(format!("{dir}/cpu_{n}.rgba"), &f.rgba).ok();
-        let mut line = format!(
+        println!(
             "n={n:>7}: {ms:.1} ms; {} front triangles; {} of {n} boxes own a pixel; image {:016x}",
             stats.0,
             visible.len(),
-            fnv(&f.rgba)
+            scene::fnv(&f.rgba)
         );
         if let Ok(gpu) = std::fs::read(format!("{dir}/gpu_{n}.rgba")) {
-            let (mut diff, mut max) = (0usize, 0u8);
-            for (a, b) in f.rgba.chunks_exact(4).zip(gpu.chunks_exact(4)) {
-                if a != b {
-                    diff += 1;
-                    for k in 0..3 {
-                        max = max.max(a[k].abs_diff(b[k]));
-                    }
-                }
+            if gpu.len() == f.rgba.len() {
+                println!("           {}", compare(&f, &gpu));
+            } else {
+                println!("           the GPU frame has {} bytes, not {}", gpu.len(), f.rgba.len());
             }
-            line += &format!("; against the GPU frame: {diff} of {n_px} pixels differ ({:.3} %)", diff as f64 * 100.0 / n_px as f64);
-            let _ = max;
         }
-        println!("{line}");
     }
 }

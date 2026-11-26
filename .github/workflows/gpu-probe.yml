@@ -1,0 +1,110 @@
+# A measurement, not a gate: what wgpu can do on GitHub's hosted runners, which have no
+# real graphics card. Builds and runs the study spikes `gpu_native` (wgpu, no window) and
+# `cpu_ref` (the deterministic CPU reference) into one folder, so `cpu_ref` compares the two
+# pictures. Results and how to read them: docs/proposals/3d-architecture/spikes/README.md.
+name: gpu-probe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - docs/proposals/3d-architecture/spikes/**
+      - .github/workflows/gpu-probe.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: ${{ matrix.os }} / ${{ matrix.backend }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux has no GPU: Mesa's software drivers, Vulkan (lavapipe) and GL (llvmpipe).
+          - { os: ubuntu-latest, backend: vulkan, packages: "mesa-vulkan-drivers libvulkan1" }
+          - { os: ubuntu-latest, backend: gl, packages: "libegl1 libegl-mesa0 libgl1-mesa-dri" }
+          # Windows: Direct3D 12; without a GPU that is WARP, Microsoft's software adapter.
+          - { os: windows-latest, backend: dx12, packages: "" }
+          # macOS: Metal on the runner's virtual GPU.
+          - { os: macos-latest, backend: metal, packages: "" }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      SPIKES: docs/proposals/3d-architecture/spikes
+      WGPU_BACKEND: ${{ matrix.backend }}
+      LABEL: ${{ matrix.os }} / ${{ matrix.backend }}
+    steps:
+      - name: Start the clock
+        run: echo "T0=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+      - name: Install toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.backend }}
+          workspaces: |
+            docs/proposals/3d-architecture/spikes/gpu_native -> target
+            docs/proposals/3d-architecture/spikes/cpu_ref -> target
+      - name: Install drivers
+        if: matrix.packages != ''
+        env:
+          PACKAGES: ${{ matrix.packages }}
+        run: |
+          echo "T1=$(date +%s)" >> "$GITHUB_ENV"
+          echo "Vulkan drivers before: $(ls /usr/share/vulkan/icd.d 2>/dev/null | tr '\n' ' ')"
+          dpkg-query -W -f='${Package} ${Version} ${db:Status-Abbrev}\n' $PACKAGES 2>&1 || true
+          # Without `apt-get update` first when the image's package lists still resolve.
+          sudo apt-get install -y --no-install-recommends $PACKAGES \
+            || { sudo apt-get update -q && sudo apt-get install -y --no-install-recommends $PACKAGES; }
+          dpkg-query -W -f='${Package} ${Version}\n' $PACKAGES
+          echo "Vulkan drivers after: $(ls /usr/share/vulkan/icd.d 2>/dev/null | tr '\n' ' ')"
+      - name: Build spikes
+        run: |
+          echo "T2=$(date +%s)" >> "$GITHUB_ENV"
+          (cd "$SPIKES/gpu_native" && cargo build --release)
+          (cd "$SPIKES/cpu_ref" && cargo build --release)
+          grep -A1 '^name = "wgpu"$' "$SPIKES/gpu_native/Cargo.lock"
+      - name: Run spikes
+        run: |
+          echo "T3=$(date +%s)" >> "$GITHUB_ENV"
+          mkdir -p probe-out
+          exe=""; [ "$RUNNER_OS" = Windows ] && exe=".exe"
+          cpus=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "$NUMBER_OF_PROCESSORS")
+          echo "runner: $ImageOS $ImageVersion, $RUNNER_ARCH, $cpus CPUs; WGPU_BACKEND=$WGPU_BACKEND" | tee probe-out/runner.txt
+          "$SPIKES/gpu_native/target/release/gpu_native$exe" probe-out 2>&1 | tee probe-out/gpu_native.txt
+          "$SPIKES/cpu_ref/target/release/cpu_ref$exe" probe-out 2>&1 | tee probe-out/cpu_ref.txt
+          echo "T4=$(date +%s)" >> "$GITHUB_ENV"
+      - name: Summary
+        if: always()
+        run: |
+          now=$(date +%s)
+          T2=${T2:-$now}; T1=${T1:-$T2}; T3=${T3:-$now}; T4=${T4:-$now}
+          {
+            echo "### $LABEL"
+            echo
+            echo "| checkout, toolchain, cache | drivers | build | run | total |"
+            echo "|---|---|---|---|---|"
+            echo "| $((T1 - T0)) s | $((T2 - T1)) s | $((T3 - T2)) s | $((T4 - T3)) s | $((now - T0)) s |"
+            echo
+            echo '```text'
+            cat probe-out/runner.txt probe-out/gpu_native.txt probe-out/cpu_ref.txt 2>/dev/null || true
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      # The GPU frames (raw RGBA, 1280 x 720), so the systems' pictures can be compared pixel by pixel.
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: probe-${{ matrix.os }}-${{ matrix.backend }}
+          path: |
+            probe-out/gpu_*.rgba
+            probe-out/*.txt
+          retention-days: 14
+          if-no-files-found: warn

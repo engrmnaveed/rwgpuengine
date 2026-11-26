@@ -39,19 +39,72 @@ fn median(mut v: Vec<f64>) -> f64 {
     v[v.len() / 2]
 }
 
+/// Calls `frame` up to `max` times and returns the median and the count. It stops early once
+/// `budget_ms` has passed and at least `min` frames are in, so a slow software adapter keeps
+/// the run short; a real GPU reaches `max` well inside the budget.
+fn timed(max: usize, min: usize, budget_ms: f64, mut frame: impl FnMut() -> f64) -> (f64, usize) {
+    let t = Instant::now();
+    let mut v = Vec::new();
+    while v.len() < max && (v.len() < min || t.elapsed().as_secs_f64() * 1e3 < budget_ms) {
+        v.push(frame());
+    }
+    let n = v.len();
+    (median(v), n)
+}
+
+fn describe(info: &wgpu::AdapterInfo) -> String {
+    format!(
+        "{} | {:?} | {:?} | driver \"{}\" | driver info \"{}\" | vendor 0x{:04x} device 0x{:04x}",
+        info.name, info.backend, info.device_type, info.driver, info.driver_info, info.vendor, info.device
+    )
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let out_dir = args.first().cloned().unwrap_or_else(|| ".".into());
+
+    // Every adapter this machine offers, on every backend compiled in.
+    {
+        let everything = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        for (i, a) in pollster::block_on(everything.enumerate_adapters(wgpu::Backends::all())).iter().enumerate() {
+            println!("adapter {i}: {}", describe(&a.get_info()));
+        }
+        let pick = pollster::block_on(everything.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            ..Default::default()
+        }));
+        println!("wgpu's own pick: {}", pick.map(|a| describe(&a.get_info())).unwrap_or_else(|e| format!("none ({e})")));
+    }
+
+    // The one to use. wgpu itself reads WGPU_BACKEND (vulkan, gl, dx12, metal, or a comma list)
+    // and its other WGPU_* variables here. The spike reads two more: WGPU_ADAPTER_NAME (part of
+    // the name, as in wgpu::util) and WGPU_FORCE_FALLBACK_ADAPTER=1 (software adapters only).
     let t0 = Instant::now();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        ..Default::default()
-    }))
-    .expect("no adapter");
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let fallback = std::env::var("WGPU_FORCE_FALLBACK_ADAPTER").is_ok_and(|v| v == "1");
+    let adapter = match std::env::var("WGPU_ADAPTER_NAME") {
+        Ok(want) => pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
+            .into_iter()
+            .find(|a| a.get_info().name.to_lowercase().contains(&want.to_lowercase())),
+        Err(_) => pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: fallback,
+            ..Default::default()
+        }))
+        .map_err(|e| eprintln!("request_adapter: {e}"))
+        .ok(),
+    };
+    let Some(adapter) = adapter else {
+        eprintln!("no adapter (WGPU_BACKEND={:?}, fallback only: {fallback})", std::env::var("WGPU_BACKEND").ok());
+        std::process::exit(1);
+    };
     let info = adapter.get_info();
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).expect("no device");
+    // The spike needs very little; ask for the WebGL2 floor so GL and software adapters qualify.
+    let limits = wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits());
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_limits: limits, ..Default::default() }))
+        .expect("no device");
     println!("adapter: {} ({:?}, {:?}); device ready in {:.0} ms", info.name, info.backend, info.device_type, t0.elapsed().as_secs_f64() * 1e3);
+    println!("adapter used: {}", describe(&info));
 
     let (w, h) = (scene::W, scene::H);
     let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
@@ -120,7 +173,7 @@ fn main() {
     });
     let readback = device.create_buffer(&wgpu::BufferDescriptor { label: None, size: (w * h * 4) as u64, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
 
-    for n in [5_000usize, 50_000, 500_000] {
+    for n in scene::sizes() {
         let town = scene::town(n);
         let t = Instant::now();
         let data = instance_bytes(&town);
@@ -175,11 +228,9 @@ fn main() {
             device.poll(wgpu::PollType::Wait { submission_index: Some(idx), timeout: None }).expect("poll");
             t.elapsed().as_secs_f64() * 1e3
         };
-        for _ in 0..10 {
-            frame(false, false);
-        }
-        let fixed = median((0..60).map(|_| frame(false, false)).collect());
-        let moving = median((0..60).map(|_| frame(true, false)).collect());
+        timed(10, 1, 1_000.0, || frame(false, false));
+        let (fixed, fixed_n) = timed(60, 3, 3_000.0, || frame(false, false));
+        let (moving, moving_n) = timed(60, 3, 3_000.0, || frame(true, false));
         frame(false, true);
         let slice = readback.slice(..);
         slice.map_async(wgpu::MapMode::Read, |r| r.expect("map"));
@@ -188,9 +239,10 @@ fn main() {
         readback.unmap();
         std::fs::write(format!("{out_dir}/gpu_{n}.rgba"), &px).expect("write");
         println!(
-            "n={n:>7}: {} triangles; instance data {:.2} MB built in {build_ms:.2} ms; frame {fixed:.2} ms (nothing uploaded), {moving:.2} ms (all instances re-uploaded)",
+            "n={n:>7}: {} triangles; instance data {:.2} MB built in {build_ms:.2} ms; frame {fixed:.2} ms (nothing uploaded), {moving:.2} ms (all instances re-uploaded), medians of {fixed_n} and {moving_n} frames; image {:016x}",
             n * 12,
-            data.len() as f64 / 1e6
+            data.len() as f64 / 1e6,
+            scene::fnv(&px)
         );
     }
 }
