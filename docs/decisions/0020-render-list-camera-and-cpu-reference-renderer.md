@@ -113,6 +113,53 @@ unchanged state" means the camera a scene starts with must put every ground cell
 - Not done: camera gestures in the web player, a command-line flag to move the camera for one `shot`, and an
   `[[expect]]` on the camera.
 
+## Note, 2026-11-26: faces in one plane, and cards on a floor
+
+The GPU check of step 3 ([ADR 0021](0021-wgpu-renderer-held-to-the-reference.md)) found that the renderer did
+not keep two rules of decision 4 in every case. The fix was decided by the supervisor session, as a fix that
+makes the reference keep rules the owner approved here; it was reported to the owner on 2026-11-26.
+
+**What was wrong.** A face's depth came from its triangle's corners, and corners are snapped to the 1/256
+pixel grid. Two triangles of one plane with different corners then gave depths that differ by more than the
+rank rule's tolerance, and a card had no rank. The table above measured "rank for level faces: 0 wrong pixels"
+with tiles of one cell, whose triangles are the ground's own.
+
+- A tile of 3 × 3 cells showed only 24 % to 68 % of its pixels under five of nine cameras; the ground showed
+  through the rest.
+- The part of a card below its anchor always lost to the floor in the scene's starting view (a sprite nudged
+  down 10 pixels lost those rows), and under most other cameras it was a coin toss.
+
+**What the reference guarantees now.**
+
+- **A level face takes its depth from its plane's equation** (`Projector::level_planes`), not from its
+  corners. Two faces at one height have the same depth in every pixel, bit for bit, whatever their corners
+  are. The higher rank shows; of equal ranks the first in the list stays. The height is a single-precision
+  number, as scene files hold it, so a tile at 1.2 and the top of a box from 0.4 to 1.2 are one plane.
+- **The part of a card at and below its anchor has the depth of the level plane through the anchor and the
+  highest rank.** It shows over any floor in that plane, and anything really in front still covers it. In the
+  one row just above the anchor, where a card is upright by less than a depth can hold, it lies on the plane
+  too if it is not nearer than the plane: a card never falls behind the floor it stands on. A lifted card (a
+  label) keeps its own depth, one step in front.
+- A plane the camera sees edge-on, or within a thousandth of it, keeps its corners' depths.
+- Picking and the frame report read the same depth and rank.
+
+**Measured.** Five render tests fail on the old code and pass now (flat things larger than what they lie on;
+of two tiles in one plane the first stays; sprites nudged down, on the ground, on a tile and on their own box;
+a sprite's last row at any size; the row just above an anchor). All ten playtests keep their state and image
+hashes, natively and in the wasm module, and no reference image changed. Render, paint and town time,
+measured in turns with the old code on one machine: 1,513–1,532 / 161–164 / 5,071–5,389 µs now against
+1,521–1,547 / 164–166 / 5,215–5,592 (limits 6,000 / 200 / 20,000). The web module grew from 619,866 to
+623,739 bytes (limit 800,000). Against the GPU renderer the same 256 scenes went from 33 to 18 pixels apart
+on Metal.
+
+**What stays undefined.** Sides still take their depth from their corners. Where two sides of different
+boxes have the same depth (two boxes in one cell; or two boxes side by side whose shared upright edge falls
+exactly on a column of pixel centers in the iso view) the snapping of their corners decides which shows.
+Taking a side's depth from its plane as well decides these by where the faces are; it changes one pixel of
+`examples/tiny_town/tests/refs/perspective.png` and is not done. Two cards of different entities on one
+upright line at different heights are equal in depth too, and no rule says which is in front. ADR 0021 has
+both with numbers.
+
 ## Revisit when
 
 A GPU renderer cannot keep one of the three rules within the pixel limit, or a reference game needs a tilting

@@ -7,6 +7,51 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-26 — The reference keeps its own rules: level faces by their plane, cards on their floor
+
+- The defect the GPU check found in the reference renderer (Q17) is fixed, on the step branch
+  ([note in ADR 0020](decisions/0020-render-list-camera-and-cpu-reference-renderer.md#note-2026-11-26-faces-in-one-plane-and-cards-on-a-floor),
+  [ADR 0021](decisions/0021-wgpu-renderer-held-to-the-reference.md#what-the-check-found-in-the-reference-and-what-stays-undefined)).
+  Decided by the supervisor session, as a fix that makes the reference keep rules the owner approved in
+  ADR 0020; reported to the owner on 2026-11-26.
+- **The fix.** A level face takes its depth from its plane's equation, not from its snapped corners, so two
+  faces at one height have the same depth in every pixel and the rank decides. The part of a card at and
+  below its anchor has that plane's depth and the highest rank. Five render tests fail on the old code.
+  All ten playtests keep their state and image hashes, and painting is no slower.
+- **Both cases are in the GPU gate now**, in hand-made scenes and in the random ones: 271 scenes.
+
+  | adapter | pixels apart, the same 256 scenes: before → after the fix | all 271 scenes / worst scene | inside a face |
+  |---|---|---|---|
+  | Apple M5 Pro, Metal | 33 → 18 | 34 / 7 | 0 |
+  | macOS runner, Metal | 33 → 18 | 34 / 7 | 0 |
+  | Linux runner, Mesa lavapipe | 79 → 68 | 91 / 12 | 0 |
+  | Windows runner, WARP | 63 → 52 | 61 / 5 | 0 |
+
+  The worst scene is new: the town of 5,000 boxes in perspective, turned and zoomed in (12 pixels on
+  lavapipe). `pixels_apart` stays at 24.
+
+- **Longer random runs found five more things**, and each was traced to the rule that decides the pixels.
+  - *The reference fix had a hole.* An anchor a hair above a pixel center left a gap of one row across the
+    card. Fixed: the row just above the anchor lies on the floor too where it is not nearer than the floor.
+  - *An upright edge one step off* (GPU). In the iso view a box's upright edge is one pixel column, and the
+    GPU's single-precision corner could land one sub-pixel step beside the reference's: a whole edge one
+    pixel off. Fixed: the CPU gives those columns, as the reference computes them.
+  - *A card through the top of a box* (GPU). A card had a 16-step lead in depth over everything, to beat its
+    own floor. Where it passes through the top of a box it stands in, the lead decided a row wrongly. Fixed:
+    level faces keep their exact depth, and the card is held to its floor only in the row above its anchor.
+  - *Two boxes whose sides have the same depth*, and *two labels on one upright line at different heights*:
+    no rule decides these, and each renderer's rounding does. They stay undefined, are named at the top of
+    `scenes.rs`, and random scenes keep them out by construction.
+- **On the M5 Pro 20,000 random scenes pass**: 18,525 are identical to the reference, 1,280 differ in one
+  pixel, 167 in two, 27 in three to five, one in 13.
+- **Left for the owner.** Taking the depth of a box's sides from their plane as well settles the first
+  undefined case in the reference. It changes one pixel of `tiny_town`'s `perspective.png`, so it is not
+  done.
+- A correction to this log's method: a watch on a CI run reported success because its exit status was a
+  pipe's, not the run's. The run had been cancelled by the next push. Checks are now read from the pull
+  request itself.
+- `players/rwgpuengine_gpu/README.md` says how a player calls the renderer.
+
 ## 2026-11-26 — The players' renderer: wgpu draws every reference scene to within 6 edge pixels of the reference, on four adapters
 
 - Step 3, piece 2 ([ADR 0021](decisions/0021-wgpu-renderer-held-to-the-reference.md)). `players/` is a second

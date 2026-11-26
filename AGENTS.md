@@ -23,6 +23,7 @@ cargo xtask docs                     # regenerate docs/reference after changing 
 cargo xtask budgets                  # measure size/time/dependency budgets
 cargo xtask gpu                      # the players' gate: the wgpu renderer against the CPU reference, players' budgets
 cargo xtask gpu --fast               # only the picture check, built incrementally (the edit loop for players/)
+cargo xtask gpu --fast -- --random 3000   # random scenes: what the fixed ones miss
 ```
 
 `cargo xtask ci` never needs a GPU. `cargo xtask gpu` needs one, or a software adapter (on Linux:
@@ -60,7 +61,7 @@ visual. When a scene fails it names the pixels and writes `target/gpu-check/<sce
 | new diagnostic | `rwgpuengine_core/src/codes.rs` (next free number in range) → emit with `.at(src, span).hint(..)` → test asserts the code |
 | new command | `rwgpuengine_cli/src/args.rs` (Command entry with examples) → `lib.rs` dispatch → `commands.rs` → `cargo xtask docs` |
 | new event kind | `rwgpuengine_sim/src/events.rs` + `schema::EVENT_KINDS` (a test keeps them equal) |
-| visual change | the reference first (`reference.rs`, `list.rs`, `camera.rs`): run `cargo rwgpu test examples/iso_garden`; if refs differ on purpose, `--update-refs`, then look at the PNG → the same rule in `players/rwgpuengine_gpu` (`pack.rs` for what the CPU prepares, `shader.wgsl` for what the GPU draws) → a scene for it in `players/gpu_check/src/scenes.rs` under an iso and a perspective camera → `cargo xtask gpu` |
+| visual change | the reference first (`reference.rs`, `list.rs`, `camera.rs`): run `cargo rwgpu test examples/iso_garden`; if refs differ on purpose, `--update-refs`, then look at the PNG → the same rule in `players/rwgpuengine_gpu` (`pack.rs` for what the CPU prepares, `shader.wgsl` for what the GPU draws) → a scene for it in `players/gpu_check/src/scenes.rs` under an iso and a perspective camera → `cargo xtask gpu` → a few thousand random scenes, `cargo xtask gpu --fast -- --random 3000` (the hand-made scenes were green twice while a real fault was there) |
 
 ## Commits
 

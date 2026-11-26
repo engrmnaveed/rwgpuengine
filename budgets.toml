@@ -73,16 +73,17 @@ crates = 130
 proc_macro_crates = 6
 # A clean release build of the check (wgpu, the renderer, and the agent's
 # crates it draws with). A time budget: scaled by RWGPU_TIME_BUDGET_SCALE.
-# Measured 12 s on an Apple M5 Pro; 39 to 113 s on GitHub's runners.
+# Measured 12 to 17 s on an Apple M5 Pro; 37 to 113 s on GitHub's runners.
 clean_release_build_ms = 60_000
 # One frame of 50,000 boxes on a 224 x 224 ground at 1280x720, with nothing
 # uploaded, until the GPU has finished it. Enforced only on a real GPU (a
 # software adapter's time is printed); scaled like the other time budgets.
-# Measured 1.0 to 1.75 ms on an Apple M5 Pro, 6.3 to 7.0 on the macOS runner.
+# Measured 1.0 to 1.75 ms on an Apple M5 Pro, 6.2 to 9.0 on the macOS runner.
 gpu_frame_us = 4_000
 # The wgpu renderer against the CPU reference, per reference scene: the most
 # pixels that may differ. Each must also lie on an edge of the reference
-# picture; there is no per-channel tolerance. Measured over the 256 scenes:
-# at most 3 on Metal (an Apple M5 Pro and the macOS runner) and on WARP, 6 on
-# Mesa lavapipe. The limit is four times the worst; the proposal allowed 50.
+# picture; there is no per-channel tolerance. Measured over the 271 scenes:
+# at most 7 on Metal (an Apple M5 Pro and the macOS runner), 5 on WARP, 12 on
+# Mesa lavapipe, each for the town of 5,000 boxes through a turned camera.
+# The limit is twice the worst; the proposal allowed 50.
 pixels_apart = 24

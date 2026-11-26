@@ -19,6 +19,10 @@
 //! The frame is the list's size (`list.view`) in RGBA8 with no sRGB
 //! encoding, so its bytes are the reference's bytes. [`Renderer::present`]
 //! scales it onto whatever the player shows it on.
+//!
+//! `README.md` next to this crate's manifest says what a player needs: the
+//! calls in order, which surface format to pick, what the device must offer,
+//! and the commands of the edit loop.
 
 mod pack;
 

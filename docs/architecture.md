@@ -186,7 +186,9 @@ the wasm's pixels hash to native `rwgpu shot`'s image hashes. The current finger
   **reference**: `rwgpu shot`, playtest `[[shot]]`s and the frame report use it. Three rules go beyond "the
   nearest wins": level faces in one plane are ordered by rank (a tile shows on the ground it lies on), a card
   stands upright above its anchor and lies on the surface below it, and see-through things are drawn last,
-  far to near.
+  far to near. A level face takes its depth from its plane's equation, not from its corners, so the first
+  two rules hold whatever the corners are: a tile of nine cells lies on nine ground cells, and the part of a
+  card below its anchor shows on the floor it lies on.
 - `Painter` gives the same pixels without owners, for players, through `rwgpuengine_runtime::Presenter`,
   which repaints only when the render list changed. Tests hold the two pixel-identical on every frame of
   every example playtest.
@@ -215,20 +217,23 @@ What decides a pixel comes from the reference renderer's own code; the GPU fills
   for all flat rectangles. The vertex shader projects corners with the `Projector`'s matrix.
 - **A face's color** is selected from a table of 6 × 256 levels filled by the reference's `shade`. The GPU
   does no color arithmetic and writes whole 8-bit levels.
-- **Level faces** write their depth per pixel from the plane's equation, with the rank in the three lowest
-  bits. Two faces in one plane then differ only in rank, on every adapter, and one depth test orders them.
+- **Level faces** write their depth per pixel from the plane's equation, the one the reference uses, two
+  depth steps nearer per rank. Two faces in one plane then differ only in rank, on every adapter, and one
+  depth test orders them.
 - **Depth is stored where the scene is.** In perspective that is a straight line onto the depth buffer. In
   the iso view the range is laid along the float's exponent, which is 60 times finer around the scene.
 - **Cards** are placed on the CPU (`Projector::card`, `reference::card_shapes`). The fragment shader tests
   the reference's integer coverage rule per shape and writes a depth per pixel row: upright above the
-  anchor, in the anchor's level plane below it.
+  anchor, and at and below it in the anchor's level plane, in front of any floor there.
+- **In the iso view the corner columns come from the CPU**, computed and snapped as the reference does, so
+  an upright edge of a box is drawn in the reference's pixel column.
 - **See-through colors** are mixed in the fragment shader with the reference's integer formula, from a copy
   of the picture so far. Things that overlap on the screen take a pass each; things that do not share one.
 - **The 2D layer** is the same shapes with no depth test, in list order.
 
-`cargo xtask gpu` draws 256 scenes with both renderers (every frame the example playtests shoot, a town of
-5,000 boxes, a scene per rule under iso and perspective cameras, and 200 random scenes that are the same
-on every run). A pixel that differs must lie on an
+`cargo xtask gpu` draws 271 scenes with both renderers (every frame the example playtests shoot, a town of
+5,000 boxes under five cameras, a scene per rule under iso and perspective cameras, three copies of what
+random scenes found, and 200 random scenes that are the same on every run). A pixel that differs must lie on an
 edge of the reference picture, and a scene may have at most `pixels_apart` of them (`budgets.toml`). There
 is no per-channel tolerance. No GPU picture is ever a reference image: they differ between systems by a
 few edge pixels, and the CPU reference does not.
