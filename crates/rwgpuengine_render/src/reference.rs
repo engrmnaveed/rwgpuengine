@@ -20,7 +20,11 @@
 //! One rule goes beyond "the nearest wins". Flat things lie *in* the plane of
 //! what they lie on: a tile on the ground, a mat on a table. Depth cannot
 //! order two faces in one plane, so level faces carry a rank, and where two
-//! of them are at the same depth the higher rank shows ([`nearer`]).
+//! of them are at the same depth the higher rank shows ([`nearer`]). For
+//! that to hold whatever the faces' corners are, a level face takes its
+//! depth from its plane's equation ([`LevelPlanes`]), not from its corners.
+//! The part of a card below its anchor lies in such a plane too, and shows
+//! over a floor there.
 //!
 //! [`Painter`] is the same drawing without the owners, for players that only
 //! show the picture.
@@ -31,7 +35,7 @@ use rwgpuengine_core::color::Rgba;
 use rwgpuengine_core::hash::fnv1a64;
 use rwgpuengine_sim::EntityId;
 
-use crate::camera::{CardPlace, Hom, Projector, dot4, to_fixed};
+use crate::camera::{CardPlace, Hom, LevelPlanes, Projector, dot4, to_fixed};
 use crate::draw::{self, Part, Rect, Shape};
 use crate::list::{Card, CardBody, Instance, Light, Mesh, RenderList};
 use crate::paint::{ceil_div, fill, solid, spans};
@@ -46,19 +50,29 @@ const HALF: i64 = SUB / 2;
 #[derive(Clone, Copy, Debug)]
 struct Tri {
     p: [[i64; 2]; 3],
-    /// Double precision: faces in one plane must get equal depths.
     z: [f64; 3],
+    /// A level face: its plane's depth over the pixels
+    /// ([`LevelPlanes::over_pixels`]), used in place of the corners' depths.
+    /// Corners are snapped to the sub-pixel grid, so two triangles of one
+    /// plane would give depths that differ by more than rounding.
+    plane: Option<[f64; 3]>,
     color: Rgba,
     /// 0 for a face that is not level; else 1 + the instance's layer.
     rank: u8,
 }
+
+/// The rank of the part of a card that lies on a floor: above every level
+/// face, so in one plane with a floor the card shows.
+pub(crate) const RANK_LYING: u8 = u8::MAX;
 
 #[derive(Clone, Debug)]
 enum Kind {
     /// Triangles `tris.0..tris.1` of the projection.
     Solid { tris: (u32, u32) },
     /// Shapes `shapes.0..shapes.1`, with the card's depth row by row.
-    Card { shapes: (u32, u32), place: CardPlace, color: Rgba },
+    /// `lying` is the level plane through the anchor of a card that is not
+    /// lifted off it: the depth of the rows at and below the anchor.
+    Card { shapes: (u32, u32), place: CardPlace, color: Rgba, lying: Option<[f64; 3]> },
     /// A shape of the 2D layer: in front of the world, in list order.
     Overlay { shape: Shape, color: Rgba },
 }
@@ -164,6 +178,7 @@ pub fn shade(color: Rgba, k: f32) -> Rgba {
 /// Take a render list to the screen.
 pub fn project(list: &RenderList) -> Projected {
     let proj = Projector::new(&list.view, &list.camera);
+    let planes = proj.level_planes();
     let mut out = Projected {
         width: list.view.width,
         height: list.view.height,
@@ -181,10 +196,10 @@ pub fn project(list: &RenderList) -> Projected {
         let solid_next =
             c >= list.cards.len() || (i < list.instances.len() && list.instances[i].seq <= list.cards[c].seq);
         if solid_next {
-            out.push_instance(&proj, &list.light, &list.instances[i], &mut clip);
+            out.push_instance(&proj, &planes, &list.light, &list.instances[i], &mut clip);
             i += 1;
         } else {
-            out.push_card(&proj, &list.cards[c]);
+            out.push_card(&proj, &planes, &list.cards[c]);
             c += 1;
         }
     }
@@ -216,7 +231,14 @@ pub fn project(list: &RenderList) -> Projected {
 }
 
 impl Projected {
-    fn push_instance(&mut self, proj: &Projector, light: &Light, inst: &Instance, clip: &mut (Vec<Hom>, Vec<Hom>)) {
+    fn push_instance(
+        &mut self,
+        proj: &Projector,
+        planes: &LevelPlanes,
+        light: &Light,
+        inst: &Instance,
+        clip: &mut (Vec<Hom>, Vec<Hom>),
+    ) {
         let p = inst.pos.map(f64::from);
         let s = inst.size.map(f64::from);
         let corner = |i: usize| {
@@ -227,12 +249,15 @@ impl Projected {
             ]
         };
         let start = self.tris.len();
+        // Level faces: 1 + the layer, below a card that lies on them.
+        let rank = inst.layer.min(RANK_LYING - 2) + 1;
         match inst.mesh {
             Mesh::Flat => {
                 let up = [0.0, 0.0, 1.0];
                 if proj.faces_camera(p, up.map(f64::from)) {
                     let quad = [0, 1, 3, 2].map(|i| proj.hom(corner(i), 0));
-                    self.push_face(proj, &quad, shade(inst.top, light.shade(up)), 1 + inst.layer, clip);
+                    let face = (shade(inst.top, light.shade(up)), rank, planes.over_pixels(inst.pos[2]));
+                    self.push_face(proj, &quad, face, clip);
                 }
             }
             Mesh::Box => {
@@ -244,8 +269,11 @@ impl Projected {
                     }
                     let level = n[2] != 0.0;
                     let base = if level { inst.top } else { inst.color };
-                    let rank = if level { 1 + inst.layer } else { 0 };
-                    self.push_face(proj, &idx.map(|i| hom[i]), shade(base, light.shade(n)), rank, clip);
+                    // The top is at the two numbers' sum as a scene file would hold it.
+                    let height = if n[2] > 0.0 { inst.pos[2] + inst.size[2] } else { inst.pos[2] };
+                    let plane = if level { planes.over_pixels(height) } else { None };
+                    let face = (shade(base, light.shade(n)), if level { rank } else { 0 }, plane);
+                    self.push_face(proj, &idx.map(|i| hom[i]), face, clip);
                 }
             }
         }
@@ -264,10 +292,11 @@ impl Projected {
         });
     }
 
-    /// Add one flat face, cut to the camera's range if it reaches outside.
-    fn push_face(&mut self, proj: &Projector, quad: &[Hom; 4], color: Rgba, rank: u8, clip: &mut (Vec<Hom>, Vec<Hom>)) {
+    /// Add one flat face (its color, rank and plane), cut to the camera's
+    /// range if it reaches outside.
+    fn push_face(&mut self, proj: &Projector, quad: &[Hom; 4], face: Face, clip: &mut (Vec<Hom>, Vec<Hom>)) {
         if quad.iter().all(|h| proj.inside(h)) {
-            self.push_fan(quad, color, rank);
+            self.push_fan(quad, face);
             return;
         }
         let (poly, next) = clip;
@@ -294,11 +323,11 @@ impl Projected {
                 return;
             }
         }
-        self.push_fan(poly, color, rank);
+        self.push_fan(poly, face);
     }
 
     /// Add a convex polygon as a fan of triangles.
-    fn push_fan(&mut self, poly: &[Hom], color: Rgba, rank: u8) {
+    fn push_fan(&mut self, poly: &[Hom], (color, rank, plane): Face) {
         let at = |h: &Hom| ([to_fixed(h[0] / h[3]), to_fixed(h[1] / h[3])], h[2] / h[3]);
         let (p0, z0) = at(&poly[0]);
         for k in 1..poly.len() - 1 {
@@ -306,13 +335,13 @@ impl Projected {
             let area = (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p1[1] - p0[1]) * (p2[0] - p0[0]);
             match area {
                 0 => {}
-                a if a > 0 => self.tris.push(Tri { p: [p0, p1, p2], z: [z0, z1, z2], color, rank }),
-                _ => self.tris.push(Tri { p: [p0, p2, p1], z: [z0, z2, z1], color, rank }),
+                a if a > 0 => self.tris.push(Tri { p: [p0, p1, p2], z: [z0, z1, z2], plane, color, rank }),
+                _ => self.tris.push(Tri { p: [p0, p2, p1], z: [z0, z2, z1], plane, color, rank }),
             }
         }
     }
 
-    fn push_card(&mut self, proj: &Projector, card: &Card) {
+    fn push_card(&mut self, proj: &Projector, planes: &LevelPlanes, card: &Card) {
         let place = proj.card(card.anchor.map(f64::from), card.lift);
         let start = self.shapes.len();
         if let Some(at) = &place {
@@ -329,7 +358,13 @@ impl Projected {
             out_of_range,
             translucent: card.color.a < 255,
             sort: place.at as f32,
-            kind: Kind::Card { shapes: (start as u32, self.shapes.len() as u32), place, color: card.color },
+            kind: Kind::Card {
+                shapes: (start as u32, self.shapes.len() as u32),
+                place,
+                color: card.color,
+                // A lifted card (a label) is in front of the plane, by its own depth.
+                lying: if card.lift == 0 { planes.over_pixels(card.anchor[2]) } else { None },
+            },
         });
     }
 
@@ -347,11 +382,14 @@ impl Projected {
                     scan(t, clip, |y, x0, x1, row| (x0..x1).for_each(|x| f(x, y, row.depth(x), t.rank)));
                 }
             }
-            Kind::Card { shapes, place, .. } => {
+            Kind::Card { shapes, place, lying, .. } => {
                 for s in &self.shapes[shapes.0 as usize..shapes.1 as usize] {
-                    spans(s, s.bbox().intersect(&clip), |y, x0, x1| {
-                        let d = place.depth(y);
-                        (x0..x1).for_each(|x| f(x, y, d, 0));
+                    spans(s, s.bbox().intersect(&clip), |y, x0, x1| match lying_row(place, lying, y) {
+                        Some(row) => (x0..x1).for_each(|x| f(x, y, row.depth(x), RANK_LYING)),
+                        None => {
+                            let d = place.depth(y);
+                            (x0..x1).for_each(|x| f(x, y, d, 0));
+                        }
                     });
                 }
             }
@@ -413,6 +451,18 @@ pub fn middle_depth(proj: &Projector, inst: &Instance) -> (Hom, f32) {
     let s = inst.size.map(f64::from);
     let middle = proj.hom([p[0] + s[0] / 2.0, p[1] + s[1] / 2.0, p[2] + s[2] / 2.0], 0);
     (middle, (middle[2] / middle[3]) as f32)
+}
+
+/// A face's color, its rank and, for a level face, its plane over the pixels.
+type Face = (Rgba, u8, Option<[f64; 3]>);
+
+/// The depth along pixel row `y` of a card that lies there on its anchor's
+/// level plane; `None` where the card stands upright (above the anchor) or
+/// is lifted off the plane.
+#[inline]
+fn lying_row(place: &CardPlace, lying: &Option<[f64; 3]>, y: i32) -> Option<Row> {
+    let plane = lying.as_ref().filter(|_| place.lies(y))?;
+    Some(Row { dx: plane[0], at_zero: plane[1] * y as f64 + plane[2] })
 }
 
 fn tri_bounds(tris: &[Tri]) -> Rect {
@@ -494,11 +544,11 @@ fn scan(t: &Tri, clip: Rect, mut f: impl FnMut(i32, i32, i32, Row)) {
     // corner's weight; so depth is a plane over the pixels:
     // depth = d0 + dx * x + dy * y.
     let edges = [Edge::new(b, c), Edge::new(c, a), Edge::new(a, b)];
-    let inv = 1.0 / area as f64;
-    let plane = |v: [i64; 3]| (v[0] as f64 * t.z[0] + v[1] as f64 * t.z[1] + v[2] as f64 * t.z[2]) * inv;
-    let d0 = plane(edges.map(|e| e.r0));
-    let dx = plane(edges.map(|e| e.gx));
-    let dy = plane(edges.map(|e| e.gy));
+    let [dx, dy, d0] = t.plane.unwrap_or_else(|| {
+        let inv = 1.0 / area as f64;
+        let fit = |v: [i64; 3]| (v[0] as f64 * t.z[0] + v[1] as f64 * t.z[1] + v[2] as f64 * t.z[2]) * inv;
+        [fit(edges.map(|e| e.gx)), fit(edges.map(|e| e.gy)), fit(edges.map(|e| e.r0))]
+    });
     for y in y0..=y1 {
         let (mut from, mut to) = (x0, x1);
         for e in &edges {
@@ -523,9 +573,11 @@ fn scan(t: &Tri, clip: Rect, mut f: impl FnMut(i32, i32, i32, Row)) {
 /// The nearer one shows. The exception is two level faces at the same depth
 /// (within the rounding of an `f32`): they are in one plane, depth cannot
 /// order them, and the higher rank shows; with equal ranks the one drawn
-/// first stays. Faces that are not level, and cards, have rank 0 and are
-/// ordered by depth alone, so a tile never shows through the foot of a box
-/// standing on it.
+/// first stays. The part of a card that lies on a floor is in such a plane
+/// too, with the highest rank ([`RANK_LYING`]): it shows over the floor.
+/// Faces that are not level, and cards where they stand upright, have rank 0
+/// and are ordered by depth alone, so a tile never shows through the foot of
+/// a box standing on it.
 #[inline]
 pub(crate) fn nearer(d: f32, rank: u8, held: f32, held_rank: u8) -> bool {
     if rank != 0 && held_rank != 0 && (d - held).abs() <= 1.0e-6 * d.abs().max(held.abs()) + 1.0e-12 {
@@ -614,11 +666,14 @@ fn draw(p: &Projected, rgba: &mut [u8], held: &mut Depths, owner: Option<&mut [u
                     scan(t, screen, |y, x0, x1, row| out.run(y, x0, x1, |x| row.depth(x), t.rank, t.color, tag, keep));
                 }
             }
-            Kind::Card { shapes, place, color } => {
+            Kind::Card { shapes, place, color, lying } => {
                 for s in &p.shapes[shapes.0 as usize..shapes.1 as usize] {
-                    spans(s, s.bbox().intersect(&screen), |y, x0, x1| {
-                        let d = place.depth(y);
-                        out.run(y, x0, x1, |_| d, 0, *color, tag, keep);
+                    spans(s, s.bbox().intersect(&screen), |y, x0, x1| match lying_row(place, lying, y) {
+                        Some(row) => out.run(y, x0, x1, |x| row.depth(x), RANK_LYING, *color, tag, keep),
+                        None => {
+                            let d = place.depth(y);
+                            out.run(y, x0, x1, |_| d, 0, *color, tag, keep);
+                        }
                     });
                 }
             }
@@ -753,7 +808,7 @@ mod tests {
                 continue;
             }
             let p = if area > 0 { [a, b, c] } else { [a, c, b] };
-            let t = Tri { p, z: [0.25, 0.5, 0.75], color: Rgba::WHITE, rank: 0 };
+            let t = Tri { p, z: [0.25, 0.5, 0.75], plane: None, color: Rgba::WHITE, rank: 0 };
             let mut got = vec![0u8; (43 * 32) as usize];
             scan(&t, clip, |y, x0, x1, row| {
                 assert!(x0 < x1 && clip.x0 <= x0 && x1 <= clip.x1 && (clip.y0..clip.y1).contains(&y));
@@ -776,7 +831,13 @@ mod tests {
 
     #[test]
     fn a_pixel_has_one_depth_whatever_the_clip() {
-        let t = Tri { p: [[10, 7], [9000, 1300], [2100, 7700]], z: [-0.25, 0.125, 0.5], color: Rgba::WHITE, rank: 0 };
+        let t = Tri {
+            p: [[10, 7], [9000, 1300], [2100, 7700]],
+            z: [-0.25, 0.125, 0.5],
+            plane: None,
+            color: Rgba::WHITE,
+            rank: 0,
+        };
         let whole = Rect { x0: 0, y0: 0, x1: 40, y1: 32 };
         let mut n = 0;
         scan(&t, whole, |y, x0, x1, row| {
@@ -798,7 +859,7 @@ mod tests {
         let count = |tris: [[usize; 3]; 2]| {
             let mut got = vec![0u8; 32 * 24];
             for i in tris {
-                let t = Tri { p: i.map(|k| q[k]), z: [0.0; 3], color: Rgba::WHITE, rank: 0 };
+                let t = Tri { p: i.map(|k| q[k]), z: [0.0; 3], plane: None, color: Rgba::WHITE, rank: 0 };
                 scan(&t, clip, |y, x0, x1, _| (x0..x1).for_each(|x| got[((y + 2) * 32 + x + 4) as usize] += 1));
             }
             got

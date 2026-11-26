@@ -13,8 +13,5 @@ rwgpuengine_core.workspace = true
 rwgpuengine_render.workspace = true
 wgpu.workspace = true
 
-[dev-dependencies]
-rwgpuengine_data.workspace = true
-
 [lints]
 workspace = true

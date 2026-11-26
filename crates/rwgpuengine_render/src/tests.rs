@@ -740,6 +740,177 @@ block = { color = "#ffff00", height = 0 }
     }
 }
 
+/// Pixels of `name`'s `part` that show something of `under` instead (the
+/// ground if `under` is `None`).
+fn lost_to(stage: &Stage, name: &str, part: crate::Part, under: Option<&str>) -> u32 {
+    let (seen, frame, _) = stage.render();
+    let cov = crate::reference::coverage(&seen, &frame);
+    let id = stage.world.find(name);
+    let under = under.map(|n| stage.world.find(n).expect("the entity under it"));
+    let item = seen.items.iter().position(|i| i.entity == id && i.part == part).expect("the part is drawn");
+    cov.items[item].covered_by.iter().filter(|(o, _)| seen.items[**o].entity == under).map(|(_, n)| *n).sum()
+}
+
+#[test]
+fn flat_things_lie_on_the_surface_under_them_whatever_their_corners() {
+    // A tile of 3 x 3 cells on the ground, a mat on one cell of a 2 x 2
+    // table, a rug of two cells over a plate of one: none has the corners of
+    // what it lies on, so their triangles are not the same triangles. Each
+    // is in exactly that plane all the same, and shows whole from every camera.
+    let scene = r##"
+[ground]
+size = [6, 6]
+
+[[entity]]
+name = "plaza"
+pos = [1, 1]
+footprint = [3, 3]
+tile = { color = "#ff0000" }
+
+[[entity]]
+name = "table"
+pos = [4, 4]
+footprint = [2, 2]
+block = { color = "#808080", height = 1 }
+
+[[entity]]
+name = "mat"
+pos = [5, 4, 1]
+tile = { color = "#00ff00" }
+
+[[entity]]
+name = "plate"
+pos = [4, 0]
+tile = { color = "#0000ff" }
+
+[[entity]]
+name = "rug"
+pos = [4, 0]
+footprint = [2, 1]
+block = { color = "#ffff00", height = 0 }
+"##;
+    let mut seen_in = [0u32; 2];
+    for (view, turn, zoom) in cameras() {
+        let stage = setup(scene).with(view, turn, zoom);
+        let cam = format!("{view:?} {turn} {zoom}");
+        assert_eq!(lost_to(&stage, "plaza", crate::Part::Tile, None), 0, "{cam}: the ground shows through the plaza");
+        assert_eq!(
+            lost_to(&stage, "mat", crate::Part::Tile, Some("table")),
+            0,
+            "{cam}: the table shows through the mat"
+        );
+        assert_eq!(lost_to(&stage, "rug", crate::Part::Block, None), 0, "{cam}: the ground shows through the rug");
+        assert_eq!(
+            lost_to(&stage, "rug", crate::Part::Block, Some("plate")),
+            0,
+            "{cam}: the plate shows through the rug"
+        );
+        // The plate is under the rug everywhere: it never shows.
+        let (_, frame, report) = stage.render();
+        let blue = frame.rgba.as_chunks::<4>().0.iter().filter(|p| **p == [0, 0, 255, 255]).count();
+        assert_eq!(blue, 0, "{cam}");
+        // The plaza is in the middle of every picture; the mat and the rug
+        // are in most of them.
+        let shows = |name: &str| report.entities.iter().find(|e| e.label == name).map_or(0, |e| e.visible_px);
+        assert!(shows("plaza") > 0, "{cam}");
+        seen_in[0] += u32::from(shows("mat") > 0);
+        seen_in[1] += u32::from(shows("rug") > 0);
+    }
+    assert!(seen_in[0] >= 4 && seen_in[1] >= 4, "{seen_in:?}");
+}
+
+#[test]
+fn of_two_flat_things_of_one_kind_in_one_plane_the_first_stays() {
+    // Two tiles with the same rank, one inside the other: the first in the
+    // file shows wherever they overlap, under every camera.
+    let scene = |first: &str, second: &str| {
+        format!(
+            "[ground]\nsize = [6, 6]\n\n[[entity]]\nname = \"big\"\npos = [1, 1]\nfootprint = [3, 3]\ntile = {{ color = \"{first}\" }}\n\n[[entity]]\nname = \"small\"\npos = [2, 2]\ntile = {{ color = \"{second}\" }}\n"
+        )
+    };
+    for (view, turn, zoom) in cameras() {
+        let stage = setup(&scene("#ff0000", "#0000ff")).with(view, turn, zoom);
+        let (_, frame, _) = stage.render();
+        let blue = frame.rgba.as_chunks::<4>().0.iter().filter(|p| **p == [0, 0, 255, 255]).count();
+        assert_eq!(blue, 0, "{view:?} {turn} {zoom}: the second tile shows through the first");
+    }
+}
+
+#[test]
+fn the_part_of_a_card_below_its_anchor_shows_on_the_floor_it_lies_on() {
+    // Sprites nudged ten pixels down: one on the ground, one on a tile that
+    // comes later in the file, one on top of its own box. Below its anchor
+    // each lies in the plane of the floor it stands on, and the floor does
+    // not cut it, from any camera.
+    let scene = r##"
+[ground]
+size = [6, 6]
+
+[[entity]]
+name = "walker"
+pos = [1, 1]
+sprite = { shape = "rect", color = "#ff0000", size = [16, 24], offset = [0, 10] }
+
+[[entity]]
+name = "guest"
+pos = [3, 1]
+sprite = { shape = "circle", color = "#00ffff", size = [20, 24], offset = [0, 10] }
+
+[[entity]]
+name = "plate"
+pos = [3, 1]
+tile = { color = "#d9c27a" }
+
+[[entity]]
+name = "statue"
+pos = [1, 3]
+block = { color = "#808080", height = 1 }
+sprite = { shape = "diamond", color = "#ff00ff", size = [24, 24], offset = [0, 10] }
+"##;
+    for (view, turn, zoom) in cameras() {
+        let stage = setup(scene).with(view, turn, zoom);
+        let cam = format!("{view:?} {turn} {zoom}");
+        let sprite = crate::Part::Sprite;
+        assert_eq!(lost_to(&stage, "walker", sprite, None), 0, "{cam}: the ground cuts the walker");
+        assert_eq!(lost_to(&stage, "guest", sprite, None), 0, "{cam}: the ground cuts the guest");
+        assert_eq!(lost_to(&stage, "guest", sprite, Some("plate")), 0, "{cam}: the plate cuts the guest");
+        assert_eq!(lost_to(&stage, "statue", sprite, Some("statue")), 0, "{cam}: its own box cuts the statue's sprite");
+        // Nothing else is near the walker: all of it shows.
+        let (_, _, report) = stage.render();
+        let walker = report.entities.iter().find(|e| e.label == "walker").unwrap();
+        if walker.on_screen && !walker.clipped {
+            assert_eq!(walker.visible_px, walker.drawn_px, "{cam}");
+        }
+    }
+    // What is really in front still covers it: a box toward the viewer.
+    let behind = format!("{scene}\n[[entity]]\nname = \"wall\"\npos = [2, 2]\nblock = {{ height = 1 }}\n");
+    let stage = setup(&behind);
+    assert!(lost_to(&stage, "walker", crate::Part::Sprite, Some("wall")) > 0);
+}
+
+#[test]
+fn a_sprite_keeps_its_last_row_at_any_size() {
+    // Seen at another size than its own, a sprite's last row can fall just
+    // below its anchor. The floor it stands on does not take that row.
+    let mut scene = String::from("[ground]\nsize = [6, 6]\n");
+    for y in 0..6 {
+        for x in (y % 2..6).step_by(2) {
+            scene.push_str(&format!(
+                "\n[[entity]]\nname = \"s{x}{y}\"\npos = [{x}, {y}]\nsprite = {{ shape = \"rect\", size = [8, 12] }}\n"
+            ));
+        }
+    }
+    for (view, turn, zoom) in cameras() {
+        let stage = setup(&scene).with(view, turn, zoom);
+        for y in 0..6 {
+            for x in (y % 2..6).step_by(2) {
+                let lost = lost_to(&stage, &format!("s{x}{y}"), crate::Part::Sprite, None);
+                assert_eq!(lost, 0, "{view:?} {turn} {zoom}: the ground cuts the sprite at ({x}, {y})");
+            }
+        }
+    }
+}
+
 #[test]
 fn a_tile_does_not_show_through_the_foot_of_a_box_standing_on_it() {
     // A box side is ordered against the tile by depth alone, and it is in

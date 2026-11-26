@@ -31,8 +31,9 @@ const SHADE_IN_SHADER: u32 = 1;
 const RANK_BY_BIAS: u32 = 2;
 const CARD_ONE_DEPTH: u32 = 4;
 
-/// The highest rank a level face can have: three bits of its depth hold it.
-const MAX_RANK: u8 = 7;
+/// The highest rank a level face can have. Three bits of its depth hold the
+/// rank, and the highest value is for the part of a card that lies on a floor.
+const MAX_RANK: u8 = 6;
 
 fn f32s(out: &mut Vec<u8>, v: &[f32]) {
     for f in v {
@@ -108,55 +109,6 @@ pub(crate) fn instances(list: &[Instance]) -> Instances {
     out
 }
 
-/// The depth of level planes on the screen.
-///
-/// For a point of the plane at height `z0` that is drawn at pixel (x, y),
-/// the reference's depth is `dot(a * z0 + b, (x, y, 1)) / (alpha * z0 + beta)`.
-/// It follows from the projector's matrix alone, so it holds for both views.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct LevelPlane {
-    a: [f64; 3],
-    b: [f64; 3],
-    alpha: f64,
-    beta: f64,
-}
-
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
-}
-
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-impl LevelPlane {
-    pub fn new(proj: &Projector) -> LevelPlane {
-        let m = proj.rows();
-        // Columns of the matrix, as (x, y, w): what a step along world x, y
-        // and z adds, and the constant.
-        let col = |j: usize| [m[0][j], m[1][j], m[3][j]];
-        let (c0, c1, cz, c3) = (col(0), col(1), col(2), col(3));
-        let n = cross(c0, c1);
-        let z = m[2];
-        let mix = |c: [f64; 3], k: f64| {
-            let (p, q) = (cross(c1, c), cross(c, c0));
-            [
-                z[0] * p[0] + z[1] * q[0] + k * n[0],
-                z[0] * p[1] + z[1] * q[1] + k * n[1],
-                z[0] * p[2] + z[1] * q[2] + k * n[2],
-            ]
-        };
-        LevelPlane { a: mix(cz, z[2]), b: mix(c3, z[3]), alpha: dot(cz, n), beta: dot(c3, n) }
-    }
-
-    /// The reference's depth of the plane at height `z0`, at pixel (x, y).
-    #[cfg(test)]
-    pub fn depth(&self, x: f64, y: f64, z0: f64) -> f64 {
-        let v = [self.a[0] * z0 + self.b[0], self.a[1] * z0 + self.b[1], self.a[2] * z0 + self.b[2]];
-        dot(v, [x, y, 1.0]) / (self.alpha * z0 + self.beta)
-    }
-}
-
 /// The camera's numbers for one frame.
 pub(crate) struct View {
     pub proj: Projector,
@@ -210,7 +162,8 @@ pub(crate) fn globals(list: &RenderList, view: &View, options: &Options) -> Vec<
     };
     f32s(&mut out, &[origin[0], origin[1], origin[2], bias]);
 
-    let p = LevelPlane::new(&view.proj);
+    // The depth of a level plane over the screen: the reference's own equation.
+    let p = view.proj.level_planes();
     f32s(&mut out, &[(p.a[0] / p.beta) as f32, (p.a[1] / p.beta) as f32, (p.a[2] / p.beta) as f32, 0.0]);
     f32s(&mut out, &[(p.b[0] / p.beta) as f32, (p.b[1] / p.beta) as f32, (p.b[2] / p.beta) as f32, 0.0]);
     let scale = if view.iso() && options.iso_depth == crate::IsoDepth::Exponent { ISO_DEPTH_SCALE } else { 0.0 };
@@ -436,44 +389,8 @@ pub(crate) fn shapes(list: &RenderList, view: &View, solid: &Instances) -> Shape
 #[cfg(test)]
 mod tests {
     use rwgpuengine_core::color::Rgba;
-    use rwgpuengine_data::CameraView;
-    use rwgpuengine_render::{Camera, Projector};
 
     use super::*;
-
-    fn view() -> rwgpuengine_render::View {
-        rwgpuengine_render::View {
-            width: 640,
-            height: 480,
-            background: Rgba::BLACK,
-            tile_w: 64,
-            tile_h: 32,
-            z_h: 32,
-            pivot: [320.0, 240.0],
-        }
-    }
-
-    #[test]
-    fn a_level_plane_has_the_depth_the_projector_gives_its_points() {
-        for kind in [CameraView::Iso, CameraView::Perspective] {
-            for (turn, zoom) in [(0.0, 1.0), (33.0, 0.5), (217.0, 1.75), (295.0, 3.0)] {
-                let cam = Camera { view: kind, center: [4.5, 3.5], turn, zoom };
-                let proj = Projector::new(&view(), &cam);
-                let plane = LevelPlane::new(&proj);
-                for z0 in [0.0, 0.5, 1.2, -2.0, 3.0] {
-                    for (x, y) in [(4.5, 3.5), (0.0, 0.0), (9.25, -1.5), (-3.0, 8.0), (4.0, 3.0)] {
-                        let h = proj.hom([x, y, z0], 0);
-                        if h[3] <= 0.0 {
-                            continue;
-                        }
-                        let want = h[2] / h[3];
-                        let got = plane.depth(h[0] / h[3], h[1] / h[3], z0);
-                        assert!((got - want).abs() < 1e-12, "{kind:?} {turn} {zoom} ({x}, {y}, {z0}): {got} {want}");
-                    }
-                }
-            }
-        }
-    }
 
     /// `held` of the shader for the iso view, operation for operation.
     fn held_iso(d: f32) -> f32 {
@@ -555,7 +472,7 @@ mod tests {
         assert_eq!(packed.bytes.len(), 4 * INSTANCE_BYTES);
         // The rank is the layer plus one, and no more than the three depth bits hold.
         let rank = |k: usize| packed.bytes[k * INSTANCE_BYTES + 32];
-        assert_eq!([rank(0), rank(1), rank(2), rank(3)], [2, 7, 1, 1]);
+        assert_eq!([rank(0), rank(1), rank(2), rank(3)], [2, 6, 1, 1]);
         assert_eq!(&packed.bytes[24..28], &[10, 20, 30, 255]);
     }
 

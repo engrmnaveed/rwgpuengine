@@ -665,7 +665,6 @@ name = "rwgpuengine_gpu"
 version = "0.1.0"
 dependencies = [
  "rwgpuengine_core",
- "rwgpuengine_data",
  "rwgpuengine_render",
  "wgpu",
 ]

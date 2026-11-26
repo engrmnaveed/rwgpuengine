@@ -175,9 +175,9 @@ fn fs_side_iso_x(i: MeshOut) -> DepthOut {
     return o;
 }
 
-// Level faces: the plane's depth with the rank in its lowest bits, so of two
-// faces in one plane the higher rank is the nearer one, and equal ranks are
-// equal depths (the first drawn stays).
+// Level faces: the plane's depth with the rank (1 to 6) in its lowest bits,
+// so of two faces in one plane the higher rank is the nearer one, and equal
+// ranks are equal depths (the first drawn stays).
 @fragment
 fn fs_level(i: MeshOut) -> DepthOut {
     var o: DepthOut;
@@ -321,11 +321,12 @@ fn card_depth(i: ShapeOut, p: vec2<f32>) -> f32 {
     if (g.flags.x & RANK_BY_BIAS) != 0u {
         return held(i.d0.y + i.d1.x + dy * (i.d1.w + i.d1.z));
     }
-    // Lying: one step behind any level face in its own plane (the floor
-    // stays), or, lifted, at least one step in front of it.
+    // Lying, in the plane of the floor it stands on: its bits with the
+    // highest rank, so the card shows over any floor there. A lifted card is
+    // at least one step in front of that.
     let plane = level_bits(p, i.d0.w);
     if i.kind.y == 0u {
-        return bitcast<f32>(max(plane, 8u) - 8u);
+        return bitcast<f32>(plane | 7u);
     }
     let lifted = held(level_depth(p, i.d0.w) + (i.d1.x + dy * i.d1.z));
     return bitcast<f32>(max(bitcast<u32>(lifted), plane + 8u));
