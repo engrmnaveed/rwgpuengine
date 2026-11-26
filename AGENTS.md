@@ -21,7 +21,13 @@ cargo xtask web                      # build the wasm web player
 cargo rwgpu serve examples/iso_garden   # web player at http://127.0.0.1:4410/
 cargo xtask docs                     # regenerate docs/reference after changing commands/formats/codes
 cargo xtask budgets                  # measure size/time/dependency budgets
+cargo xtask gpu                      # the players' gate: the wgpu renderer against the CPU reference, players' budgets
+cargo xtask gpu --fast               # only the picture check, built incrementally (the edit loop for players/)
 ```
+
+`cargo xtask ci` never needs a GPU. `cargo xtask gpu` needs one, or a software adapter (on Linux:
+`mesa-vulkan-drivers`); run it before every commit that touches `players/`, `rwgpuengine_render` or anything
+visual. When a scene fails it names the pixels and writes `target/gpu-check/<scene>.{reference,gpu,diff}.png`.
 
 ## Rules
 
@@ -32,6 +38,13 @@ cargo xtask budgets                  # measure size/time/dependency budgets
   No serde/clap/rand: use `rwgpuengine_core::json`, `rwgpuengine_cli::args`, `rwgpuengine_core::rng`.
 - **Layers point down only**: core ← data ← sim ← render ← runtime ← cli/web. `rwgpuengine_sim` never renders;
   `rwgpuengine_render` never mutates the world; only `rwgpuengine_cli` touches the filesystem.
+- **Two halves, two workspaces** ([ADR 0021](docs/decisions/0021-wgpu-renderer-held-to-the-reference.md)).
+  `crates/` is the agent's half and never needs a GPU. `players/` is the players' half, a workspace of its
+  own with its own `Cargo.lock` and budgets. wgpu and window crates live only in `players/`; nothing in
+  `crates/` or `xtask` may depend on a crate there. `rwgpu` stays GPU-free.
+- **The reference first.** A visual feature is built in the CPU reference renderer, then in
+  `rwgpuengine_gpu`, and `cargo xtask gpu` holds the second to the first. Never fix a mismatch by changing
+  what the reference draws, and never by adding a tolerance; if the two cannot agree, stop and report.
 - **Formats live in one registry** (`rwgpuengine_data::schema`). Never parse a key that is not declared there.
 - **Every problem is a `Diagnostic` with a registered code** (`rwgpuengine_core::codes`), a location and, when
   possible, a hint. Never reuse a code. Never print errors any other way.
@@ -47,7 +60,7 @@ cargo xtask budgets                  # measure size/time/dependency budgets
 | new diagnostic | `rwgpuengine_core/src/codes.rs` (next free number in range) → emit with `.at(src, span).hint(..)` → test asserts the code |
 | new command | `rwgpuengine_cli/src/args.rs` (Command entry with examples) → `lib.rs` dispatch → `commands.rs` → `cargo xtask docs` |
 | new event kind | `rwgpuengine_sim/src/events.rs` + `schema::EVENT_KINDS` (a test keeps them equal) |
-| visual change | run `cargo rwgpu test examples/iso_garden`; if refs differ on purpose, `--update-refs`, then look at the PNG |
+| visual change | the reference first (`reference.rs`, `list.rs`, `camera.rs`): run `cargo rwgpu test examples/iso_garden`; if refs differ on purpose, `--update-refs`, then look at the PNG → the same rule in `players/rwgpuengine_gpu` (`pack.rs` for what the CPU prepares, `shader.wgsl` for what the GPU draws) → a scene for it in `players/gpu_check/src/scenes.rs` under an iso and a perspective camera → `cargo xtask gpu` |
 
 ## Commits
 

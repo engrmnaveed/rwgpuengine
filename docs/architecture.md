@@ -32,12 +32,34 @@ How rwgpuengine is built, as of v0.1.0 (first milestone). Decisions behind each 
  foundation     │ rwgpuengine_core  JSON, diagnostics + code registry, PCG32, FNV,    │
                 │             colors, suggestions. Zero dependencies.            │
                 └──────────────────────────────────────────────────────────────┘
- rented         toml_edit (parsing) · png (encode/decode)         [later: wgpu, winit, audio, text]
- dev tooling    xtask: ci, web, smoke, budgets, docs
+ rented         toml_edit (parsing) · png (encode/decode)
+ dev tooling    xtask: ci, web, smoke, budgets, docs, wasm-check, gpu
 ```
 
 Dependency rule: arrows only point down. `rwgpuengine_sim` knows nothing about rendering; `rwgpuengine_render` reads
 the world but never changes it; only `rwgpuengine_runtime` holds both (picking needs the drawn frame).
+
+### Two halves
+
+Everything above is the **agent's half**: it never needs a GPU, and `cargo xtask ci` is its gate. The
+**players' half** is a second Cargo workspace, `players/`, with its own `Cargo.lock`, its own budgets and
+its own gate, `cargo xtask gpu` ([ADR 0021](decisions/0021-wgpu-renderer-held-to-the-reference.md)).
+
+```text
+ players/                                              the agent's half (crates/)
+ ┌──────────────────────────────────────────────┐
+ │ gpu_check        draws every reference scene │────► rwgpuengine_runtime (sessions of the example games)
+ │                  with both renderers and     │────► rwgpuengine_render  (the reference picture, owners)
+ │                  compares the pictures       │
+ │ rwgpuengine_gpu  a render list drawn with    │────► rwgpuengine_render  (the render list, the Projector,
+ │                  wgpu; no window, no blocking│                           a card's place, a face's color)
+ └──────────────────────────────────────────────┘
+ rented         wgpu 30.0.2 (Vulkan, Metal, Direct3D 12, WebGPU)          [later: winit, audio, text]
+```
+
+The players' crates depend on the agent's, never the other way round. wgpu is not in the root `Cargo.lock`,
+so no command in the agent's half can compile it. A native window and the browser canvas come next, as a
+third crate in `players/` around `rwgpuengine_gpu`.
 
 | crate | owns | must not |
 |---|---|---|
@@ -48,6 +70,8 @@ the world but never changes it; only `rwgpuengine_runtime` holds both (picking n
 | `rwgpuengine_runtime` | sessions, scripted input, playtests, the `Game` trait | touch the filesystem (the CLI does) |
 | `rwgpuengine_cli` | commands, output envelope, docs generation, templates, dev server | contain engine logic |
 | `rwgpuengine_web` | the wasm C ABI | contain engine logic |
+| `rwgpuengine_gpu` (players) | the render list drawn with wgpu: frame, copy to bytes, show on a target | open a window, block, decide what a frame looks like (the reference does) |
+| `gpu_check` (players) | the scenes both renderers draw, the comparison, frame times | be depended on |
 
 ## Data flow of one command
 
@@ -177,6 +201,35 @@ the wasm's pixels hash to native `rwgpu shot`'s image hashes. The current finger
 The iso view a scene starts with: `sx = ox + (x − y)·tw/2`, `sy = oy + (x + y)·th/2 − z·zh`. +x is
 down-right, +y down-left, z up. The camera centers the ground by default.
 
+### The players' renderer
+
+[ADR 0021](decisions/0021-wgpu-renderer-held-to-the-reference.md). `rwgpuengine_gpu::Renderer` draws the
+same render list with wgpu. It is handed a `wgpu::Device` and a `wgpu::Queue`, so a native window and a
+browser canvas can both wrap it. It draws into its own frame, which has the list's size and holds RGBA8
+with no sRGB encoding: the frame's bytes are the reference's bytes. `present` scales the frame onto a
+window; `copy_frame` gives the bytes.
+
+What decides a pixel comes from the reference renderer's own code; the GPU fills pixels:
+
+- **Instances** are drawn instanced: one draw for the sides of all boxes, one for their level faces, one
+  for all flat rectangles. The vertex shader projects corners with the `Projector`'s matrix.
+- **A face's color** is selected from a table of 6 × 256 levels filled by the reference's `shade`. The GPU
+  does no color arithmetic and writes whole 8-bit levels.
+- **Level faces** write their depth per pixel from the plane's equation, with the rank in the three lowest
+  bits. Two faces in one plane then differ only in rank, on every adapter, and one depth test orders them.
+- **Cards** are placed on the CPU (`Projector::card`, `reference::card_shapes`). The fragment shader tests
+  the reference's integer coverage rule per shape and writes a depth per pixel row: upright above the
+  anchor, in the anchor's level plane below it.
+- **See-through colors** are mixed in the fragment shader with the reference's integer formula, from a copy
+  of the picture so far. Things that overlap on the screen take a pass each; things that do not share one.
+- **The 2D layer** is the same shapes with no depth test, in list order.
+
+`cargo xtask gpu` draws 56 scenes with both renderers (every frame the example playtests shoot, a town of
+5,000 boxes, and a scene per rule under iso and perspective cameras). A pixel that differs must lie on an
+edge of the reference picture, and a scene may have at most `pixels_apart` of them (`budgets.toml`). There
+is no per-channel tolerance. No GPU picture is ever a reference image: they differ between systems by a
+few edge pixels, and the CPU reference does not.
+
 ## The agent surface
 
 - **CLI** (`rwgpuengine_cli`): the command registry (`args::COMMANDS`) is data; parsing, `help`, `help --json`
@@ -212,4 +265,5 @@ diagnostics in the page. Touch first: tap = tap, swipe = move along the iso axes
 ## Known limits of v0.1 (by design, for now)
 
 See [mvp-plan.md](mvp-plan.md#known-limitations) — no images or audio; ASCII text only; no rotation or
-dragging; CPU rendering only; no native window.
+dragging; the command and the web player render on the CPU; no native window yet (the players' renderer
+exists as a crate).

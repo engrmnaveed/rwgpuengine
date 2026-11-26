@@ -52,10 +52,14 @@ The contract is [ADR 0005](decisions/0005-determinism-model.md). In engine crate
 - Owned crates only depend downward (see [architecture.md](architecture.md)).
 - No proc macros in the runtime tree; new rented crates are justified in
   [ADR 0004](decisions/0004-few-dependencies-no-proc-macros.md).
+- That holds for the agent's half (`crates/`, `xtask`). The players' half is the workspace in `players/`,
+  with wgpu and its own limits ([ADR 0021](decisions/0021-wgpu-renderer-held-to-the-reference.md)). Its crates
+  may depend on the agent's; never the other way round.
 
 ## Budgets
 
-- Limits live in `budgets.toml`; `cargo xtask budgets` measures and fails when over.
+- Limits live in `budgets.toml`; `cargo xtask budgets` measures and fails when over. The `[players]` section
+  is measured by `cargo xtask gpu`.
 - Limits only go up in a commit that explains why and shows the measurement.
 
 ## Formatting and lints

@@ -483,6 +483,40 @@ mod tests {
     }
 
     #[test]
+    fn instances_are_packed_by_how_they_are_drawn() {
+        use rwgpuengine_render::Part;
+        let inst = |mesh: Mesh, alpha: u8, enabled: bool, layer: u8| Instance {
+            entity: Some(1),
+            part: Part::Block,
+            cell: [0, 0],
+            enabled,
+            mesh,
+            pos: [1.0, 2.0, 3.0],
+            size: [1.0, 1.0, 0.5],
+            color: Rgba { r: 10, g: 20, b: 30, a: alpha },
+            top: Rgba::rgb(40, 50, 60),
+            layer,
+            seq: 1,
+        };
+        let list = [
+            inst(Mesh::Box, 255, true, 0),
+            inst(Mesh::Flat, 255, true, 1),
+            inst(Mesh::Box, 128, true, 0),
+            inst(Mesh::Flat, 255, false, 2),
+            inst(Mesh::Flat, 255, true, 200),
+        ];
+        let packed = instances(&list);
+        // Opaque flat rectangles, then opaque boxes, then the see-through one; the disabled one is left out.
+        assert_eq!((packed.flats.clone(), packed.boxes.clone()), (0..2, 2..3));
+        assert_eq!(packed.glass, vec![(2, 3)]);
+        assert_eq!(packed.bytes.len(), 4 * INSTANCE_BYTES);
+        // The rank is the layer plus one, and no more than the three depth bits hold.
+        let rank = |k: usize| packed.bytes[k * INSTANCE_BYTES + 32];
+        assert_eq!([rank(0), rank(1), rank(2), rank(3)], [2, 7, 1, 1]);
+        assert_eq!(&packed.bytes[24..28], &[10, 20, 30, 255]);
+    }
+
+    #[test]
     fn glyph_bits_are_the_font() {
         for index in [0u8, 1, 33, 65, 94, 95, 200] {
             let bits = glyph_bits(index);

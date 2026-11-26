@@ -25,9 +25,16 @@ decision in [open-questions.md](open-questions.md).
    ([ADR 0020](decisions/0020-render-list-camera-and-cpu-reference-renderer.md)). The render list, the camera
    as session state and the CPU reference renderer with report and picking; Tiny Town plays in 3D from its
    unchanged files with unchanged state hashes.
-7. Then, in the order the proposal gives (its section 7): wgpu players natively; the web player on wgpu; the
-   simulation at scale; shapes as text and the town reference game; Rust game code; templates per kind of
-   game. Then demos, the MCP adapter and the desktop app.
+7. **wgpu players natively** (step 3 of the proposal), in three pieces on the branch `gpu-players`:
+   - ~~what wgpu can do on GitHub's runners~~: measured on 2026-11-26
+     ([spikes README](proposals/3d-architecture/spikes/README.md#on-githubs-runners));
+   - ~~the renderer, its check and the players' budgets~~: built on 2026-11-26
+     ([ADR 0021](decisions/0021-wgpu-renderer-held-to-the-reference.md)). `rwgpuengine_gpu` draws the render
+     list with wgpu, and `cargo xtask gpu` holds its picture to the CPU reference on Metal, lavapipe and WARP;
+   - a native window around it: next.
+8. Then, in the order the proposal gives (its section 7): the web player on wgpu; the simulation at scale;
+   shapes as text and the town reference game; Rust game code; templates per kind of game. Then demos, the
+   MCP adapter and the desktop app.
 
 Not started and now in question: the audit's step 4 (splitting `load.rs` and `world.rs`). The 3D world model
 will reshape both files, so they are restructured as part of that work, not before it.

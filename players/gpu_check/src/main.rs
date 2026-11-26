@@ -10,7 +10,7 @@
 //! dependency and build budgets. Options when run by hand:
 //!
 //! ```text
-//! --max-pixels N        differing pixels allowed per scene (default 50)
+//! --max-pixels N        differing pixels allowed per scene (default 24)
 //! --frame-budget-us N   limit for a frame of 50,000 boxes on a real GPU
 //! --scene TEXT          only scenes whose name contains TEXT
 //! --pictures            write every scene's pictures, not only failing ones
@@ -65,7 +65,7 @@ fn root() -> PathBuf {
 
 fn args() -> Result<Args, String> {
     let mut a = Args {
-        max_pixels: 50,
+        max_pixels: 24,
         frame_budget_us: 4_000,
         only: None,
         pictures: false,
@@ -394,7 +394,8 @@ fn run() -> Result<bool, String> {
     if a.only.is_none() {
         match present_check(&gpu, &scenes) {
             Ok(()) => println!(
-                "\nshowing the frame: its own size gives its bytes; twice the size gives each pixel four times"
+                "\nshowing the frame: its own size gives its bytes; twice the size gives each pixel four times; an \
+                 sRGB target gets them to within a level"
             ),
             Err(e) => {
                 println!("\nshowing the frame: FAILED: {e}");
@@ -411,15 +412,16 @@ fn run() -> Result<bool, String> {
 }
 
 /// `Renderer::present` onto a texture: at the frame's own size the target
-/// gets the frame's bytes, and at twice the size each pixel becomes four.
+/// gets the frame's bytes, and at twice the size each pixel becomes four. A
+/// target that encodes sRGB gets the same bytes to within one level.
 fn present_check(gpu: &Gpu, scenes: &[Scene]) -> Result<(), String> {
     let Some(scene) = scenes.first() else { return Ok(()) };
     let mut renderer = Renderer::new(&gpu.device, Options::default());
     let want = gpu_frame(gpu, &mut renderer, &scene.list)?;
     let (w, h) = renderer.size().ok_or("no frame")?;
-    for scale in [1u32, 2] {
+    use wgpu::TextureFormat::{Rgba8Unorm, Rgba8UnormSrgb};
+    for (scale, format, slack) in [(1u32, Rgba8Unorm, 0u8), (2, Rgba8Unorm, 0), (1, Rgba8UnormSrgb, 1)] {
         let size = wgpu::Extent3d { width: w * scale, height: h * scale, depth_or_array_layers: 1 };
-        let format = wgpu::TextureFormat::Rgba8Unorm;
         let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size,
@@ -461,11 +463,10 @@ fn present_check(gpu: &Gpu, scenes: &[Scene]) -> Result<(), String> {
             for x in 0..size.width {
                 let at = (y * row + x * 4) as usize;
                 let from = (((y / scale) * w + x / scale) * 4) as usize;
-                if got[at..at + 4] != want[from..from + 4] {
+                let (got, want) = (&got[at..at + 4], &want[from..from + 4]);
+                if got.iter().zip(want).any(|(a, b)| a.abs_diff(*b) > slack) {
                     return Err(format!(
-                        "at {scale} times the size, pixel ({x}, {y}) is {:?}, the frame has {:?}",
-                        &got[at..at + 4],
-                        &want[from..from + 4]
+                        "onto {format:?} at {scale} times the size, pixel ({x}, {y}) is {got:?}, the frame has {want:?}"
                     ));
                 }
             }
@@ -494,9 +495,9 @@ fn study(gpu: &Gpu, scenes: &[Scene], a: &Args) -> Result<(), String> {
     println!("{:<44} {:>8} {:>10} {:>8} {:>12}", "option", "apart", "not edge", "scenes", "frame ms");
     for (name, options) in variants {
         let rows = check(gpu, options, scenes, a, false)?;
-        let (still, _, _) = if a.timing { town_times(gpu, options, boxes)? } else { (0.0, 0.0, 0) };
+        let frame = if a.timing { format!("{:.3}", town_times(gpu, options, boxes)?.0) } else { "-".into() };
         println!(
-            "{name:<44} {:>8} {:>10} {:>8} {still:>12.3}",
+            "{name:<44} {:>8} {:>10} {:>8} {frame:>12}",
             rows.iter().map(|r| r.differing).sum::<usize>(),
             rows.iter().map(|r| r.inside).sum::<usize>(),
             rows.iter().filter(|r| r.differing > 0).count(),

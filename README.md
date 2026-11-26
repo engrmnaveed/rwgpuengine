@@ -86,10 +86,12 @@ page matches `rwgpu run`. Edit any file in the project and the page reloads it.
 | `crates/rwgpuengine_runtime` | sessions, scripted input, playtests, the `Game` trait for Rust code |
 | `crates/rwgpuengine_cli` | the `rwgpu` command line (+ project template, dev server) |
 | `crates/rwgpuengine_web` | wasm build with a small C ABI; `web/` holds the page and JS glue |
+| `players/rwgpuengine_gpu` | the players' renderer: the render list drawn with wgpu, no window (its own workspace, `players/`) |
+| `players/gpu_check` | holds that renderer to the CPU reference renderer, scene by scene |
 | `examples/iso_garden` | reference example: plate opens gate, goal raises flag; 2 playtests |
 | `examples/coin_vault` | reference example for data logic: coin counter on a HUD, vault opens at 3, AND lock held by a pushed crate; 4 playtests |
 | `examples/tiny_town` | **reference game 1** ([spec](docs/games/tiny-town.md)): a builder — terrain map, tap to build 2 × 2 houses, trees and a well within a coin budget, clear with refund, a job card that counts copies, hints that say why nothing was built; 4 playtests, one of which turns the camera and builds in perspective |
-| `xtask` | `cargo xtask ci | web | smoke | budgets | docs | wasm-check` |
+| `xtask` | `cargo xtask ci | web | smoke | budgets | docs | wasm-check | gpu` |
 | `web/` | the web player's page and glue, and `check.mjs`, which holds the wasm module to the native command |
 | `docs/` | vision, architecture, decisions (ADRs), proposals, roadmap, open questions, reference |
 
@@ -97,6 +99,7 @@ page matches `rwgpu run`. Edit any file in the project and the page reloads it.
 
 ```bash
 cargo xtask ci        # fmt, clippy (native+wasm), tests, docs drift, examples, budgets, wasm check — what CI runs
+cargo xtask gpu       # the players' half: the wgpu renderer against the CPU reference, players' budgets (needs a GPU)
 ```
 
 Hard limits in [budgets.toml](budgets.toml) fail the build (wasm size, CLI size, dependency count,

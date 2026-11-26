@@ -72,7 +72,9 @@ Deliberate gaps in v0.1 — each waits for a reference game that needs it (guard
 - **Data logic is deliberately small** (M1.6, [ADR 0011](decisions/0011-game-logic-data-first-rust-escape-hatch.md)):
   `add`/`set` constants on props, `when` conditions that compare with constants, `changed` signals. No
   expressions, timers or random choices in data; anything beyond that is Rust game code (M4).
-- **CPU rendering only** (deterministic, fine at 640×480; GPU via wgpu later — Q4).
+- **CPU rendering only in the command and the web player** (deterministic, fine at 640×480). The players'
+  renderer on wgpu exists as a crate with no window yet
+  ([ADR 0021](decisions/0021-wgpu-renderer-held-to-the-reference.md)).
 - **No native window**: humans use the web player (`rwgpu serve`).
 - **Prefab components can't omit required keys**: a prefab with `patrol = { step_frames = 30 }` fails
   because `patrol.path` is required; put the patrol in the scene. Fix: validate required keys after merge.
