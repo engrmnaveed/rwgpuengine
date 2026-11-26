@@ -48,18 +48,25 @@ its own gate, `cargo xtask gpu` ([ADR 0021](decisions/0021-wgpu-renderer-held-to
 ```text
  players/                                              the agent's half (crates/)
  ┌──────────────────────────────────────────────┐
+ │ rwgpuengine_player  `rwgpu-player`: a winit  │────► rwgpuengine_cli     (play's arguments, load_session,
+ │                  window, the clock, keys and │                           output and diagnostics)
+ │                  taps; steps the Session     │────► rwgpuengine_runtime (Session::step, render_list,
+ │                                              │                           move_camera)
  │ gpu_check        draws every reference scene │────► rwgpuengine_runtime (sessions of the example games)
  │                  with both renderers and     │────► rwgpuengine_render  (the reference picture, owners)
- │                  compares the pictures       │
+ │                  compares the pictures;      │
+ │                  replays playtests by player │
  │ rwgpuengine_gpu  a render list drawn with    │────► rwgpuengine_render  (the render list, the Projector,
  │                  wgpu; no window, no blocking│                           a card's place, a face's color)
  └──────────────────────────────────────────────┘
- rented         wgpu 30.0.2 (Vulkan, Metal, Direct3D 12, WebGPU)          [later: winit, audio, text]
+ rented         wgpu 30.0.2 (Vulkan, Metal, Direct3D 12, WebGPU) · winit 0.30.13 (X11, Wayland, AppKit, Win32)
+                [later: audio, text]
 ```
 
-The players' crates depend on the agent's, never the other way round. wgpu is not in the root `Cargo.lock`,
-so no command in the agent's half can compile it. A native window and the browser canvas come next, as a
-third crate in `players/` around `rwgpuengine_gpu`.
+The players' crates depend on the agent's, never the other way round. wgpu and winit are not in the root
+`Cargo.lock`, so no command in the agent's half can compile them. `rwgpu play` runs the player as a separate
+program, found next to `rwgpu` or on `PATH` ([ADR 0022](decisions/0022-native-player-winit-and-rwgpu-play.md)).
+The browser canvas comes next (step 4).
 
 | crate | owns | must not |
 |---|---|---|
@@ -71,6 +78,7 @@ third crate in `players/` around `rwgpuengine_gpu`.
 | `rwgpuengine_cli` | commands, output envelope, docs generation, templates, dev server | contain engine logic |
 | `rwgpuengine_web` | the wasm C ABI | contain engine logic |
 | `rwgpuengine_gpu` (players) | the render list drawn with wgpu: frame, copy to bytes, show on a target | open a window, block, decide what a frame looks like (the reference does) |
+| `rwgpuengine_player` (players) | `rwgpu-player`: the window, the clock, keys, taps and camera gestures, `--headless` and `--screenshot` | have a game rule or a visual feature (the engine and the reference do), load a project its own way |
 | `gpu_check` (players) | the scenes both renderers draw, the comparison, frame times | be depended on |
 
 ## Data flow of one command
@@ -233,6 +241,23 @@ edge of the reference picture, and a scene may have at most `pixels_apart` of th
 is no per-channel tolerance. No GPU picture is ever a reference image: they differ between systems by a
 few edge pixels, and the CPU reference does not.
 
+### The native player
+
+[ADR 0022](decisions/0022-native-player-winit-and-rwgpu-play.md). `rwgpu-player` (`rwgpu play`) drives a
+`Session` as the web player does, with the GPU drawing:
+
+```text
+ wake up (the next step is due, or an event came)
+   ├─ keys, clicks, gestures ──► LiveInput for the next step; camera gestures ──► Session::move_camera
+   ├─ take the steps that are due (at most 5; more lost time is let go, never a longer step)
+   ├─ Session::render_list ──► equal to the one drawn? stop here
+   └─ Renderer::draw ──► Renderer::present onto the window (scaled, bars) ──► sleep until the next step
+```
+
+The frame is the list's size; the window opens at that size in logical pixels and scales it to fit. A click is
+taken back to frame pixels, so a tap hits what `rwgpu inspect --place` says is there. `--headless` takes the
+same steps with no window and no clock; `--frames` and `--input` end a run and print the state hash.
+
 ## The agent surface
 
 - **CLI** (`rwgpuengine_cli`): the command registry (`args::COMMANDS`) is data; parsing, `help`, `help --json`
@@ -268,5 +293,4 @@ diagnostics in the page. Touch first: tap = tap, swipe = move along the iso axes
 ## Known limits of v0.1 (by design, for now)
 
 See [mvp-plan.md](mvp-plan.md#known-limitations) — no images or audio; ASCII text only; no rotation or
-dragging; the command and the web player render on the CPU; no native window yet (the players' renderer
-exists as a crate).
+dragging; the command and the web player render on the CPU; the GPU draws only in the native player.

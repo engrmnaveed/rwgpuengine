@@ -105,7 +105,9 @@ fn windowed(
             ran.steps.behind, ran.steps.dropped
         ));
     }
-    if let (Some(path), Some(s)) = (shot, ran.shot) {
+    if let Some(path) = shot {
+        let s =
+            ran.shot.ok_or_else(|| gpu::failed("the window closed before its last picture was read back".into()))?;
         save(&mut o, path, s.width, s.height, &s.rgba, s.from)?;
     }
     Ok(o)
