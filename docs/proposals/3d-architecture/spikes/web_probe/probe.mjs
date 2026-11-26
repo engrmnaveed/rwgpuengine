@@ -124,6 +124,9 @@ for (const browser of found()) {
     rows.push(row);
   }
 }
-server.close();
 const label = process.env.LABEL || process.platform;
 if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n### ${label}\n\n${rows.join('\n')}\n`);
+// Connections a stopped browser left open would keep Node waiting (seen on the Linux runner): end here.
+server.closeAllConnections();
+server.close();
+process.exit(0);

@@ -228,10 +228,11 @@ first shows a picture. The browser's words, on the device and on the frame copy 
 valid external Instance reference no longer exists." Chrome logs nothing else about it.
 
 - It is Chrome and not wgpu: web_probe's canvas test is plain WebGPU (60 frames into a texture, each shown
-  on a canvas, then the texture read back) and fails the same way on that runner under nine sets of
+  on a canvas, then the texture read back) and fails the same way on that runner under ten sets of
   flags (`--enable-unsafe-webgpu` alone, with Vulkan, without the GPU blocklist, with SwiftShader or
-  ANGLE-on-SwiftShader for Chrome's own GL, with software compositing; runs 45852696750 and 45884520276),
-  with Mesa's lavapipe installed or not. With `--in-process-gpu` Chrome hung there. Without a canvas the same device draws and reads back.
+  ANGLE-on-SwiftShader for Chrome's own GL, with software compositing, with every GL fallback at once;
+  runs 45852696750, 45884520276 and 45887557233), with Mesa's lavapipe installed or not. With
+  `--in-process-gpu` Chrome hung there. Without a canvas the same device draws and reads back.
 - To reproduce it on a Mac with Chrome: `node docs/proposals/3d-architecture/spikes/web_probe/probe.mjs`
   (the rows with SwiftShader as the adapter), or the player itself:
   `RWGPU_BROWSER_FLAGS=--use-webgpu-adapter=swiftshader node players/rwgpuengine_player/web/check.mjs

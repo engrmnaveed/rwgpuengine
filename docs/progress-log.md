@@ -33,7 +33,7 @@ findings that are not code (experiment results, surprises, things to remember).
   it three times per job: green 3 of 3 on each runner of run 45884520090.
 - **The Linux runner cannot show WebGPU on a canvas.** Chrome's only adapter there is SwiftShader, which loses
   the device a few frames after a WebGPU canvas first shows a picture ("A valid external Instance reference
-  no longer exists"); a plain-WebGPU page in web_probe fails the same way under nine sets of flags, and it
+  no longer exists"); a plain-WebGPU page in web_probe fails the same way under ten sets of flags, and it
   reproduces on a Mac with SwiftShader. There the gate proves the build, the CPU path in the browser and
   the handover after the browser's loss; the WebGPU picture is carried by the macOS and Windows runners and
   this Mac. The search found three real faults: the player ignored a loss Chrome reports as `destroyed`;
