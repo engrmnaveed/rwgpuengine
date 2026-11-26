@@ -33,7 +33,7 @@ How rwgpuengine is built, as of v0.1.0 (first milestone). Decisions behind each 
                 │             colors, suggestions. Zero dependencies.            │
                 └──────────────────────────────────────────────────────────────┘
  rented         toml_edit (parsing) · png (encode/decode)
- dev tooling    xtask: ci, web, smoke, budgets, docs, wasm-check, gpu
+ dev tooling    xtask: ci, repo-check, dist, web, smoke, budgets, docs, wasm-check, gpu
 ```
 
 Dependency rule: arrows only point down. `rwgpuengine_sim` knows nothing about rendering; `rwgpuengine_render` reads

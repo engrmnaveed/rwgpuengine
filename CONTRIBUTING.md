@@ -20,10 +20,12 @@ say more, a platform where the gate fails.
 cargo xtask ci
 ```
 
-It must pass before a pull request is reviewed. It runs formatting, clippy for native and wasm, the tests,
-the generated-docs check, the example playtests, the budgets in [budgets.toml](budgets.toml), and the check
-that the wasm module reaches the native command's state hashes and pixels (that one needs Node.js). If your
-change alters a state hash or a reference image, say so in the pull request and show why.
+It must pass before a pull request is reviewed. It starts with the repository check (no home path, no build
+output, no oversized file: see [privacy](docs/conventions.md#privacy)), then runs formatting, clippy for
+native and wasm, the tests, the generated-docs check, the example playtests, the budgets in
+[budgets.toml](budgets.toml), and the check that the wasm module reaches the native command's state hashes
+and pixels (that one needs Node.js). If your change alters a state hash or a reference image, say so in the
+pull request and show why.
 
 After changing commands, file formats or diagnostic codes, run `cargo xtask docs` and commit the regenerated
 reference.

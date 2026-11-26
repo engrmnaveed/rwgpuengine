@@ -62,8 +62,13 @@ struct Args {
     out: PathBuf,
 }
 
+/// The repository: the nearest folder at or above the current one that holds
+/// `budgets.toml` (else the current folder). Found when the check runs, not
+/// when it is built, so the program holds no path of the machine that built
+/// it (ADR 0023).
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+    let here = std::env::current_dir().unwrap_or_default();
+    here.ancestors().find(|dir| dir.join("budgets.toml").is_file()).unwrap_or(&here).to_path_buf()
 }
 
 fn args() -> Result<Args, String> {

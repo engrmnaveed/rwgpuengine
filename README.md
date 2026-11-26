@@ -85,6 +85,10 @@ cargo rwgpu play examples/tiny_town
 cargo rwgpu play examples/tiny_town --input tests/turn_and_build.toml   # watch a playtest; prints its state hash
 ```
 
+That build is for your own machine: like any plain Cargo build, it writes this machine's folders into the
+program. To give `rwgpu` or `rwgpu-player` to someone else, build them with `cargo xtask dist`, which
+leaves those paths out and checks that it did ([ADR 0023](docs/decisions/0023-release-builds-without-local-paths.md)).
+
 Arrows or W A S D, Enter or Space and Escape are the game's keys, and a click is a tap. Q and E turn the
 camera, right-drag turns it freely, middle-drag pans, the wheel zooms and V switches to perspective
 (`rwgpu help play` lists them all).
@@ -106,14 +110,15 @@ camera, right-drag turns it freely, middle-drag pans, the wheel zooms and V swit
 | `examples/iso_garden` | reference example: plate opens gate, goal raises flag; 2 playtests |
 | `examples/coin_vault` | reference example for data logic: coin counter on a HUD, vault opens at 3, AND lock held by a pushed crate; 4 playtests |
 | `examples/tiny_town` | **reference game 1** ([spec](docs/games/tiny-town.md)): a builder — terrain map, tap to build 2 × 2 houses, trees and a well within a coin budget, clear with refund, a job card that counts copies, hints that say why nothing was built; 4 playtests, one of which turns the camera and builds in perspective |
-| `xtask` | `cargo xtask ci | web | smoke | budgets | docs | wasm-check | gpu` |
+| `xtask` | `cargo xtask ci | repo-check | dist | web | smoke | budgets | docs | wasm-check | gpu` |
 | `web/` | the web player's page and glue, and `check.mjs`, which holds the wasm module to the native command |
 | `docs/` | vision, architecture, decisions (ADRs), proposals, roadmap, open questions, reference |
 
 ## Development
 
 ```bash
-cargo xtask ci        # fmt, clippy (native+wasm), tests, docs drift, examples, budgets, wasm check — what CI runs
+cargo xtask ci        # repository check, fmt, clippy (native+wasm), tests, docs drift, examples, budgets, wasm check — what CI runs
+cargo xtask dist      # release artifacts to share: no path of the machine that built them (ADR 0023)
 cargo xtask gpu       # the players' half: the wgpu renderer against the CPU reference, the native player, players' budgets (needs a GPU)
 ```
 

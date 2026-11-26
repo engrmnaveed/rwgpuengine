@@ -7,6 +7,38 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-26 — Release builds without local paths; the gate keeps paths and build output out of git
+
+- Step 4, piece 1 ([ADR 0023](decisions/0023-release-builds-without-local-paths.md)). It pays the debt the
+  entries of 2026-11-25 recorded ("a `dist` build that remaps paths is needed before any binary is
+  published"), for the command, the web module and the players' programs.
+- **What was in the artifacts**, on the reference machine: 45 paths in `rwgpu`, 21 in the web module, 289 in
+  `gpu_check` and 390 in `rwgpu-player`. Panic locations of rented crates name Cargo's registry under the home folder; in the players'
+  workspace the agent's crates are path dependencies and were named by their absolute path; and `gpu_check`
+  found the repository through `env!("CARGO_MANIFEST_DIR")`. Now: 0 in each.
+- **How.** xtask passes rustc `--remap-path-prefix` for the repository (→ `crates/…`), each registry folder
+  (→ `png-0.18.1/…`), Cargo's git checkouts, and the rest of the home folder (→ `~`). Every release build goes
+  through that one function, and `cargo xtask dist` builds all release artifacts with it. Cargo's
+  `trim-paths` was measured too: same paths removed and the same build time, but it is not stable on 1.100,
+  writes longer names and names the agent's crates `/cargo/deps/rwgpuengine_core-0.1.0/…`.
+- **Measured.** Sizes, plain → `cargo xtask dist`: the command 2,031,296 → 2,014,784 bytes, the web module
+  628,075 → 626,627, `gpu_check` 5,571,616 → 5,555,104, `rwgpu-player` 5,988,512 → 5,955,488. A clean build
+  takes the same time (3.5 s, 3.5 s and 14.4 s, medians of three, before the player landed). The dev rebuild after an edit is untouched (0.44–0.52 s); a release one is 1.72–1.76 s either way.
+- **The gates prove it.** After each release build, xtask reads the artifact's bytes for this machine's home
+  folder, the repository and Cargo's home (with `\`, `/` and `\\`, any case, UTF-8 and UTF-16). `ci` covers
+  the command and the web module, `gpu` the players' programs.
+- **`cargo xtask repo-check`**, the first step of `ci`: no home path of any user in a tracked file, no build
+  output (by folder, name or first bytes), no file over 150,000 bytes (the largest today, `load.rs`, has
+  75,685). Untracked build output that `.gitignore` misses fails as well, so the `players/target-musl`
+  folder pushed earlier today would have stopped the gate before it was staged. The tree passed as it was;
+  the only exception is the placeholder name `someone`.
+- `cargo install --locked --path players/rwgpuengine_player` stays the way to install the player on one's
+  own machine; the README now says that a program for someone else comes from `cargo xtask dist`.
+- Linux was checked in a container (home `/home/someone`, Cargo's home `/usr/local/cargo`): a plain build has
+  44 paths, the remapped one 0. Windows only by unit tests until its CI runner runs it.
+- Not done: reproducible builds byte for byte, installers, signing, git hooks. The outgoing-commit check
+  before a push is still a step people and agents take by hand ([conventions](conventions.md#privacy)).
+
 ## 2026-11-26 — The native player: Tiny Town in a window, drawn with the GPU, replaying every playtest to its state hash
 
 - Step 3, piece 3 ([ADR 0022](decisions/0022-native-player-winit-and-rwgpu-play.md)). `players/rwgpuengine_player`

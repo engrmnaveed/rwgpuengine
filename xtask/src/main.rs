@@ -2,6 +2,10 @@
 //!
 //! ```text
 //! cargo xtask ci        everything CI runs, in order (fails fast)
+//! cargo xtask repo-check  what must never be committed: home paths, build
+//!                       output, oversized files (the first step of `ci`)
+//! cargo xtask dist      the release artifacts, with no path of this machine
+//!                       (`--agent`: only the rwgpu command and the web module)
 //! cargo xtask web       build rwgpuengine_web.wasm (web profile)
 //! cargo xtask smoke     the first-milestone command chain on a fresh project
 //! cargo xtask budgets   measure and enforce budgets.toml
@@ -24,6 +28,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Instant;
 
+mod dist;
+mod repo;
 mod town;
 
 use rwgpuengine_core::diag::SourceFile;
@@ -38,6 +44,8 @@ fn main() -> ExitCode {
     let rest = &args[args.len().min(1)..];
     let result = match task {
         "ci" => ci(),
+        "repo-check" => repo_check(),
+        "dist" => dist_all(rest),
         "web" => web().map(|_| ()),
         "smoke" => smoke().map(|_| ()),
         "budgets" => budgets(),
@@ -47,8 +55,8 @@ fn main() -> ExitCode {
         "gpu" => gpu(rest),
         _ => {
             eprintln!(
-                "usage: cargo xtask <ci | web | smoke | budgets | docs [--check] | wasm-check | gpu [--fast | --study | \
-                 --window] [-- <options of players/gpu_check>]>"
+                "usage: cargo xtask <ci | repo-check | dist [--agent] | web | smoke | budgets | docs [--check] | \
+                 wasm-check | gpu [--fast | --study | --window] [-- <options of players/gpu_check>]>"
             );
             return ExitCode::from(2);
         }
@@ -92,6 +100,7 @@ fn capture(program: &str, args: &[&str], dir: &Path) -> Result<(bool, String)> {
 }
 
 fn ci() -> Result {
+    repo_check()?;
     step("format");
     run("cargo", &["fmt", "--all", "--check"])?;
     step("clippy (native)");
@@ -138,18 +147,79 @@ fn wasm_check() -> Result {
     Ok(())
 }
 
+/// `cargo xtask repo-check`: the first step of `ci`, before anything is built.
+fn repo_check() -> Result {
+    step("repository: no home path, no build output, no oversized file");
+    let max = Budgets::load()?.limit("repo", "file_bytes");
+    if max <= 0 {
+        return Err("budgets.toml: `[repo] file_bytes` is missing".into());
+    }
+    repo::check(&root(), max as u64)
+}
+
+/// The web module, built as a release (this machine's folders remapped) and
+/// checked for paths of this machine.
 fn web() -> Result<PathBuf> {
     step("web build");
-    run("cargo", &["build", "-p", "rwgpuengine_web", "--target", "wasm32-unknown-unknown", "--profile", "web"])?;
+    let machine = dist::Machine::here(&root())?;
+    let args = ["build", "-p", "rwgpuengine_web", "--target", "wasm32-unknown-unknown", "--profile", "web"];
+    dist::cargo_release(&machine, &root(), &args)?;
     let wasm = root().join("target/wasm32-unknown-unknown/web/rwgpuengine_web.wasm");
     let size = std::fs::metadata(&wasm).map_err(|e| format!("{}: {e}", wasm.display()))?.len();
     eprintln!("built {} ({size} bytes)", wasm.display());
+    dist::check_artifacts(&machine, &root(), std::slice::from_ref(&wasm))?;
     Ok(wasm)
 }
 
+/// The release `rwgpu` command, built and checked like the web module.
 fn release_cli() -> Result<PathBuf> {
-    run("cargo", &["build", "--release", "--bin", "rwgpu"])?;
-    Ok(root().join("target/release").join(format!("rwgpu{}", std::env::consts::EXE_SUFFIX)))
+    let machine = dist::Machine::here(&root())?;
+    dist::cargo_release(&machine, &root(), &["build", "--release", "--bin", "rwgpu"])?;
+    let cli = root().join("target/release").join(format!("rwgpu{}", std::env::consts::EXE_SUFFIX));
+    dist::check_artifacts(&machine, &root(), std::slice::from_ref(&cli))?;
+    Ok(cli)
+}
+
+/// The players' programs, built into `built` as a release. A list: each is
+/// checked for paths of this machine by the gate and by `cargo xtask dist`.
+const PLAYER_PROGRAMS: [&str; 2] = ["gpu_check", "rwgpu-player"];
+
+fn players_release(machine: &dist::Machine, built: &Path) -> Result<Vec<PathBuf>> {
+    let built_s = built.to_string_lossy();
+    dist::cargo_release(
+        machine,
+        &root().join("players"),
+        &["build", "--release", "--workspace", "--target-dir", &built_s],
+    )?;
+    Ok(PLAYER_PROGRAMS
+        .iter()
+        .map(|p| built.join("release").join(format!("{p}{}", std::env::consts::EXE_SUFFIX)))
+        .collect())
+}
+
+/// `cargo xtask dist`: every release artifact, built the one way the gates
+/// build them, and checked for paths of this machine (ADR 0023). `--agent`
+/// leaves out the players' programs (which compile wgpu, but need no GPU to
+/// build).
+fn dist_all(args: &[String]) -> Result {
+    if let Some(bad) = args.iter().find(|a| *a != "--agent") {
+        return Err(format!("unknown option `{bad}`: dist takes --agent"));
+    }
+    step("dist: the rwgpu command");
+    let mut artifacts = vec![release_cli()?];
+    artifacts.push(web()?);
+    if args.is_empty() {
+        step("dist: the players' programs");
+        let machine = dist::Machine::here(&root())?;
+        let programs = players_release(&machine, &root().join("players/target-release"))?;
+        dist::check_artifacts(&machine, &root(), &programs)?;
+        artifacts.extend(programs);
+    }
+    eprintln!("\nrelease artifacts, with no path of this machine:");
+    for a in &artifacts {
+        eprintln!("  {} ({} bytes)", a.strip_prefix(root()).unwrap_or(a).display(), file_size(a)?);
+    }
+    Ok(())
 }
 
 /// The first milestone, end to end, with JSON assertions at each step.
@@ -344,11 +414,15 @@ fn budgets() -> Result {
 
     step("render time (release, native)");
     check_web_profile()?;
-    let out = Command::new("cargo")
-        .args(["run", "--release", "--quiet", "--package", "xtask", "--", "render-bench"])
-        .current_dir(root())
-        .output()
-        .map_err(|e| e.to_string())?;
+    // A release build like the others, so it shares their compiled crates.
+    let machine = dist::Machine::here(&root())?;
+    let out = dist::release_command(
+        &machine,
+        &root(),
+        &["run", "--release", "--quiet", "--package", "xtask", "--", "render-bench"],
+    )
+    .output()
+    .map_err(|e| e.to_string())?;
     if !out.status.success() {
         return Err(format!("render-bench failed: {}", String::from_utf8_lossy(&out.stderr)));
     }
@@ -540,7 +614,9 @@ fn gpu(args: &[String]) -> Result {
 
     // Release builds of the players' half go to one folder of their own.
     // The gate empties it first (it times a clean build); --fast and --study
-    // build on what is there.
+    // build on what is there, with the same remapping (ADR 0023), so the
+    // edit loop and the gate share what they compiled.
+    let machine = dist::Machine::here(&root())?;
     let built = players.join("target-release");
     let built_s = built.to_string_lossy().into_owned();
     let study = flags.iter().any(|a| a == "--study");
@@ -551,7 +627,7 @@ fn gpu(args: &[String]) -> Result {
             cmd.push("--study");
         }
         cmd.extend_from_slice(&pass);
-        return run_in(&players, "cargo", &cmd);
+        return dist::cargo_release(&machine, &players, &cmd);
     }
 
     step("the agent's half does not know wgpu");
@@ -601,12 +677,14 @@ fn gpu(args: &[String]) -> Result {
     // from there, so nothing is built twice.
     let _ = std::fs::remove_dir_all(&built);
     let start = Instant::now();
-    run_in(&players, "cargo", &["build", "--release", "--workspace", "--target-dir", &built_s])?;
+    let programs = players_release(&machine, &built)?;
     r.add(
         "players.clean_release_build_ms",
         start.elapsed().as_millis() as i64,
         b.scaled("players", "clean_release_build_ms"),
     );
+    step("players: no path of this machine in the programs");
+    let paths = dist::check_artifacts(&machine, &root(), &programs);
 
     step("players: the wgpu renderer against the CPU reference");
     let exe = built.join("release").join(format!("gpu_check{}", std::env::consts::EXE_SUFFIX));
@@ -626,10 +704,11 @@ fn gpu(args: &[String]) -> Result {
         let limit = if measured("real_gpu") == Some(1) { b.scaled("players", "gpu_frame_us") } else { 0 };
         r.add("players.gpu_frame_us", us, limit);
     }
-    let programs = player_programs(&built, b.limit("players", "pixels_apart"), window);
+    let played = player_programs(&built, b.limit("players", "pixels_apart"), window);
     let budgets = r.print_and_check();
     checked?;
-    programs?;
+    played?;
+    paths?;
     budgets?;
     eprintln!("\ngpu: all green");
     Ok(())

@@ -37,6 +37,9 @@ decision in [open-questions.md](open-questions.md).
      hashes, and its window shows the reference's picture. Step 3 is done when this lands on `gpu-players`.
 8. **Next: the web player on wgpu** (step 4): the same renderer on WebGPU in a browser, the CPU reference as the
    fallback, and `rwgpu export web`.
+   - ~~release builds without local paths, and a repository check in the gate~~: built on 2026-11-26
+     ([ADR 0023](decisions/0023-release-builds-without-local-paths.md)). `cargo xtask dist` builds every
+     artifact with no path of the machine that built it, and both gates check that.
 9. Then, in the order the proposal gives (its section 7): the simulation at scale;
    shapes as text and the town reference game; Rust game code; templates per kind of game. Then demos, the
    MCP adapter and the desktop app.

@@ -24,6 +24,16 @@ runtime_crates = 20
 # Proc-macro crates anywhere in the runtime tree. Zero is the policy (ADR 0004).
 proc_macro_crates = 0
 
+# What git tracks, checked by `cargo xtask repo-check`, the first step of
+# `cargo xtask ci` (ADR 0023).
+[repo]
+# The largest tracked file, in bytes. Measured on 2026-11-26: the largest of
+# 314 files is crates/rwgpuengine_data/src/load.rs at 75,685 bytes; then a
+# reference picture (70,441) and players/Cargo.lock (62,606 with the native
+# player). The limit is twice the largest, rounded. The rwgpu command is
+# about 2,000,000 bytes and the web module 620,000: build output does not fit.
+file_bytes = 150_000
+
 # The [time] limits are for the reference machine (an Apple M5 Pro). On
 # slower machines set RWGPU_TIME_BUDGET_SCALE (CI uses 4): the limits are
 # multiplied, so a large regression still fails there.

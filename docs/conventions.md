@@ -2,6 +2,38 @@
 
 Rules for working on rwgpuengine itself. The short version lives in the root [AGENTS.md](../AGENTS.md).
 
+## Privacy
+
+The repository is public, and every push publishes at once. Never commit:
+
+- an absolute home path of anyone, as macOS, Linux or Windows write it (`/home/<name>/`, `C:\Users\<name>\`
+  and the like). Write paths relative to the repository; an example that needs a home folder uses the
+  made-up name `someone`;
+- a name or a personal email, in files, commit messages or pull requests. Commits use the repository's own
+  git identity;
+- build output: `target/` or `target-*/` folders, Cargo's `.d` files, objects, libraries, programs.
+
+How to work:
+
+- Stage by explicit path (`git add <path>`), never `git add -A` or `git add .`. Read `git status --short`,
+  untracked files included, before each commit.
+- Build scratch and cross builds outside the repository (`--target-dir` in a temporary folder), or in a
+  folder `.gitignore` already covers.
+- Before a push, check every outgoing commit, not only the tip: `git log -p <base>..HEAD` must hold no home
+  path, and `git diff --stat <base>...HEAD` must list only the files you meant to change.
+- Release artifacts come from `cargo xtask dist`, never from a plain `cargo build --release` or
+  `cargo install`: only xtask remaps this machine's folders. A plain install is fine for one's own machine.
+
+How the gate enforces it ([ADR 0023](decisions/0023-release-builds-without-local-paths.md)):
+
+- `cargo xtask repo-check`, the first step of `cargo xtask ci`, reads every tracked file. It fails on a home
+  path of any user, on build output (by folder, by name, or by a program's first bytes), and on a file over
+  `[repo] file_bytes` in `budgets.toml`. Untracked build output that `.gitignore` misses fails too. The
+  only exception is the placeholder name `someone`, in `xtask/src/repo.rs`.
+- After every release build, xtask reads the artifact's bytes for this machine's home folder, the repository
+  and Cargo's home. `cargo xtask ci` checks the `rwgpu` command and the web module; `cargo xtask gpu` the
+  players' programs (`gpu_check` and `rwgpu-player`).
+
 ## Commits
 
 Commit messages are the project's running progress log. Format:

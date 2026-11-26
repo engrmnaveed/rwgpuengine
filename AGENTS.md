@@ -15,6 +15,8 @@ AGENTS.md from `rwgpu new` (preview it with `cargo rwgpu docs --agents`).
 
 ```bash
 cargo xtask ci                       # the full gate: run before every commit
+cargo xtask repo-check               # its first step, fast: no home path, no build output, no huge file in git
+cargo xtask dist                     # release artifacts with no path of this machine (--agent: rwgpu + web module)
 cargo test                           # all unit tests (fast)
 cargo rwgpu <command> ...            # the CLI from source, e.g. cargo rwgpu check examples/iso_garden
 cargo xtask web                      # build the wasm web player
@@ -25,7 +27,7 @@ cargo xtask gpu                      # the players' gate: the wgpu renderer agai
 cargo xtask gpu --fast               # only the picture check, built incrementally (the edit loop for players/)
 cargo xtask gpu --fast -- --random 3000   # random scenes: what the fixed ones miss
 cargo xtask gpu --window             # the gate plus a replay in a real window (needs a desktop or `xvfb-run`)
-cargo install --locked --path players/rwgpuengine_player   # the native player, so `cargo rwgpu play examples/tiny_town` opens a window
+cargo install --locked --path players/rwgpuengine_player   # the native player on this machine, so `cargo rwgpu play examples/tiny_town` opens a window (to share it: `cargo xtask dist`)
 ```
 
 `cargo xtask ci` never needs a GPU. `cargo xtask gpu` needs one, or a software adapter (on Linux:
@@ -57,6 +59,11 @@ the frame and the state hash, which must match `rwgpu run` for the same file.
 - **Commands are data** (`rwgpuengine_cli::args::COMMANDS`); help and docs are generated from it.
 - **Reference games drive features**: do not add engine features no example or reference game uses.
 - Run `cargo xtask docs` after changing commands, formats or codes, and commit the regenerated reference.
+- **The repository is public; every push publishes** ([privacy](docs/conventions.md#privacy),
+  [ADR 0023](docs/decisions/0023-release-builds-without-local-paths.md)). Stage by explicit path, never
+  `git add -A` or `git add .`; read `git status --short` first. No absolute home path in a file or a commit
+  message, even as an example (write `someone`). Build scratch outside the repository. Release artifacts only
+  from `cargo xtask dist`.
 
 ## Common changes
 
