@@ -30,9 +30,14 @@ findings that are not code (experiment results, surprises, things to remember).
   `Renderer::draw` 589 µs, showing it 214 µs; a still scene costs 0.8 % of one core. Clean release build of
   the players' workspace 13.6 to 17.8 s (limit 60).
 - **The window on GitHub's runners.** Each runner opened a real window and replayed `turn_and_build` in it
-  five times out of five: lavapipe under `xvfb-run` on Linux, WARP on Windows, the virtual Metal device on
-  macOS. Every replay reached the hash, and the picture read back from the window was 1 pixel apart from the
-  reference on Linux and 0 on the others. So the `gpu` job now runs `cargo xtask gpu --window` everywhere.
+  16 times out of 16 over two CI runs: lavapipe under `xvfb-run` on Linux, WARP on Windows, the virtual Metal
+  device on macOS. Every replay reached the hash, and the picture read back from the window was 1 pixel apart
+  from the reference on Linux and 0 on the others. So the `gpu` job now runs `cargo xtask gpu --window`
+  everywhere. It takes 3 min 24 s, 4 min 59 s and 3 min 46 s warm on Linux, Windows and macOS (before:
+  about 2, 3¾ and 2½).
+- **A slip, and what it taught.** A commit staged with `git add -A players` carried a local cross-build folder,
+  whose files hold the build machine's home path, to the public branch. It was taken out of the history with
+  the owner's approval. Stage files by name, and check every outgoing commit, not only the tip.
 
 ## 2026-11-26 — The players' renderer: wgpu draws every reference scene to within 6 edge pixels of the reference, on four adapters
 

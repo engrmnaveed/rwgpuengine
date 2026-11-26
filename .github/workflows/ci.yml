@@ -86,42 +86,19 @@ jobs:
           else
             cargo xtask gpu --window
           fi
-      # A probe, not a gate (to be removed): can this runner open a real window?
-      # Ten replays of a playtest in a window, then, on Linux, one with no display.
-      - name: probe a real window
-        if: always()
-        continue-on-error: true
-        timeout-minutes: 10
-        shell: bash
-        run: |
-          P=players/target-release/release/rwgpu-player
-          mkdir -p target/player
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            start=$(date +%s)
-            args="examples/tiny_town --input tests/turn_and_build.toml --screenshot target/player/probe$i.png --json"
-            if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1280x1024x24" $P $args > target/player/probe$i.json; else $P $args > target/player/probe$i.json; fi
-            code=$?
-            echo "run $i: exit $code in $(( $(date +%s) - start )) s"
-            head -c 2500 target/player/probe$i.json; echo
-          done
-          if [ "$RUNNER_OS" = Linux ]; then env -u DISPLAY -u WAYLAND_DISPLAY $P examples/tiny_town --frames 10; echo "no display: exit $?"; fi
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: player-probe-${{ matrix.os }}
-          path: target/player
-          retention-days: 14
-          if-no-files-found: ignore
       # A measurement, not a gate: the options ADR 0021 chose between, on this
       # runner's adapter. It reuses the build of the step before.
       - name: cargo xtask gpu --study
         if: always()
         run: cargo xtask gpu --study -- --no-timing
-      # The reference's picture, the GPU's and their difference, for every scene that failed.
+      # The reference's picture, the GPU's and their difference, for every scene
+      # that failed; and what the window showed (target/player).
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: gpu-check-${{ matrix.os }}
-          path: target/gpu-check
+          path: |
+            target/gpu-check
+            target/player
           retention-days: 14
           if-no-files-found: ignore

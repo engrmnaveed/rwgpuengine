@@ -71,9 +71,10 @@ stay GPU-free, and nothing here may make the web player of step 4 harder.
 9. **Made to be checked without a person.** `--frames N` closes after N frames and prints the frame and the
    state hash; with `--input` the default is the playtest's frames. `--headless` plays the same steps as
    fast as they go and draws each changed frame off screen. `--screenshot FILE` saves what the window
-   showed: read back from the window's own surface after it was shown, or, where a surface cannot be read,
-   drawn again into a texture of its size (the result says which). The result also has the adapter, the
-   frames drawn and the time each part took.
+   showed: read back from the window's own surface after it was shown, or, where a surface cannot be read
+   or gives no texture at that moment (covered, minimized), drawn again into a texture of its size (the
+   result says which). Closing the window early still saves the picture it showed. The result also has the
+   adapter, the frames drawn and the time each part took.
 10. **`rwgpu play`** is a command of the agent's half. It looks for `rwgpu-player` in the folder of the
     `rwgpu` program, then in each folder on `PATH`, and runs it with the same arguments; the player prints
     the result. `rwgpu` links nothing from `players/`. Without the player it is E0006 `player-not-found`,
@@ -149,30 +150,43 @@ same machine; the program is 5,988,384 bytes.
 ## The window on GitHub's runners
 
 GitHub's runners have no graphics card. Each tried the real window: `rwgpu-player` replaying
-`turn_and_build` in a window, five times in a row, with `--screenshot`. Linux has no desktop, so it ran under
-`xvfb-run` (with `xvfb` and `libxkbcommon-x11-0` installed; winit takes X11 when there is no Wayland).
+`turn_and_build` in a window with `--screenshot`, several times in a row, over two CI runs of the pull request
+(45794570179: five replays; 45797985688: ten replays, and one more inside `cargo xtask gpu --window`). Linux
+has no desktop, so it ran under `xvfb-run` (with `xvfb` and `libxkbcommon-x11-0` installed; winit takes X11
+when there is no Wayland).
 
 | runner | adapter | windows opened / tried | each replay | state hash | picture read back from the window against the reference |
 |---|---|---|---|---|---|
-| `ubuntu-latest`, Xvfb | Mesa lavapipe (Vulkan) | 5 / 5 | 2 s | `5775c67554808f1a` every time | 1 of 307,200 pixels apart |
-| `windows-latest` | WARP (Direct3D 12) | 5 / 5 | 2 s | the same | 0 apart |
-| `macos-latest` | Apple Paravirtual device (Metal) | 5 / 5 | 2 to 4 s | the same | 0 apart |
+| `ubuntu-latest`, Xvfb | Mesa lavapipe (Vulkan) | 16 / 16 | 2 to 3 s | `5775c67554808f1a` every time | 1 of 307,200 pixels apart |
+| `windows-latest` | WARP (Direct3D 12) | 16 / 16 | 2 to 3 s | the same | 0 apart |
+| `macos-latest` | Apple Paravirtual device (Metal) | 16 / 16 | 2 to 4 s | the same | 0 apart |
 
 The windows open at 640 × 480 (scale 1) on all three, and every screenshot came from the window's own surface.
 On Linux with no display at all the player stops with E0502 and winit's sentence ("neither WAYLAND_DISPLAY nor
 WAYLAND_SOCKET nor DISPLAY is set"). Because it worked every time, the `gpu` job runs `cargo xtask gpu
---window` on all three systems, Linux under `xvfb-run`; the windowless checks run there as well.
+--window` on all three systems, Linux under `xvfb-run`; the windowless checks run there as well, and the
+probe that counted the attempts is gone.
 
-In the same run the ten playtests replayed by the player reached the engine's hashes on all three runners, and
+In both runs the ten playtests replayed by the player reached the engine's hashes on all three runners, and
 their last frames were 0 pixels apart on Metal and WARP and 1 in all on lavapipe. Clean release builds of the
-players' workspace: 96 s on Linux, 69 s on Windows, 99 s on macOS (the limit on CI is 240 s).
+players' workspace: 96 to 97 s on Linux, 69 to 126 s on Windows, 77 to 99 s on macOS (the limit on CI is
+240 s).
 
-The `gpu` job took 6 min 58 s on Linux, 6 min 26 s on Windows and 10 min 48 s on macOS, with winit and the
-player compiled from nothing and the five probe replays included. Before this change it took 1 min 44 s to
-2 min 10 s, 3 min 46 s to 3 min 51 s and 2 min 22 s to 2 min 55 s warm.
+The `gpu` job, before this change and with it (the second run had its cache, and still the ten probe replays):
+
+| runner | before, warm | first run, winit compiled from nothing | second run, warm |
+|---|---|---|---|
+| `ubuntu-latest` | 1 min 44 s to 2 min 10 s | 6 min 58 s | 3 min 24 s |
+| `windows-latest` | 3 min 46 s to 3 min 51 s | 6 min 26 s | 4 min 59 s |
+| `macos-latest` | 2 min 22 s to 2 min 55 s | 10 min 48 s | 3 min 46 s |
 
 ## Consequences and limits
 
+- Step 4 is not made harder. `rwgpuengine_gpu` is unchanged and still builds for wasm32 in the gate; the
+  window, the clock and the keys live in the player crate. Of the player, `play::Player`, `fit` and the
+  step arithmetic (`clock::Steps`) use neither winit nor the wall clock, so a browser front can reuse them;
+  `input` names winit's key codes and `clock::Watch` reads `std::time::Instant`, which a browser does not
+  have. winit 0.30 can also drive a canvas; whether step 4 uses it is step 4's measurement.
 - `rwgpu play` needs the player installed beside `rwgpu` or on `PATH`; a clone has to build it once.
 - The players' crate counts now include winit: Linux has 25 crates left, and Linux and Windows have no proc
   macro left. A dependency that brings a proc macro to either needs the owner's decision.
