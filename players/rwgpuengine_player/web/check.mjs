@@ -60,12 +60,8 @@ function browser() {
 async function launch(program, flags) {
   mkdirSync(out, { recursive: true });
   const profile = mkdtempSync(join(out, 'profile-'));
-  // The page runs on animation frames and timers: Chrome must not slow them for a tab it thinks is in the
-  // background or covered (a fresh tab on the Windows runner once drew nothing for 60 s without these).
   const args = ['--headless', '--remote-debugging-pipe', `--user-data-dir=${profile}`, '--no-first-run',
-    '--no-default-browser-check', '--use-mock-keychain', '--password-store=basic', '--mute-audio',
-    '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
-    '--disable-renderer-backgrounding', ...flags, 'about:blank'];
+    '--no-default-browser-check', '--use-mock-keychain', '--password-store=basic', '--mute-audio', ...flags, 'about:blank'];
   const child = spawn(program, args, { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
   let stderr = '';
   child.stderr.on('data', (d) => { stderr = (stderr + d).slice(-4000); });
@@ -223,6 +219,12 @@ async function main() {
             if (r.path === 'webgpu') frames.push(`${name} ${test} ${r.frame} ${r.width} ${r.height} ${row.picture}`);
           } catch (e) {
             row.error = String(e.message || e).split('\n')[0];
+            // A copy can fail before the page hears that the browser lost the device: give it two seconds to.
+            const after = JSON.parse(await tab.evaluate(`new Promise((ok) => { const t0 = performance.now();
+              const t = setInterval(() => { const p = window.rwgpu; if (p.path !== 'webgpu' || performance.now() - t0 > 2000) {
+              clearInterval(t); ok(JSON.stringify({ path: p.path, fallback: p.fallback })); } }, 20); })`, 10));
+            row.path_after = after.path;
+            row.fallback = after.fallback || row.fallback;
           }
           run.playtests.push(row);
           log(`  ${test}: frame ${r.frame}, state ${r.state}, ${r.path}${row.error ? ': ' + row.error : ''}`);

@@ -240,6 +240,12 @@ fn one_check(
     }
     let mut bad = Vec::new();
     m.summary.clear();
+    // On a runner whose browser is known to lose the WebGPU device of a canvas (the Linux runner's
+    // SwiftShader, ADR 0024), the page as a person gets it must hand every playtest to the CPU after the
+    // browser's own loss, at the engine's state. A playtest that WebGPU still drew is held to everything.
+    let loses = std::env::var("RWGPU_BROWSER_LOSES_DEVICE").is_ok_and(|v| v == "1");
+    let lost_by_browser = |text: &str| text.contains("the browser lost the device");
+    let (mut handed, mut kept) = (0, 0);
     let browser = format!("{} ({})", s(&j, "browser"), s(&j, "program"));
     eprintln!("browser: {browser}, in {took:.1} s");
     for path in ["webgpu", "cpu"] {
@@ -264,13 +270,24 @@ fn one_check(
             };
             let frame = row.get("frame").map(Json::to_compact).unwrap_or_default();
             let mut fine = s(row, "state") == want.state && frame == want.frames;
-            if !s(row, "error").is_empty() {
+            let drawn_by_cpu = s(row, "path") == "cpu" || s(row, "path_after") == "cpu";
+            let handed_over = loses && path == "webgpu" && drawn_by_cpu && lost_by_browser(&s(row, "fallback"));
+            // A frame copy that the browser's loss cut off is that loss, on such a runner.
+            let cut_off = s(row, "error").contains("the frame did not come back from the GPU");
+            if !s(row, "error").is_empty() && !(handed_over && cut_off) {
                 fine = false;
                 bad.push(format!("{path}: {}/{}: {}", want.example, want.test, s(row, "error")));
             }
+            if path == "webgpu" {
+                if handed_over {
+                    handed += 1;
+                } else if s(row, "path") == "webgpu" {
+                    kept += 1;
+                }
+            }
             // Each playtest drawn by the path it was meant for: a device lost on the way would hand the
             // game to the CPU, reach the same state, and prove nothing about WebGPU.
-            if s(row, "path") != path {
+            if s(row, "path") != path && !handed_over {
                 fine = false;
                 bad.push(format!(
                     "{path}: {}/{} ended drawn by {} ({})",
@@ -294,9 +311,7 @@ fn one_check(
                     ));
                 }
             }
-            if fine {
-                ok += 1;
-            } else {
+            if s(row, "state") != want.state || frame != want.frames {
                 bad.push(format!(
                     "{path}: {}/{} ended at frame {frame} in {}, the engine at {} in {}",
                     want.example,
@@ -306,6 +321,9 @@ fn one_check(
                     want.state
                 ));
             }
+            if fine {
+                ok += 1;
+            }
         }
         let first: Vec<String> = p
             .get("first_frame_ms")
@@ -314,26 +332,50 @@ fn one_check(
             .iter()
             .map(|v| v.as_f64().map_or_else(|| v.to_compact(), |ms| format!("{ms:.0}")))
             .collect();
+        let after = if path == "webgpu" && loses {
+            format!(
+                ", {handed} of them drawn by the CPU after the browser lost the device and {kept} by WebGPU \
+                 (RWGPU_BROWSER_LOSES_DEVICE)"
+            )
+        } else {
+            String::new()
+        };
         let line = format!(
-            "{path}: {how}: {ok} of {} playtests at the engine's state{}; first frame after {} ms",
+            "{path}: {how}: {ok} of {} playtests at the engine's state{}{after}; first frame after {} ms",
             expected.len(),
             if path == "cpu" { ", the canvas holding the reference's pixels" } else { "" },
             first.join(", ")
         );
         eprintln!("{}  {line}", if ok == expected.len() && shown == path { "ok  " } else { "FAIL" });
+        if path == "webgpu" && loses && handed == 0 {
+            eprintln!(
+                "note  the browser kept every WebGPU device: RWGPU_BROWSER_LOSES_DEVICE is no longer needed here"
+            );
+        }
         m.summary.push(line);
     }
     // The device lost halfway through a playtest: the CPU path goes on.
     let lost = j.pointer("measure/lost");
     let turn = expected.iter().find(|e| e.test == "tests/turn_and_build.toml");
     if let (Some(l), Some(t)) = (lost, turn) {
-        let ok = s(l, "before") == "webgpu" && s(l, "path") == "cpu" && s(l, "state") == t.state;
-        let line = format!(
-            "a device lost at frame 45 of turn_and_build: drawn by {} before and by {} after, state {}",
-            s(l, "before"),
-            s(l, "path"),
-            s(l, "state")
-        );
+        let first = loses && s(l, "before") == "cpu" && lost_by_browser(&s(l, "fallback"));
+        let ok = (s(l, "before") == "webgpu" || first) && s(l, "path") == "cpu" && s(l, "state") == t.state;
+        let line = if first {
+            format!(
+                "a device lost at frame 45 of turn_and_build: the browser had lost it already ({}); drawn by {} \
+                 after, state {}",
+                s(l, "fallback"),
+                s(l, "path"),
+                s(l, "state")
+            )
+        } else {
+            format!(
+                "a device lost at frame 45 of turn_and_build: drawn by {} before and by {} after, state {}",
+                s(l, "before"),
+                s(l, "path"),
+                s(l, "state")
+            )
+        };
         eprintln!("{}  {line}", if ok { "ok  " } else { "FAIL" });
         if !ok {
             bad.push(line.clone());
@@ -396,6 +438,18 @@ fn one_check(
     ));
 
     // The WebGPU frames against the reference, by gpu_check's own rule.
+    let listed = std::fs::read_to_string(out.join("frames.txt")).unwrap_or_default();
+    if loses && listed.trim().is_empty() {
+        let line = "no WebGPU picture here: the browser lost the device before any frame came back; the macOS \
+                    and Windows runners carry the picture proof (ADR 0024)";
+        eprintln!("note  {line}");
+        m.summary.push(line.into());
+        return if bad.is_empty() {
+            Ok(true)
+        } else {
+            Err(format!("the web player in {browser}:\n  {}", bad.join("\n  ")))
+        };
+    }
     let limit = pixels_apart.to_string();
     let frames = out.to_string_lossy().into_owned();
     let status = Command::new(gpu_check)

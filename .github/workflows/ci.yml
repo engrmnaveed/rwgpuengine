@@ -88,7 +88,10 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run -a -s "-screen 0 1280x1024x24" cargo xtask gpu --window
+            # Chrome's only WebGPU adapter here is SwiftShader, which loses the device of a WebGPU canvas a
+            # few frames in (ADR 0024): the browser check holds the page to handing every playtest to the
+            # CPU at the engine's state, and the picture proof is the other runners'.
+            RWGPU_BROWSER_LOSES_DEVICE=1 xvfb-run -a -s "-screen 0 1280x1024x24" cargo xtask gpu --window
           else
             cargo xtask gpu --window
           fi

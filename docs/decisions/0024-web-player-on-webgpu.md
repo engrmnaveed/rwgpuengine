@@ -164,6 +164,11 @@ the crate's exact version can write their JavaScript. Measured on an Apple M5 Pr
      path must take over at the same state), the scene left alone for 3 s (one frame drawn), and the camera
      turning for 3 s (time per drawn frame).
    Without Node or a browser the check is skipped on a developer's machine and fails in CI.
+   - **On a runner whose browser loses the WebGPU device of a canvas** (`RWGPU_BROWSER_LOSES_DEVICE=1`,
+     set only in the Linux job), the page as a person gets it must hand every playtest to the CPU after
+     the browser's own loss and reach the engine's state; a frame copy that loss cut off counts as the
+     loss. A playtest WebGPU still drew is held to everything above, picture included. When the browser
+     keeps every device, the check says the setting is no longer needed.
    `RWGPU_BROWSER_RUNS` repeats it.
 9. **Budgets.** `[players] web_download_bytes = 1,500,000`: the four files, uncompressed, as `rwgpu serve`
    sends them. The players' crate and proc-macro counts now include the workspace on wasm32.
@@ -202,7 +207,35 @@ The wasm32 proc macros are `bytemuck_derive`, `document-features`, `thiserror-im
 ## What CI proves on each runner
 
 The `gpu` job runs the whole browser check inside `cargo xtask gpu --window`, three times in a row
-(`RWGPU_BROWSER_RUNS=3`). (Filled in from the pull request's runs.)
+(`RWGPU_BROWSER_RUNS=3`).
+
+| runner | adapter | what the browser check proves there |
+|---|---|---|
+| `macos-latest` | the Paravirtual device (Metal) | everything: ten playtests on WebGPU and on the CPU path at the engine's state, the WebGPU frames within the limit (0 apart), the CPU canvas exact, a lost device handed over, a still scene drawn once |
+| `windows-latest` | WARP (Direct3D 12) | the same; 0 apart |
+| `ubuntu-latest` | SwiftShader | the build; the CPU path in the browser (ten playtests at the engine's state, the canvas holding the reference's exact pixels); and that the browser's own loss of the device hands every playtest to the CPU at the engine's state. Not the WebGPU picture: see below |
+
+### The limit on the Linux runner
+
+This is a limit of Chrome's software renderer on that runner, not a pass. Chrome's only WebGPU adapter
+there is SwiftShader, and it loses the device of a WebGPU canvas a few animation frames after the canvas
+first shows a picture. The browser's words, on the device and on the frame copy that was waiting:
+"Device was destroyed" (reason `destroyed`), or "A valid external Instance reference no longer exists"
+(reason `unknown`); `mapAsync` rejects with "AbortError: Failed to execute 'mapAsync' on 'GPUBuffer': A
+valid external Instance reference no longer exists." Chrome logs nothing else about it.
+
+- It is Chrome and not wgpu: web_probe's canvas test is plain WebGPU (60 frames into a texture, each shown
+  on a canvas, then the texture read back) and fails the same way on that runner under eight sets of
+  flags (`--enable-unsafe-webgpu` alone, with Vulkan, without the GPU blocklist, with SwiftShader or
+  ANGLE-on-SwiftShader for Chrome's own GL; run 45852696750), with Mesa's lavapipe installed or not. Without a canvas the same device draws and reads back.
+- To reproduce it on a Mac with Chrome: `node docs/proposals/3d-architecture/spikes/web_probe/probe.mjs`
+  (the rows with SwiftShader as the adapter), or the player itself:
+  `RWGPU_BROWSER_FLAGS=--use-webgpu-adapter=swiftshader node players/rwgpuengine_player/web/check.mjs
+  --rwgpu target/debug/rwgpu --player target/web-player --out target/web-check-ss examples/tiny_town`. On
+  a Mac, `--enable-unsafe-swiftshader` keeps the canvas alive; on the Linux runner it does not.
+- So the WebGPU picture proof is carried by the macOS and Windows runners and by this Mac, all three 0
+  pixels apart. The check would take the Linux runner back the day its browser keeps the device: rows that
+  WebGPU draws are held to the picture rule there too.
 
 ## Consequences and limits
 

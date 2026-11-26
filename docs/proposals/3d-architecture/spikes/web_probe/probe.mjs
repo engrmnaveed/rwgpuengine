@@ -47,6 +47,12 @@ const FLAGS = {
   // SwiftShader may draw Chrome's own GL too: a WebGPU canvas on SwiftShader keeps its device then.
   'unsafe, no blocklist, unsafe SwiftShader': ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'],
   'unsafe, ANGLE SwiftShader': ['--enable-unsafe-webgpu', '--use-angle=swiftshader'],
+  // More tries at keeping SwiftShader's canvas on Linux: software compositing, the GPU in the browser's own
+  // process, and every GL fallback allowed at once.
+  'unsafe, software compositing': ['--enable-unsafe-webgpu', '--disable-gpu-compositing'],
+  'unsafe, GPU in process': ['--enable-unsafe-webgpu', '--in-process-gpu'],
+  'unsafe, all SwiftShader, no blocklist': ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader',
+    '--use-gl=angle', '--use-angle=swiftshader'],
 };
 
 async function run(browser, flags) {
