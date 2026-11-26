@@ -13,16 +13,17 @@ findings that are not code (experiment results, surprises, things to remember).
   workspace with the crate `rwgpuengine_gpu` (wgpu 30.0.2, no window, compiles for wasm32) and the tool
   `gpu_check`. `cargo xtask gpu` is the players' gate; `cargo xtask ci` is unchanged, and the root
   `Cargo.lock` still has 33 packages and no wgpu.
-- **The result.** 56 scenes are drawn by both renderers: the six frames the example playtests shoot, a
-  town of 5,000 boxes, and a scene per rule under nine cameras. No per-channel tolerance; a differing pixel
-  must be on an edge of the reference picture. The first CI run (45766846084) was green on all three systems.
+- **The result.** 256 scenes are drawn by both renderers: the six frames the example playtests shoot, a
+  town of 5,000 boxes, a scene per rule under nine cameras, and 200 random scenes. No per-channel
+  tolerance; a differing pixel must be on an edge of the reference picture. All three CI runs of the pull
+  request were green on all three systems (45766846084, 45768134899, 45769343354).
 
-  | adapter | pixels apart, all 56 scenes / worst scene | inside a face | frame of 50,000 boxes | `gpu` job, cold |
+  | adapter | pixels apart, all 256 scenes / worst scene | inside a face | frame of 50,000 boxes | `gpu` job, warm / cold |
   |---|---|---|---|---|
-  | Apple M5 Pro, Metal | 16 / 3 | 0 | 1.0–1.75 ms | — |
-  | macOS runner, Metal | 16 / 3 | 0 | 7.0 ms | 6 min 35 s |
-  | Linux runner, Mesa lavapipe | 26 / 6 | 0 | 67 ms (software) | 3 min 58 s |
-  | Windows runner, WARP | 22 / 3 | 0 | 103 ms (software) | 7 min 32 s |
+  | Apple M5 Pro, Metal | 33 / 3 | 0 | 1.0–1.75 ms | — |
+  | macOS runner, Metal | 33 / 3 | 0 | 6.3–7.0 ms | 2 min 30 s / 6 min 35 s |
+  | Linux runner, Mesa lavapipe | 79 / 6 | 0 | 67–110 ms (software) | 2 min 8 s / 3 min 58 s |
+  | Windows runner, WARP | 63 / 3 | 0 | 103–126 ms (software) | 3 min 59 s / 7 min 32 s |
 
   On Metal and WARP all six example frames are the reference's bytes. The limit is `pixels_apart = 24`.
 - **What made it this close.** Whatever decides a pixel is computed by the reference's own code or in whole
@@ -32,10 +33,16 @@ findings that are not code (experiment results, surprises, things to remember).
   the plane's equation and carry their rank in its three lowest bits, so "two faces in one plane" is an
   exact comparison of bits on every adapter. What is left is the rasterizer's coverage where the GPU's
   32-bit corner lands on the other side of a 1/256 pixel step than the reference's 64-bit one.
+- **The hand-made scenes were not enough.** They were green on all four adapters while a real fault was
+  there. 300 random scenes found it on the first try: in the iso view a whole row of a sprite went the wrong
+  way where the sprite crossed the top of a box close to a pixel center (46 and 53 pixels). The iso range
+  was stored in a straight line, which puts the scene at 0.5 of the depth buffer, where a float is 100 times
+  coarser than the reference's depth. The range is now laid along the float's exponent, 60 times finer:
+  3,000 random scenes pass on the M5 Pro with at most 7 pixels apart, and 200 of them are in the gate.
 - **Options, measured on all four adapters** (the table is in the ADR; `cargo xtask gpu --study` repeats it):
-  - The GPU's own blender is exact on Metal and WARP and wrong on lavapipe by 50,949 pixels. So see-through
-    colors are mixed in the shader.
-  - The rank as a depth bias: 13 to 19 more pixels at 16 depth steps, 99 pixels inside faces at 256.
+  - The GPU's own blender is exact on Metal and WARP and wrong on lavapipe in nearly every see-through
+    pixel. So see-through colors are mixed in the shader.
+  - The rank as a depth bias: 2 to 19 more pixels at 16 depth steps, 105 pixels inside faces at 256.
   - Rounding the color in the shader gave the same picture as the table on every adapter. The table stays
     because it has no arithmetic to get wrong.
   - Projecting 50,000 boxes on the CPU, as the reference does, takes 6.2 ms by itself. The GPU draws the
@@ -46,21 +53,23 @@ findings that are not code (experiment results, surprises, things to remember).
     grid does to the depth. The tests only had tiles of one cell, whose triangles are the ground's own.
   - The part of a card below its anchor is in the floor's plane and has no rank. In the starting view the
     floor always wins, which is the opposite of what ADR 0020 says; under other cameras it is a coin toss.
+  - Two solid things that share a plane (two boxes in one cell) are decided the same way: 30 of 300
+    unconstrained random scenes failed for that alone.
   - A fix was tried in a scratch copy (about 60 lines: a level face's depth from its plane; a card's lower
     part wins against a floor in its plane). All ten playtests kept their image hashes, the render tests
-    passed, painting stayed at 151 µs. It is not in this change. The GPU check keeps both cases out of its
-    scenes and prints them with `--study`.
+    passed, painting stayed at 151 µs. It is not in this change. The GPU check keeps these cases out of its
+    scenes and prints the first two with `--study`.
 - **Surprises.**
   - Windows already uses all 6 allowed proc-macro crates: two come with Direct3D 12. Linux and macOS use 4.
   - Without a window library Windows is the widest system (76 rented crates), not Linux (65).
-  - The macOS runner draws the 50,000-box frame in 7.0 ms, where the study's spike took 2.8 ms. This frame
-    has 50,176 ground cells as well, and level faces write their depth per pixel. On the M5 Pro the per-pixel
-    depth made no measurable difference.
-  - WARP takes 715 ms to draw 50,000 boxes when every instance is uploaded again. A player on a machine
-    with no GPU would need the CPU painter, which is what the web's fallback is for.
+  - The macOS runner draws the 50,000-box frame in 6.3 to 7.0 ms, where the study's spike took 2.8 ms. This
+    frame has 50,176 ground cells as well, and level faces write their depth per pixel. On the M5 Pro the
+    per-pixel depth made no measurable difference.
+  - WARP takes 613 to 715 ms to draw 50,000 boxes when every instance is uploaded again. A player on a
+    machine with no GPU would need the CPU painter, which is what the web's fallback is for.
 - The agent's half, before and after: web module 619,742 → 619,866 bytes, command 1,979,088 → 1,979,136,
-  clean release build 2.8 s, paint 152 to 160 µs (limit 200). All ten playtests keep their state and image
-  hashes.
+  clean release build 2.8 s → 2.8 s, clean dev build 2.2 s → 2.3 s, the same 16 rented crates and the same
+  lockfile, paint 151 to 160 µs (limit 200). All ten playtests keep their state and image hashes.
 - Not done: the window (piece 3), input, the web player, a GL backend, the fix to the reference.
 
 ## 2026-11-26 — wgpu runs on all three GitHub runners; the GPU picture can match the reference to a few edge pixels

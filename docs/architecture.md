@@ -217,6 +217,8 @@ What decides a pixel comes from the reference renderer's own code; the GPU fills
   does no color arithmetic and writes whole 8-bit levels.
 - **Level faces** write their depth per pixel from the plane's equation, with the rank in the three lowest
   bits. Two faces in one plane then differ only in rank, on every adapter, and one depth test orders them.
+- **Depth is stored where the scene is.** In perspective that is a straight line onto the depth buffer. In
+  the iso view the range is laid along the float's exponent, which is 60 times finer around the scene.
 - **Cards** are placed on the CPU (`Projector::card`, `reference::card_shapes`). The fragment shader tests
   the reference's integer coverage rule per shape and writes a depth per pixel row: upright above the
   anchor, in the anchor's level plane below it.
@@ -224,8 +226,9 @@ What decides a pixel comes from the reference renderer's own code; the GPU fills
   of the picture so far. Things that overlap on the screen take a pass each; things that do not share one.
 - **The 2D layer** is the same shapes with no depth test, in list order.
 
-`cargo xtask gpu` draws 56 scenes with both renderers (every frame the example playtests shoot, a town of
-5,000 boxes, and a scene per rule under iso and perspective cameras). A pixel that differs must lie on an
+`cargo xtask gpu` draws 256 scenes with both renderers (every frame the example playtests shoot, a town of
+5,000 boxes, a scene per rule under iso and perspective cameras, and 200 random scenes that are the same
+on every run). A pixel that differs must lie on an
 edge of the reference picture, and a scene may have at most `pixels_apart` of them (`budgets.toml`). There
 is no per-channel tolerance. No GPU picture is ever a reference image: they differ between systems by a
 few edge pixels, and the CPU reference does not.

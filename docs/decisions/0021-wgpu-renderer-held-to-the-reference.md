@@ -50,9 +50,15 @@ is every differing pixel on an edge of the reference picture, and are there few 
      camera's center.
    - *Color.* A table of 6 faces × 256 levels, filled by the reference's `shade`. The GPU selects; it does
      no color arithmetic and writes whole 8-bit levels.
-   - *The camera's range.* Depth is reversed (1 nearest, 0 farthest, the larger wins), mapped so that the
-     GPU's own clipping cuts exactly where the reference cuts near and far. A float is densest near 0, so
-     far things keep their precision, as in the reference.
+   - *The camera's range, and how depth is stored.* Depth is reversed (1 nearest, the farthest next to 0,
+     the larger wins), mapped so that the GPU's own clipping cuts exactly where the reference cuts near and
+     far. In perspective the reference's depth goes onto 1..0 in a straight line: it already is dense
+     where the scene is. In the iso view the scene sits in the middle of the range, where a straight line
+     would land at 0.5 and leave a float 100 times coarser than the reference's. So the iso range is laid
+     along the float's exponent: every 1/60 of it halves the value, and within such a step the value falls
+     in a straight line. That is monotonic, put together from bits (no `exp2`), and about 60 times finer:
+     a depth step is 2e-9 of the range. In the iso view every face writes its depth per pixel for this; in
+     perspective the sides keep the rasterizer's depth.
    - *Level faces in one plane.* A level face writes its depth per pixel from the plane's equation and puts
      its rank in the three lowest bits. Every face of one plane computes the same bits, whatever triangle it
      is part of, so faces in one plane differ in nothing but rank and one ordinary depth test orders them:
@@ -70,22 +76,24 @@ is every differing pixel on an edge of the reference picture, and are there few 
      overlaps what was drawn since the last copy starts a new pass.
    - *The 2D layer.* The same shapes with no depth test, in list order, last.
    - *Disabled items* are left out when the buffers are filled.
-5. **The check, `cargo xtask gpu`.** 56 scenes: the six frames the example playtests shoot (the turned and
-   the perspective camera of `turn_and_build` among them), the generated town of 5,000 boxes at 1280 × 720
-   in perspective, and a scene per rule under nine cameras (five iso, four perspective; turned, zoomed,
-   panned). Each scene's list is drawn by both renderers. **There is no per-channel tolerance.** A pixel that
-   differs must lie on an edge of the reference picture (a neighbor has another owner or another color), and
-   a scene may have at most `pixels_apart` of them. A failing scene prints its pixels with both colors and
-   the reference's owner, and writes `target/gpu-check/<scene>.{reference,gpu,diff}.png`. The command prints
-   the adapter; with none it fails and says what to install.
+5. **The check, `cargo xtask gpu`.** 256 scenes. 56 are hand-made: the six frames the example playtests
+   shoot (the turned and the perspective camera of `turn_and_build` among them), the generated town of
+   5,000 boxes at 1280 × 720 in perspective, and a scene per rule under nine cameras (five iso, four
+   perspective; turned, zoomed, panned). 200 are random: boxes, tiles, sprites, text and a HUD, some
+   see-through, some disabled, each under a random camera, the same on every run. Each scene's list is
+   drawn by both renderers. **There is no per-channel tolerance.** A pixel that differs must lie on an edge
+   of the reference picture (a neighbor has another owner or another color), and a scene may have at most
+   `pixels_apart` of them. A failing scene prints its pixels with both colors and the reference's owner,
+   and writes `target/gpu-check/<scene>.{reference,gpu,diff}.png`. The command prints the adapter; with
+   none it fails and says what to install.
 6. **Players' budgets** (`budgets.toml`, `[players]`), measured and enforced by `cargo xtask gpu`:
 
    | budget | limit | measured |
    |---|---|---|
    | rented crates, on the widest system | 130 | Windows 76, macOS 67, Linux 65; the renderer alone on wasm32 54 |
    | proc-macro crates, on the widest system | 6 | Windows 6, macOS and Linux 4 |
-   | clean release build of the check | 60 s | 12.2 s on an Apple M5 Pro; 39 s, 72 s and 89 s on the Linux, macOS and Windows runners, where the limit is 240 s |
-   | GPU frame, 50,000 boxes at 1280 × 720, nothing uploaded | 4 ms (real GPUs only) | 1.0 to 1.75 ms on an Apple M5 Pro; 7.0 ms on the macOS runner's virtual GPU, where the limit is 16 ms; 67 ms on lavapipe and 103 ms on WARP, printed and not enforced |
+   | clean release build of the check | 60 s | 12 to 13 s on an Apple M5 Pro; 39 to 55 s, 66 to 72 s and 89 to 113 s on the Linux, macOS and Windows runners, where the limit is 240 s |
+   | GPU frame, 50,000 boxes at 1280 × 720, nothing uploaded | 4 ms (real GPUs only) | 1.0 to 1.75 ms on an Apple M5 Pro; 6.3 to 7.0 ms on the macOS runner's virtual GPU, where the limit is 16 ms; 67 to 110 ms on lavapipe and 103 to 126 ms on WARP, printed and not enforced |
    | pixels apart per scene, all on an edge | 24 | at most 3 on Metal and WARP, 6 on lavapipe |
 
    The 1,500,000-byte web download budget belongs to step 4 and is not here.
@@ -95,21 +103,23 @@ is every differing pixel on an edge of the reference picture, and are there few 
 
 ## Options that were measured
 
-Pixels apart from the reference, summed over the 56 scenes, on each adapter; in brackets how many of them
-are *not* on an edge. `cargo xtask gpu --study` repeats this table on the adapter at hand.
+Pixels apart from the reference, summed over the 256 scenes, on each adapter; in brackets how many of them
+are *not* on an edge. `cargo xtask gpu --study` repeats this table on the adapter at hand, and the CI job
+prints it on every run.
 
 | question | option | Apple M5 Pro, Metal | macOS runner, Metal | lavapipe, Vulkan | WARP, Direct3D 12 |
 |---|---|---|---|---|---|
-| | **what was chosen** | **16 (0)** | **16 (0)** | **26 (0)** | **22 (0)** |
-| A face's color | rounded in the vertex shader | 16 (0) | 16 (0) | 26 (0) | 22 (0) |
-| See-through colors | the GPU's own blender | 16 (0) | 16 (0) | 50,949 (43,747) | 22 (0) |
-| Faces in one plane | the rasterizer's depth, 16 steps nearer per rank | 29 (0) | 29 (0) | 45 (0) | 41 (0) |
-| | 256 steps nearer per rank | 589 (99) | 589 (99) | 606 (99) | 601 (99) |
-| | 4,096 steps nearer per rank | 7,957 (6,566) | 7,957 (6,566) | 7,974 (6,566) | 7,969 (6,566) |
-| A card's depth | the anchor's depth everywhere | 12,295 (11,348) | 12,295 (11,348) | 12,305 (11,348) | 12,301 (11,348) |
-| Corner positions | taken from the world's origin | 18 (0) | 18 (0) | 28 (0) | 23 (0) |
+| | **what was chosen** | **33 (0)** | **33 (0)** | **79 (0)** | **63 (0)** |
+| A face's color | rounded in the vertex shader | 33 (0) | 33 (0) | 79 (0) | 63 (0) |
+| See-through colors | the GPU's own blender | 33 (0) | 33 (0) | 1,486,744 (1,292,109) | 63 (0) |
+| Faces in one plane | the rasterizer's depth, 16 steps nearer per rank | 35 (0) | 35 (0) | 98 (0) | 65 (0) |
+| | 256 steps nearer per rank | 788 (105) | 788 (105) | 851 (105) | 818 (105) |
+| | 4,096 steps nearer per rank | 25,404 (20,653) | 25,404 (20,653) | 25,467 (20,653) | 25,434 (20,653) |
+| A card's depth | the anchor's depth everywhere | 21,141 (17,757) | 21,141 (17,757) | 21,186 (17,757) | 21,171 (17,757) |
+| Corner positions | taken from the world's origin | 35 (0) | 35 (0) | 83 (0) | 63 (0) |
+| Iso depth | a straight line onto 1..0 | 240 (0) | 240 (0) | 280 (0) | 268 (0) |
 
-A frame of 50,000 boxes on the Apple M5 Pro took 0.95 to 1.16 ms under every option: none of them is a
+A frame of 50,000 boxes on the Apple M5 Pro took 0.96 to 1.02 ms under every option: none of them is a
 question of speed there.
 
 What the rows say:
@@ -118,15 +128,22 @@ What the rows say:
   rounding in the shader gives the reference's levels too. The table was chosen because it leaves the GPU
   no arithmetic to get wrong: it is the reference's own function, for any light, on any driver, for 1,536
   bytes.
+- **See-through.** Metal and WARP blend exactly. Lavapipe does not: nearly every see-through pixel is
+  wrong, 1.3 million of them inside faces. Mixing in the shader is exact on all four. Its price is a copy
+  of the frame and a pass wherever see-through things overlap: 5 to 7 passes in the see-through scene, 1 or
+  2 in the example games.
 - **Rank.** A depth bias has to be larger than the rasterizer's own noise between two triangles of one
-  plane, and as soon as it is, it shows the flat thing through the foot of whatever stands on it. At 16
-  steps one scene alone has 19 wrong pixels; at 256 steps 99 pixels are inside faces. The bits of a
-  computed depth have no such trade.
+  plane, and as soon as it is much larger, it shows the flat thing through the foot of whatever stands on
+  it. At 16 steps it costs 2 to 19 pixels more than the chosen design; at 256 steps 105 pixels are inside
+  faces. There is a window, and it is narrow. The bits of a computed depth need no number chosen for them,
+  and they cost no time.
 - **Cards.** One depth per card cuts tall sprites by the wall behind them, as ADR 0020 measured in the
   reference.
-- **See-through.** Metal and WARP blend exactly. Lavapipe does not: 50,949 pixels differ, 43,747 of them
-  inside faces. Mixing in the shader is exact on all four. Its price is a copy of the frame and a pass
-  wherever see-through things overlap: 5 to 7 passes in the see-through scene, 1 or 2 in the example games.
+- **Iso depth.** With a straight line the scene sits at 0.5 of the depth buffer, where three rank bits and
+  a card's lead stand for 0.08 × zoom pixels of height. Where a sprite crosses the top of a box that close
+  to a pixel center, a whole row goes the wrong way: 46 and 53 pixels in two of the first 300 random
+  scenes, over the limit. The hand-made scenes did not show it; the random ones did. Along the exponent a
+  depth step is 60 times finer and both scenes are exact.
 - **Corners.** Taking positions from the camera's center keeps the numbers in the vertex shader small. It
   is free.
 - **Instancing against projecting on the CPU.** The reference's own projection of 50,000 boxes takes
@@ -138,34 +155,36 @@ What the rows say:
 
 ## Evidence
 
-CI run 45766846084 (cold caches) and the study's machine. Pixels are out of 307,200 per scene (921,600 for
-the town).
+CI run 45769343354 (warm caches) and the study's machine. A scene has 307,200 pixels (the town 921,600).
 
-| adapter | scenes failed | pixels apart: all 56 scenes / worst scene | not on an edge | frame, 5,000 / 50,000 boxes, nothing uploaded | every instance uploaded again | clean release build | the `gpu` job |
+| adapter | scenes failed | pixels apart: all 256 scenes / worst scene | not on an edge | frame, 5,000 / 50,000 boxes, nothing uploaded | 50,000 boxes, iso view | every instance uploaded again | the `gpu` job, warm / cold |
 |---|---|---|---|---|---|---|---|
-| Apple M5 Pro, Metal | 0 | 16 / 3 | 0 | 0.3–0.7 / 1.0–1.75 ms | 0.4–0.6 / 1.5–2.8 ms | 12.2 s | — |
-| `macos-latest`: Apple Paravirtual device, Metal | 0 | 16 / 3 | 0 | 2.7 / 7.0 ms | 4.6 / 9.9 ms | 72 s | 6 min 35 s |
-| `ubuntu-latest`: Mesa lavapipe 26.0.8, Vulkan | 0 | 26 / 6 | 0 | 11.2 / 66.8 ms | 11.3 / 68.2 ms | 39 s | 3 min 58 s |
-| `windows-latest`: WARP, Direct3D 12 | 0 | 22 / 3 | 0 | 19.4 / 103 ms | 89 / 715 ms | 89 s | 7 min 32 s |
+| Apple M5 Pro, Metal | 0 | 33 / 3 | 0 | 0.3–0.7 / 1.0–1.75 ms | 1.0 ms | 1.5–2.8 ms | — |
+| `macos-latest`: Apple Paravirtual device, Metal | 0 | 33 / 3 | 0 | 1.8–2.7 / 6.3–7.0 ms | 6.5 ms | 8.4–9.9 ms | 2 min 30 s / 6 min 35 s |
+| `ubuntu-latest`: Mesa lavapipe 26.0.8, Vulkan | 0 | 79 / 6 | 0 | 11–17 / 67–110 ms | 90 ms | 68–112 ms | 2 min 8 s / 3 min 58 s |
+| `windows-latest`: WARP, Direct3D 12 | 0 | 63 / 3 | 0 | 19–20 / 103–126 ms | 140 ms | 613–715 ms | 3 min 59 s / 7 min 32 s |
 
+- Of those pixels, the 56 hand-made scenes have 11 (Metal), 22 (lavapipe) and 16 (WARP); the 200 random
+  scenes have 22, 57 and 47, and none of them more than 3.
 - The six frames the example playtests shoot are identical to the reference, byte for byte, on Metal and
   WARP. On lavapipe five are, and one differs in one pixel.
-- The worst scene is the town on lavapipe (6 pixels); on Metal and WARP it is 3 pixels in a small scene.
-  The limit is set at four times the worst: `pixels_apart = 24`.
+- The worst scene is the town on lavapipe (6 pixels). The limit is set at four times the worst:
+  `pixels_apart = 24`.
+- 3,000 random scenes on the Apple M5 Pro: none failed, 321 pixels apart in all, at most 7 in one.
 - The macOS runner's pictures match the M5 Pro's count for count, as the measurement before this step found.
-
 - All ten playtests keep their state and image hashes; no example file and no reference image changed.
 - The agent's half before and after, clean builds on the same machine: root `Cargo.lock` unchanged
   (33 packages, 16 rented crates in the runtime tree, 0 proc macros); web module 619,742 → 619,866 bytes;
-  command 1,979,088 → 1,979,136 bytes; clean release build of `rwgpu` 2.8 s and clean dev build 2.2 s,
-  both unchanged; painting a frame for a player 152 to 160 µs (limit 200).
-- `present` at the frame's own size gives the frame's bytes, and at twice the size each pixel four times
-  (checked on every adapter).
+  command 1,979,088 → 1,979,136 bytes; clean release build of `rwgpu` 2.8 s → 2.8 s, clean dev build
+  2.2 s → 2.3 s, clean web build 3.0 s → 3.1 s; painting a frame for a player 151 to 160 µs (limit 200).
+- `present` at the frame's own size gives the frame's bytes, at twice the size each pixel four times, and
+  on an sRGB target the same bytes to within one level (checked on every adapter).
 
 ## What the reference leaves to rounding (the owner's call)
 
 Building the check showed two places where the reference's own picture is decided by rounding, not by a
 rule. A GPU cannot match rounding, so the gate's scenes avoid both, and `--study` prints them instead.
+The renderer's column is the same on all four adapters.
 
 | case | what the reference does | what `rwgpuengine_gpu` does |
 |---|---|---|
@@ -176,6 +195,10 @@ Why: two faces in one plane get their depths from different triangles, whose cor
 1/256 pixel grid. The depths then differ by more than the tolerance of the rank rule, and a card has no rank
 at all. No example game has either case: their tiles are one cell and their sprites stand on or above
 their anchor.
+
+The same cause shows where two solid things share a plane, for example two boxes in one cell, or a box
+inside the footprint of a larger one. The random scenes keep solid things on separate cells for that
+reason: without the rule, 30 of the first 300 failed.
 
 **Proposal** (not part of this change, because it changes the reference): take a level face's depth from
 its plane's equation, as the GPU renderer does, and let the part of a card below its anchor win against a
@@ -189,9 +212,10 @@ step in front of the floor), and both cases could enter the gate.
 
 - `cargo xtask ci` covers what it covered. `cargo xtask gpu` is a second gate, for changes to `players/`,
   to `rwgpuengine_render` and to anything visual. On a machine with no adapter it fails with a message.
-- Level faces and cards compute their depth in the fragment shader, so the GPU cannot reject them before
-  shading. Measured: a frame of 50,000 boxes takes the same time with the rank as a depth bias (no
-  per-pixel depth) as with the chosen design, within the noise.
+- Level faces and cards compute their depth in the fragment shader, and in the iso view the sides do too,
+  so the GPU cannot reject them before shading. Measured: a frame of 50,000 boxes takes the same time with
+  the rank as a depth bias (no per-pixel depth) as with the chosen design, within the noise; and the iso
+  view takes 1.03 ms where perspective takes 0.97 (6.5 against 6.3 on the macOS runner).
 - See-through things that overlap cost one copy of the frame and one pass each. The see-through scene
   takes 5 to 7 passes. A game with hundreds of overlapping see-through things would need a faster path that
   is not held to the reference; none is built.
