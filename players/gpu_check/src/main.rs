@@ -16,6 +16,7 @@
 //! --pictures            write every scene's pictures, not only failing ones
 //! --study               measure the options of ADR 0021 on this adapter
 //! --no-timing           skip the frame times
+//! --random N            N random scenes instead of the fixed ones
 //! ```
 //!
 //! wgpu's own variables choose the adapter: `WGPU_BACKEND` (vulkan, metal,
@@ -33,7 +34,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use rwgpuengine_gpu::{Blend, CardDepth, FaceColor, Options, Origin, Rank, Renderer, wgpu};
+use rwgpuengine_gpu::{Blend, CardDepth, FaceColor, IsoDepth, Options, Origin, Rank, Renderer, wgpu};
 use rwgpuengine_render::{Frame, Projected, RenderList, image::encode_png, project, render};
 
 use scenes::Scene;
@@ -56,6 +57,7 @@ struct Args {
     pictures: bool,
     study: bool,
     timing: bool,
+    random: u64,
     out: PathBuf,
 }
 
@@ -71,6 +73,7 @@ fn args() -> Result<Args, String> {
         pictures: false,
         study: false,
         timing: true,
+        random: 0,
         out: root().join("target/gpu-check"),
     };
     let mut it = std::env::args().skip(1);
@@ -89,6 +92,7 @@ fn args() -> Result<Args, String> {
             "--pictures" => a.pictures = true,
             "--study" => a.study = true,
             "--no-timing" => a.timing = false,
+            "--random" => a.random = value("--random")?.parse().map_err(|e| format!("--random: {e}"))?,
             other => return Err(format!("unknown option `{other}` (see the top of players/gpu_check/src/main.rs)")),
         }
     }
@@ -271,8 +275,8 @@ fn draw_and_wait(gpu: &Gpu, renderer: &mut Renderer, list: &RenderList) {
 
 /// Frame times of the generated town: (nothing uploaded, every instance
 /// uploaded again), in milliseconds.
-fn town_times(gpu: &Gpu, options: Options, boxes: usize) -> Result<(f64, f64, usize), String> {
-    let list = scenes::town_list(boxes)?;
+fn town_times(gpu: &Gpu, options: Options, boxes: usize, iso: bool) -> Result<(f64, f64, usize), String> {
+    let list = scenes::town_list(boxes, iso)?;
     let mut renderer = Renderer::new(&gpu.device, options);
     timed(10, 1_000.0, || draw_and_wait(gpu, &mut renderer, &list));
     let (still, n) = timed(60, 3_000.0, || draw_and_wait(gpu, &mut renderer, &list));
@@ -344,7 +348,10 @@ fn run() -> Result<bool, String> {
     let a = args()?;
     let gpu = gpu()?;
     println!("adapter: {}", describe(&gpu.info));
-    let mut scenes = scenes::all(&root())?;
+    let mut scenes = match a.random {
+        0 => scenes::all(&root())?,
+        n => (1..=n).map(scenes::random).collect::<Result<Vec<_>, _>>()?,
+    };
     if let Some(only) = &a.only {
         scenes.retain(|s| s.name.contains(only.as_str()));
     }
@@ -369,10 +376,10 @@ fn run() -> Result<bool, String> {
         println!("pictures (reference, gpu, diff) are in {}", a.out.display());
     }
 
-    if a.timing && a.only.is_none() {
+    if a.timing && a.only.is_none() && a.random == 0 {
         println!("\nframe time, generated town at 1280 x 720 (median; the GPU has finished the frame)");
         for boxes in [5_000, 50_000] {
-            let (still, changed, n) = town_times(&gpu, Options::default(), boxes)?;
+            let (still, changed, n) = town_times(&gpu, Options::default(), boxes, false)?;
             println!(
                 "{boxes:>6} boxes: {still:>8.3} ms with nothing uploaded, {changed:>8.3} ms with every instance \
                  packed and uploaded again ({n} frames)"
@@ -388,10 +395,13 @@ fn run() -> Result<bool, String> {
                 } else {
                     println!("       within the limit of {limit} ms");
                 }
+                // For comparison: in the iso view the sides write their depth per pixel too.
+                let (iso, _, _) = town_times(&gpu, Options::default(), boxes, true)?;
+                println!("       the same town through the iso view: {iso:.3} ms");
             }
         }
     }
-    if a.only.is_none() {
+    if a.only.is_none() && a.random == 0 {
         match present_check(&gpu, &scenes) {
             Ok(()) => println!(
                 "\nshowing the frame: its own size gives its bytes; twice the size gives each pixel four times; an \
@@ -479,7 +489,7 @@ fn present_check(gpu: &Gpu, scenes: &[Scene]) -> Result<(), String> {
 /// apart over all scenes, and the frame time of the town.
 fn study(gpu: &Gpu, scenes: &[Scene], a: &Args) -> Result<(), String> {
     let chosen = Options::default();
-    let variants: [(&str, Options); 9] = [
+    let variants: [(&str, Options); 10] = [
         ("chosen", chosen),
         ("color: rounded in the shader", Options { color: FaceColor::Shader, ..chosen }),
         ("see-through: the GPU's blender", Options { blend: Blend::Hardware, ..chosen }),
@@ -488,19 +498,26 @@ fn study(gpu: &Gpu, scenes: &[Scene], a: &Args) -> Result<(), String> {
         ("rank: depth bias, 4096 steps", Options { rank: Rank::Bias(4096), ..chosen }),
         ("cards: the anchor's depth everywhere", Options { cards: CardDepth::Anchor, ..chosen }),
         ("corners: measured from the world's origin", Options { origin: Origin::World, ..chosen }),
+        ("iso depth: a straight line to 1..0", Options { iso_depth: IsoDepth::Line, ..chosen }),
         ("chosen, again", chosen),
     ];
     let boxes = if gpu.real() { 50_000 } else { 5_000 };
     println!("\noptions on this adapter: pixels apart over {} scenes, and a frame of {boxes} boxes", scenes.len());
-    println!("{:<44} {:>8} {:>10} {:>8} {:>12}", "option", "apart", "not edge", "scenes", "frame ms");
+    println!(
+        "{:<44} {:>8} {:>10} {:>8} {:>12} {:>20}",
+        "option", "apart", "not edge", "scenes", "frame ms", "of a 3 x 3 tile"
+    );
     for (name, options) in variants {
         let rows = check(gpu, options, scenes, a, false)?;
-        let frame = if a.timing { format!("{:.3}", town_times(gpu, options, boxes)?.0) } else { "-".into() };
+        // Outside the gate: how much of a tile larger than a cell this option shows, over all cameras.
+        let (shown, covered) = tile_shown(gpu, options)?;
+        let frame = if a.timing { format!("{:.3}", town_times(gpu, options, boxes, false)?.0) } else { "-".into() };
         println!(
-            "{name:<44} {:>8} {:>10} {:>8} {frame:>12}",
+            "{name:<44} {:>8} {:>10} {:>8} {frame:>12} {:>20}",
             rows.iter().map(|r| r.differing).sum::<usize>(),
             rows.iter().map(|r| r.inside).sum::<usize>(),
             rows.iter().filter(|r| r.differing > 0).count(),
+            format!("{shown} / {covered}"),
         );
         for r in rows.iter().filter(|r| r.differing > 0) {
             println!("    {:<44} {:>6} {:>10}", r.name, r.differing, r.inside);
@@ -508,7 +525,7 @@ fn study(gpu: &Gpu, scenes: &[Scene], a: &Args) -> Result<(), String> {
     }
     gaps(gpu, a)?;
     // What projecting every corner on the CPU would cost, as the reference does.
-    let list = scenes::town_list(boxes)?;
+    let list = scenes::town_list(boxes, false)?;
     let (ms, _) = timed(10, 2_000.0, || {
         std::hint::black_box(project(&list));
     });
@@ -557,4 +574,23 @@ fn gaps(gpu: &Gpu, a: &Args) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Over all cameras: the pixels of a 3 × 3 tile on the ground that the GPU
+/// shows, and the pixels the tile covers.
+fn tile_shown(gpu: &Gpu, options: Options) -> Result<(usize, usize), String> {
+    use rwgpuengine_render::reference::coverage;
+    let mut renderer = Renderer::new(&gpu.device, options);
+    let (mut shown, mut covered) = (0, 0);
+    for (_, part, scenes) in scenes::gaps()?.into_iter().take(1) {
+        for scene in scenes {
+            let seen = project(&scene.list);
+            let cov = coverage(&seen, &render(&seen));
+            let tile = seen.items.iter().enumerate().filter(|(_, i)| i.part == part && i.entity.is_some());
+            covered += tile.map(|(k, _)| cov.items[k].drawn as usize).sum::<usize>();
+            let got = gpu_frame(gpu, &mut renderer, &scene.list)?;
+            shown += got.as_chunks::<4>().0.iter().filter(|p| **p == [255, 0, 0, 255]).count();
+        }
+    }
+    Ok((shown, covered))
 }

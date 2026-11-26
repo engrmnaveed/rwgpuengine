@@ -2,22 +2,26 @@
 // reference renderer (rwgpuengine_render::reference). What each rule is and
 // why it is done this way: docs/decisions/0021.
 //
-// Depth is reversed: 1 is the nearest the camera draws, 0 the farthest, and
-// the larger value wins. A float is densest near 0, so far things keep their
-// precision, as they do in the reference.
+// Depth is reversed: 1 is the nearest the camera draws, the farthest is next
+// to 0, and the larger value wins. A float is densest near 0. `held` below
+// maps the reference's depth so that this precision is where the scene is.
 
 struct Globals {
     // World point (taken from `origin`) to clip space.
     clip: mat4x4<f32>,
     // xyz: the point positions are taken from. w: study only, depth per rank.
     origin: vec4<f32>,
-    // The depth of a level plane at height z0, at pixel center p:
-    //   lb.w - dot(la.xyz * z0 + lb.xyz, (p, 1)) / (1 + ld.x * z0)
+    // The reference's depth of a level plane at height z0, at pixel center p:
+    //   dot(la.xyz * z0 + lb.xyz, (p, 1)) / (1 + ld.x * z0)
     la: vec4<f32>,
     lb: vec4<f32>,
+    // x: see above. y: 0 in perspective, else the iso view's depth scale.
+    // z: the farthest depth drawn. w: 1 / (z + 1).
     ld: vec4<f32>,
     // 2 / width, 2 / height, width, height.
     frame: vec4<f32>,
+    // Iso: the reference's depth of a world point (taken from `origin`).
+    zrow: vec4<f32>,
     // Study only: the light on each of the six faces.
     k: array<vec4<f32>, 2>,
     flags: vec4<u32>,
@@ -61,15 +65,36 @@ fn over(c: vec4<u32>, px: vec2<i32>) -> vec4<f32> {
     return vec4<f32>(vec3<f32>(m) / 255.0, 1.0);
 }
 
-fn level_depth(p: vec2<f32>, z0: f32) -> f32 {
-    let num = dot(g.la.xyz * z0 + g.lb.xyz, vec3<f32>(p, 1.0));
-    return g.lb.w - num / (1.0 + g.ld.x * z0);
+// The reference's depth (-1 nearest, `ld.z` farthest) as the depth buffer
+// holds it.
+//
+// In perspective the reference's depth already is dense where it matters, and
+// a straight line to 1..0 keeps that. In the iso view the scene sits around
+// depth 0, in the middle of the range, where a straight line would land at
+// 0.5 and leave a float 100 times coarser than the reference's. So the iso
+// range is laid along the exponent instead: every 1/60 of it halves the
+// value, and within such a step the value falls in a straight line. That is
+// monotonic, exact (the float is put together from its bits), and about 60
+// times finer everywhere.
+fn held(d: f32) -> f32 {
+    if g.ld.y == 0.0 {
+        return clamp((g.ld.z - d) * g.ld.w, 0.0, 1.0);
+    }
+    let u = g.ld.y * clamp(d, -1.0, 1.0);
+    let n = floor(u);
+    // 2 - (u - n) is in 1..2; lower its exponent by n + 61.
+    return bitcast<f32>(bitcast<u32>(2.0 - (u - n)) - (u32(i32(n) + i32(g.ld.y) + 1) << 23u));
 }
 
-// A level plane's depth with its three lowest bits cleared. Every face in
-// one plane computes the same bits here, whatever triangle it is part of.
+// The reference's depth of the level plane at height z0, at pixel center p.
+fn level_depth(p: vec2<f32>, z0: f32) -> f32 {
+    return dot(g.la.xyz * z0 + g.lb.xyz, vec3<f32>(p, 1.0)) / (1.0 + g.ld.x * z0);
+}
+
+// A level plane's held depth with its three lowest bits cleared. Every face
+// in one plane computes the same bits here, whatever triangle it is part of.
 fn level_bits(p: vec2<f32>, z0: f32) -> u32 {
-    return bitcast<u32>(clamp(level_depth(p, z0), 0.0, 1.0)) & 0xfffffff8u;
+    return bitcast<u32>(held(level_depth(p, z0))) & 0xfffffff8u;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +117,8 @@ struct MeshOut {
     // x: the height of a level face.
     @location(1) @interpolate(flat, either) plane: vec2<f32>,
     @location(2) @interpolate(flat, either) rank: u32,
+    // Iso: the reference's depth, for sides.
+    @location(3) depth: f32,
 }
 
 @vertex
@@ -105,8 +132,12 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
     o.color = shade(face, select(v.color, v.top, level));
     o.plane = vec2<f32>(v.pos.z + c.z * v.size.z, 0.0);
     o.rank = v.extra.x;
+    o.depth = dot(g.zrow, vec4<f32>(world, 1.0));
     if level && (g.flags.x & RANK_BY_BIAS) != 0u {
-        o.clip.z += g.origin.w * f32(v.extra.x - 1u) * o.clip.w;
+        // Study: a step is 1 / 2^24 of the range, as a depth bias counts it.
+        let nearer = g.origin.w * f32(v.extra.x - 1u);
+        o.clip.z += nearer * o.clip.w;
+        o.depth -= 2.0 * nearer;
     }
     return o;
 }
@@ -116,7 +147,7 @@ struct DepthOut {
     @builtin(frag_depth) depth: f32,
 }
 
-// Sides: the rasterizer's own depth.
+// Sides in perspective: the rasterizer's own depth.
 @fragment
 fn fs_side(i: MeshOut) -> @location(0) vec4<f32> {
     return rgba(i.color);
@@ -125,6 +156,23 @@ fn fs_side(i: MeshOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_side_x(i: MeshOut) -> @location(0) vec4<f32> {
     return over(i.color, vec2<i32>(floor(i.clip.xy)));
+}
+
+// Sides in the iso view: the reference's depth, as `held` stores it.
+@fragment
+fn fs_side_iso(i: MeshOut) -> DepthOut {
+    var o: DepthOut;
+    o.color = rgba(i.color);
+    o.depth = held(i.depth);
+    return o;
+}
+
+@fragment
+fn fs_side_iso_x(i: MeshOut) -> DepthOut {
+    var o: DepthOut;
+    o.color = over(i.color, vec2<i32>(floor(i.clip.xy)));
+    o.depth = held(i.depth);
+    return o;
 }
 
 // Level faces: the plane's depth with the rank in its lowest bits, so of two
@@ -256,23 +304,22 @@ fn covers(i: ShapeOut, px: vec2<i32>) -> bool {
     return true;
 }
 
-// A card's depth in pixel row `p.y`. Above its anchor the card stands
+// A card's held depth in pixel row `p.y`. Above its anchor the card stands
 // upright; below it the card lies in the level plane through the anchor.
 fn card_depth(i: ShapeOut, p: vec2<f32>) -> f32 {
     let dy = p.y - i.d0.x;
     if (g.flags.x & CARD_ONE_DEPTH) != 0u {
-        return clamp(i.d0.y + i.d1.x, 0.0, 1.0);
+        return held(i.d0.y + i.d1.x);
     }
     if dy < 0.0 {
         // The same bits for every card at this anchor, then the lift: a
         // label is in front of its own sprite. Sixteen steps nearer, so the
         // row just above the anchor is in front of the floor it stands on.
         let upright = i.d0.y + dy * i.d0.z;
-        let lifted = upright + (i.d1.x + dy * i.d1.y);
-        return bitcast<f32>(bitcast<u32>(clamp(lifted, 0.0, 1.0)) + 16u);
+        return bitcast<f32>(bitcast<u32>(held(upright + (i.d1.x + dy * i.d1.y))) + 16u);
     }
     if (g.flags.x & RANK_BY_BIAS) != 0u {
-        return clamp(i.d0.y + i.d1.x + dy * (i.d1.w + i.d1.z), 0.0, 1.0);
+        return held(i.d0.y + i.d1.x + dy * (i.d1.w + i.d1.z));
     }
     // Lying: one step behind any level face in its own plane (the floor
     // stays), or, lifted, at least one step in front of it.
@@ -280,8 +327,8 @@ fn card_depth(i: ShapeOut, p: vec2<f32>) -> f32 {
     if i.kind.y == 0u {
         return bitcast<f32>(max(plane, 8u) - 8u);
     }
-    let lifted = level_depth(p, i.d0.w) + (i.d1.x + dy * i.d1.z);
-    return bitcast<f32>(max(bitcast<u32>(clamp(lifted, 0.0, 1.0)), plane + 8u));
+    let lifted = held(level_depth(p, i.d0.w) + (i.d1.x + dy * i.d1.z));
+    return bitcast<f32>(max(bitcast<u32>(lifted), plane + 8u));
 }
 
 @fragment

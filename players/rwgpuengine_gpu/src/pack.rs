@@ -20,7 +20,11 @@ use crate::{FaceColor, Options, Origin, Rank};
 pub(crate) const INSTANCE_BYTES: usize = 36;
 /// Bytes of one flat shape.
 pub(crate) const SHAPE_BYTES: usize = 88;
-pub(crate) const GLOBALS_BYTES: usize = 1728;
+pub(crate) const GLOBALS_BYTES: usize = 1744;
+
+/// The iso view's depth scale (`held` in the shader): 60 halvings from the
+/// nearest depth to the middle of the range and 60 more to the farthest.
+const ISO_DEPTH_SCALE: f32 = 60.0;
 
 /// Shader flags (`shader.wgsl`).
 const SHADE_IN_SHADER: u32 = 1;
@@ -166,14 +170,10 @@ impl View {
         View { far: proj.far_depth(), proj }
     }
 
-    /// The reference's depth as the GPU holds it: 1 nearest, 0 farthest.
-    pub fn depth(&self, d: f64) -> f64 {
-        (self.far - d) / (self.far + 1.0)
-    }
-
-    /// A change of the reference's depth, as the GPU holds it.
-    pub fn slope(&self, d: f64) -> f64 {
-        -d / (self.far + 1.0)
+    /// Does every line of sight run the same way (the iso view)?
+    pub fn iso(&self) -> bool {
+        let w = self.proj.rows()[3];
+        w[0] == 0.0 && w[1] == 0.0 && w[2] == 0.0
     }
 }
 
@@ -211,11 +211,15 @@ pub(crate) fn globals(list: &RenderList, view: &View, options: &Options) -> Vec<
     f32s(&mut out, &[origin[0], origin[1], origin[2], bias]);
 
     let p = LevelPlane::new(&view.proj);
-    let k = 1.0 / ((f + 1.0) * p.beta);
-    f32s(&mut out, &[(p.a[0] * k) as f32, (p.a[1] * k) as f32, (p.a[2] * k) as f32, 0.0]);
-    f32s(&mut out, &[(p.b[0] * k) as f32, (p.b[1] * k) as f32, (p.b[2] * k) as f32, (f / (f + 1.0)) as f32]);
-    f32s(&mut out, &[(p.alpha / p.beta) as f32, 0.0, 0.0, 0.0]);
+    f32s(&mut out, &[(p.a[0] / p.beta) as f32, (p.a[1] / p.beta) as f32, (p.a[2] / p.beta) as f32, 0.0]);
+    f32s(&mut out, &[(p.b[0] / p.beta) as f32, (p.b[1] / p.beta) as f32, (p.b[2] / p.beta) as f32, 0.0]);
+    let scale = if view.iso() && options.iso_depth == crate::IsoDepth::Exponent { ISO_DEPTH_SCALE } else { 0.0 };
+    f32s(&mut out, &[(p.alpha / p.beta) as f32, scale, f as f32, (1.0 / (f + 1.0)) as f32]);
     f32s(&mut out, &[(2.0 / w) as f32, (2.0 / h) as f32, w as f32, h as f32]);
+    // The reference's depth of a point taken from the origin (used in the iso view).
+    let z = m[2];
+    let at_origin = z[3] + z[0] * origin[0] as f64 + z[1] * origin[1] as f64 + z[2] * origin[2] as f64;
+    f32s(&mut out, &[z[0] as f32, z[1] as f32, z[2] as f32, at_origin as f32]);
 
     // The light on each face, and each level's color under it from the
     // reference's own function.
@@ -264,7 +268,7 @@ fn glyph_bits(index: u8) -> [i32; 2] {
     table[index as usize]
 }
 
-/// How a card's depth runs over its rows, as the GPU holds depth.
+/// How a card's depth runs over its rows, in the reference's depth.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct CardDepth {
     /// The anchor's row, the depth there, its change per row above the
@@ -387,12 +391,12 @@ pub(crate) fn shapes(list: &RenderList, view: &View, solid: &Instances) -> Shape
         let Some(place) = proj.card(anchor, card.lift) else { continue };
         let flat = if card.lift == 0 { place } else { proj.card(anchor, 0).unwrap_or(place) };
         let depth = CardDepth {
-            d0: [place.y as f32, view.depth(flat.at) as f32, view.slope(flat.up) as f32, card.anchor[2]],
+            d0: [place.y as f32, flat.at as f32, flat.up as f32, card.anchor[2]],
             d1: [
-                view.slope(place.at - flat.at) as f32,
-                view.slope(place.up - flat.up) as f32,
-                view.slope(place.down - flat.down) as f32,
-                view.slope(flat.down) as f32,
+                (place.at - flat.at) as f32,
+                (place.up - flat.up) as f32,
+                (place.down - flat.down) as f32,
+                flat.down as f32,
             ],
             lift: card.lift,
         };
@@ -468,6 +472,45 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    /// `held` of the shader for the iso view, operation for operation.
+    fn held_iso(d: f32) -> f32 {
+        let u = ISO_DEPTH_SCALE * d.clamp(-1.0, 1.0);
+        let n = u.floor();
+        f32::from_bits((2.0 - (u - n)).to_bits() - (((n as i32 + ISO_DEPTH_SCALE as i32 + 1) as u32) << 23))
+    }
+
+    #[test]
+    fn the_iso_depth_is_stored_in_order_and_finely_around_the_scene() {
+        // The whole range fits: 1 at the nearest depth, a small positive number at the farthest.
+        assert_eq!(held_iso(-1.0), 1.0);
+        assert!(held_iso(1.0) > 0.0 && held_iso(1.0) < 1e-35);
+        // Nearer is larger, all the way through, also across the steps of the exponent.
+        let mut last = held_iso(-1.0);
+        for k in 1..=400_000 {
+            let d = -1.0 + k as f32 / 200_000.0;
+            let h = held_iso(d);
+            assert!(h <= last, "{d}: {h} after {last}");
+            last = h;
+        }
+        for step in [-2.0f32 / 60.0, -1.0 / 60.0, 0.0, 1.0 / 60.0, 2.0 / 60.0] {
+            let (before, after) = (f32::from_bits(step.to_bits().wrapping_sub(1)), f32::from_bits(step.to_bits() + 1));
+            let (lo, hi) = if before < after { (before, after) } else { (after, before) };
+            assert!(held_iso(lo) >= held_iso(step) && held_iso(step) >= held_iso(hi), "around {step}");
+        }
+        // Around the scene, of 1,000 depths 5e-9 apart nearly all are told
+        // apart. A straight line to 1..0 tells fewer than a tenth apart.
+        for start in [0.0f32, 0.003, -0.003, 0.02, -0.02] {
+            let depths = (0..1000).map(|k| start + k as f32 * 5e-9);
+            let distinct = |held: &dyn Fn(f32) -> f32| {
+                let mut v: Vec<u32> = depths.clone().map(|d| held(d).to_bits()).collect();
+                v.dedup();
+                v.len()
+            };
+            assert!(distinct(&held_iso) > 800, "{start}: {}", distinct(&held_iso));
+            assert!(distinct(&|d| (1.0 - d) / 2.0) < 100, "{start}: the straight line");
         }
     }
 

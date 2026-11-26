@@ -4,6 +4,8 @@
 //! - The generated town of 5,000 boxes at 1280 × 720 in perspective.
 //! - Small scenes, one per rule of the reference renderer, each under iso
 //!   and perspective cameras.
+//! - 200 random scenes, each under a random camera, the same on every run:
+//!   they look for what the hand-made scenes miss.
 //!
 //! Two things are kept out of these scenes on purpose, because there the
 //! reference's own picture is decided by rounding (ADR 0021, "what the
@@ -29,10 +31,18 @@ fn session(vfs: &Vfs, script: Option<&str>) -> Result<Session, String> {
         .map_err(|d| d.iter().map(|d| d.render_human()).collect::<Vec<_>>().join("\n"))
 }
 
-/// The generated town (`xtask/src/town.rs`), as its scene's camera sees it.
-pub fn town_list(boxes: usize) -> Result<RenderList, String> {
-    Ok(session(&crate::town::town(boxes), None)?.render_list(false))
+/// The generated town (`xtask/src/town.rs`), as its scene's camera sees it
+/// (in perspective), or through the iso view at the same zoom.
+pub fn town_list(boxes: usize, iso: bool) -> Result<RenderList, String> {
+    let mut s = session(&crate::town::town(boxes), None)?;
+    if iso {
+        s.move_camera(&CameraMove { view: Some(ISO), turn: 0.0, zoom: 1.0, pan: [0.0, 0.0] });
+    }
+    Ok(s.render_list(false))
 }
+
+/// How many random scenes the gate draws after the fixed ones.
+pub const RANDOM_SCENES: u64 = 200;
 
 type Cam = (CameraView, f32, f32, [f32; 2]);
 
@@ -573,7 +583,7 @@ pub fn all(root: &Path) -> Result<Vec<Scene>, String> {
     for name in ["iso_garden", "coin_vault", "tiny_town"] {
         example(&mut out, root, name)?;
     }
-    out.push(Scene { name: "town of 5,000 boxes".into(), list: town_list(5_000)? });
+    out.push(Scene { name: "town of 5,000 boxes".into(), list: town_list(5_000, false)? });
     rule(&mut out, "solids", SOLIDS, &CAMERAS, false)?;
     rule(&mut out, "cards", CARDS, &CAMERAS, false)?;
     rule(&mut out, "cards below their anchor", CARDS_BELOW, &CAMERAS, false)?;
@@ -585,6 +595,9 @@ pub fn all(root: &Path) -> Result<Vec<Scene>, String> {
     rule(&mut out, "range, hall", HALL, &near, false)?;
     rule(&mut out, "range, deep floor", DEEP, &[(PER, 0.0, 16.0, [0.0, 0.0]), (PER, 40.0, 16.0, [0.0, 0.0])], false)?;
     rule(&mut out, "range, iso", FLOATERS, &[(ISO, 0.0, 1.0, [0.0, 0.0]), (ISO, 0.0, 0.5, [0.0, 0.0])], false)?;
+    for seed in 1..=RANDOM_SCENES {
+        out.push(random(seed)?);
+    }
     Ok(out)
 }
 
@@ -623,4 +636,106 @@ pub fn gaps() -> Result<Vec<Gap>, String> {
         out.push((name, part, scenes));
     }
     Ok(out)
+}
+
+/// A random scene under a random camera, the same for the same seed: a
+/// ground, boxes, one-cell tiles, sprites and text (some see-through, some
+/// on boxes, some disabled) and a HUD. It keeps to what the gate's scenes
+/// keep to (the top of this file), and solid things never share a cell.
+/// The gate draws the first [`RANDOM_SCENES`];
+/// `cargo xtask gpu --fast -- --random N` draws the first N alone.
+pub fn random(seed: u64) -> Result<Scene, String> {
+    use rwgpuengine_core::rng::Rng;
+    let mut rng = Rng::new(seed);
+    let size = rng.range_i32(4, 8);
+    let mut scene = format!("[ground]\nsize = [{size}, {size}]\n");
+    let color = |rng: &mut Rng, see_through: bool| {
+        let c = rng.next_u32();
+        let alpha = if see_through { format!("{:02x}", 0x30 + rng.below(0xa0)) } else { String::new() };
+        format!("\"#{:06x}{alpha}\"", c & 0xff_ffff)
+    };
+    let shapes = ["rect", "circle", "diamond"];
+    let heights = ["0", "0.25", "0.4", "0.5", "0.8", "1", "1.2", "1.5", "2", "2.75"];
+    // Solid things never share a cell: where two of them are in one plane
+    // the reference's picture is decided by rounding.
+    let mut taken = vec![false; (size * size) as usize];
+    let free = |taken: &[bool], x: i32, y: i32| x < size && y < size && !taken[(y * size + x) as usize];
+    for k in 0..rng.range_i32(6, 14) {
+        let (x, y) = (rng.range_i32(0, size - 1), rng.range_i32(0, size - 1));
+        let glass = rng.below(4) == 0;
+        let enabled = if rng.below(8) == 0 { "enabled = false\n" } else { "" };
+        let kind = rng.below(6);
+        if kind < 3 && !free(&taken, x, y) {
+            continue;
+        }
+        scene.push_str(&format!("\n[[entity]]\nname = \"e{k}\"\npos = [{x}, {y}]\n{enabled}"));
+        match kind {
+            0 => {
+                taken[(y * size + x) as usize] = true;
+                scene.push_str(&format!("tile = {{ color = {} }}\n", color(&mut rng, glass)));
+            }
+            1 | 2 => {
+                let height = heights[rng.below(heights.len() as u32) as usize];
+                let wide = height != "0"
+                    && rng.below(4) == 0
+                    && free(&taken, x + 1, y)
+                    && free(&taken, x, y + 1)
+                    && free(&taken, x + 1, y + 1);
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)].into_iter().take(if wide { 4 } else { 1 }) {
+                    taken[((y + dy) * size + x + dx) as usize] = true;
+                }
+                let two = if wide { "footprint = [2, 2]\n" } else { "" };
+                let glass_top = glass && rng.below(2) == 0;
+                scene.push_str(&format!(
+                    "{two}block = {{ height = {height}, color = {}, top = {} }}\n",
+                    color(&mut rng, glass),
+                    color(&mut rng, glass_top)
+                ));
+                if rng.below(3) == 0 {
+                    scene.push_str(&format!("label = {{ text = \"B{k}\", color = {} }}\n", color(&mut rng, false)));
+                }
+            }
+            3 | 4 => {
+                let (w, h) = (rng.range_i32(8, 44), rng.range_i32(8, 60));
+                scene.push_str(&format!(
+                    "sprite = {{ shape = \"{}\", color = {}, size = [{w}, {h}], offset = [{}, {}] }}\n",
+                    shapes[rng.below(3) as usize],
+                    color(&mut rng, glass),
+                    rng.range_i32(-6, 6),
+                    rng.range_i32(-8, -2)
+                ));
+                if rng.below(3) == 0 {
+                    scene
+                        .push_str(&format!("label = {{ text = \"s{k}\", offset = [0, {}] }}\n", rng.range_i32(-20, 0)));
+                }
+            }
+            _ => scene.push_str(&format!(
+                "label = {{ text = \"L{k} q\", scale = {}, color = {} }}\n",
+                rng.range_i32(1, 3),
+                color(&mut rng, glass)
+            )),
+        }
+    }
+    for k in 0..rng.range_i32(0, 3) {
+        let glass = rng.below(2) == 0;
+        scene.push_str(&format!(
+            "\n[[entity]]\nname = \"hud{k}\"\nscreen_pos = [{}, {}]\nsprite = {{ shape = \"{}\", color = {}, size = [{}, {}] }}\nlabel = {{ text = \"H{k}\", scale = 2, offset = [6, 6] }}\n",
+            rng.range_i32(-20, 560),
+            rng.range_i32(-10, 420),
+            shapes[rng.below(3) as usize],
+            color(&mut rng, glass),
+            rng.range_i32(30, 240),
+            rng.range_i32(20, 120)
+        ));
+    }
+    let view = if rng.below(2) == 0 { ISO } else { PER };
+    let cam: Cam = (
+        view,
+        rng.below(3600) as f32 / 10.0,
+        [0.5, 0.75, 1.0, 1.25, 1.6, 2.0, 3.0][rng.below(7) as usize],
+        [rng.range_i32(-8, 8) as f32 / 4.0, rng.range_i32(-8, 8) as f32 / 4.0],
+    );
+    let mut out = Vec::new();
+    rule(&mut out, &format!("random {seed}"), &scene, &[cam], rng.below(4) == 0)?;
+    Ok(out.remove(0))
 }

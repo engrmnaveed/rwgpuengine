@@ -74,6 +74,15 @@ pub enum CardDepth {
     Anchor,
 }
 
+/// How the iso view's depth is stored in the depth buffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IsoDepth {
+    /// Along the float's exponent: the precision is where the scene is.
+    Exponent,
+    /// A straight line from 1 to 0, which puts the scene at 0.5.
+    Line,
+}
+
 /// The point positions are measured from before the GPU projects them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Origin {
@@ -92,6 +101,7 @@ pub struct Options {
     pub rank: Rank,
     pub cards: CardDepth,
     pub origin: Origin,
+    pub iso_depth: IsoDepth,
 }
 
 impl Default for Options {
@@ -102,6 +112,7 @@ impl Default for Options {
             rank: Rank::DepthBits,
             cards: CardDepth::TwoPlanes,
             origin: Origin::Camera,
+            iso_depth: IsoDepth::Exponent,
         }
     }
 }
@@ -181,7 +192,9 @@ struct Target {
 /// Draws render lists with wgpu.
 pub struct Renderer {
     options: Options,
-    pipes: Vec<(Pipe, wgpu::RenderPipeline)>,
+    /// Each pipeline, and the view it is for if it is for one (sides store
+    /// their depth differently in the iso view).
+    pipes: Vec<(Pipe, Option<bool>, wgpu::RenderPipeline)>,
     globals: wgpu::Buffer,
     globals_bind: wgpu::BindGroup,
     prev_layout: wgpu::BindGroupLayout,
@@ -347,20 +360,34 @@ impl Renderer {
         };
         // With the rank as a depth bias (study), level faces keep the
         // rasterizer's depth, like sides.
-        let (level, level_x) = match options.rank {
-            Rank::DepthBits => ("fs_level", "fs_level_x"),
-            Rank::Bias(_) => ("fs_side", "fs_side_x"),
-        };
-        let pipes = vec![
-            (Pipe::Side, make(Pipe::Side, "vs_mesh", "fs_side", "fs_side_x", true, true)),
-            (Pipe::Level, make(Pipe::Level, "vs_mesh", level, level_x, true, true)),
-            (Pipe::Card, make(Pipe::Card, "vs_shape", "fs_card", "fs_card_x", false, true)),
-            (Pipe::Overlay, make(Pipe::Overlay, "vs_shape", "fs_overlay", "fs_overlay_x", false, false)),
-            (Pipe::SideGlass, make(Pipe::SideGlass, "vs_mesh", "fs_side", "fs_side_x", true, true)),
-            (Pipe::LevelGlass, make(Pipe::LevelGlass, "vs_mesh", level, level_x, true, true)),
-            (Pipe::CardGlass, make(Pipe::CardGlass, "vs_shape", "fs_card", "fs_card_x", false, true)),
-            (Pipe::OverlayGlass, make(Pipe::OverlayGlass, "vs_shape", "fs_overlay", "fs_overlay_x", false, false)),
+        let biased = options.rank != Rank::DepthBits;
+        let mut pipes = vec![
+            (Pipe::Card, None, make(Pipe::Card, "vs_shape", "fs_card", "fs_card_x", false, true)),
+            (Pipe::Overlay, None, make(Pipe::Overlay, "vs_shape", "fs_overlay", "fs_overlay_x", false, false)),
+            (Pipe::CardGlass, None, make(Pipe::CardGlass, "vs_shape", "fs_card", "fs_card_x", false, true)),
+            (
+                Pipe::OverlayGlass,
+                None,
+                make(Pipe::OverlayGlass, "vs_shape", "fs_overlay", "fs_overlay_x", false, false),
+            ),
         ];
+        for iso in [false, true] {
+            let (side, side_x) = if iso { ("fs_side_iso", "fs_side_iso_x") } else { ("fs_side", "fs_side_x") };
+            pipes.push((Pipe::Side, Some(iso), make(Pipe::Side, "vs_mesh", side, side_x, true, true)));
+            pipes.push((Pipe::SideGlass, Some(iso), make(Pipe::SideGlass, "vs_mesh", side, side_x, true, true)));
+            if biased {
+                pipes.push((Pipe::Level, Some(iso), make(Pipe::Level, "vs_mesh", side, side_x, true, true)));
+                pipes.push((Pipe::LevelGlass, Some(iso), make(Pipe::LevelGlass, "vs_mesh", side, side_x, true, true)));
+            }
+        }
+        if !biased {
+            pipes.push((Pipe::Level, None, make(Pipe::Level, "vs_mesh", "fs_level", "fs_level_x", true, true)));
+            pipes.push((
+                Pipe::LevelGlass,
+                None,
+                make(Pipe::LevelGlass, "vs_mesh", "fs_level", "fs_level_x", true, true),
+            ));
+        }
 
         let globals = buffer(device, GLOBALS_BYTES as u64, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
         let globals_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -458,8 +485,9 @@ impl Renderer {
         self.target.as_ref().map(|t| &t.color_view)
     }
 
-    fn pipe(&self, pipe: Pipe) -> &wgpu::RenderPipeline {
-        &self.pipes.iter().find(|(p, _)| *p == pipe).expect("every pipeline is built").1
+    fn pipe(&self, pipe: Pipe, iso: bool) -> &wgpu::RenderPipeline {
+        let found = self.pipes.iter().find(|(p, view, _)| *p == pipe && view.is_none_or(|v| v == iso));
+        &found.expect("every pipeline is built").2
     }
 
     fn target(&mut self, device: &wgpu::Device, width: u32, height: u32) {
@@ -519,6 +547,7 @@ impl Renderer {
         }
         let solid = &self.held.as_ref().expect("just set").1;
         let view = pack::View::new(list);
+        let iso = view.iso();
         queue.write_buffer(&self.globals, 0, &pack::globals(list, &view, &self.options));
         let shapes = pack::shapes(list, &view, solid);
         self.shapes.write(device, queue, &shapes.bytes);
@@ -616,7 +645,7 @@ impl Renderer {
             let mut bound = None;
             for c in run {
                 if bound != Some(c.pipe) {
-                    pass.set_pipeline(self.pipe(c.pipe));
+                    pass.set_pipeline(self.pipe(c.pipe, iso));
                     match c.pipe {
                         Pipe::Side | Pipe::SideGlass => {
                             pass.set_vertex_buffer(0, self.sides.slice(..));
