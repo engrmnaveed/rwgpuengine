@@ -51,6 +51,11 @@ pub fn main_with(args: Vec<String>, games: &GameFactory) -> i32 {
         "schema" => commands::schema_cmd(&parsed),
         "docs" => commands::docs_cmd(&parsed),
         "serve" => serve::serve(&parsed),
+        // The player prints its own result; only a missing player is ours to print.
+        "play" => match commands::play(&args[1..]) {
+            Ok(code) => return code,
+            Err(o) => o,
+        },
         "help" => commands::help(&parsed),
         "version" => commands::version(),
         other => unreachable!("command `{other}` is registered but not dispatched"),

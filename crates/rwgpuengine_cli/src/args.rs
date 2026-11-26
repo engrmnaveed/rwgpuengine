@@ -43,6 +43,24 @@ const PATH_ARG: (&str, &str) = (
     "Project folder, scene file or playtest file (default: current folder). The project is found by walking up to rwgpu.toml.",
 );
 
+/// `rwgpu play`'s details: also the native player's `--help`, which takes the
+/// same arguments. The bindings are the player's (players/rwgpuengine_player,
+/// `input.rs`); a test there keeps this text and its table equal.
+pub const PLAY_DETAILS: &str = "Starts the native player, `rwgpu-player`, which `rwgpu` looks for next to itself and \
+then on PATH: rwgpu itself never needs a GPU. The player steps the simulation at the project's tick rate whatever \
+the display does, draws with the GPU only when the picture changed, and scales the frame to the window with bars \
+around it. When the window closes it prints the frame and the state hash: with --input they match `rwgpu run` \
+for the same file.
+
+Keys and taps, as in the web player: arrows or W A S D move, Enter or Space confirm, Escape cancel. A click is a \
+tap; a drag of 12 frame pixels or more is a swipe along the iso axes (up-right is up).
+
+Camera: Q and E turn a quarter turn; right-drag turns freely; middle-drag or Shift + right-drag pans; the wheel, \
+a pinch, - and = zoom; V switches between iso and perspective; Home goes back to the scene's camera.
+
+E0006 when the player is not installed: build it from a clone of the repository with \
+`cargo install --locked --path players/rwgpuengine_player`.";
+
 pub static COMMANDS: &[Command] = &[
     Command {
         name: "new",
@@ -209,6 +227,39 @@ pub static COMMANDS: &[Command] = &[
                   frames=N (run N frames immediately, then pause). The page shows the frame number and state hash, \
                   which match `rwgpu run` for the same input.",
         examples: &["rwgpu serve examples/iso_garden", "rwgpu serve --port 8080"],
+    },
+    Command {
+        name: "play",
+        summary: "Play a project in a window, drawn with the GPU (needs the native player)",
+        args: &[PATH_ARG],
+        flags: &[
+            INPUT,
+            SEED,
+            flag(
+                "--frames",
+                Some("N"),
+                "Close after N frames and print the result. Default: the playtest's frames with --input, else play \
+                 until the window is closed.",
+            ),
+            flag(
+                "--headless",
+                None,
+                "No window: take the steps as fast as they go and draw each changed frame off screen. Needs --frames \
+                 or --input.",
+            ),
+            flag(
+                "--screenshot",
+                Some("FILE"),
+                "At the end, save what the window shows as a PNG (with --headless, the frame itself).",
+            ),
+            JSON,
+        ],
+        details: PLAY_DETAILS,
+        examples: &[
+            "rwgpu play examples/tiny_town",
+            "rwgpu play examples/tiny_town --input tests/turn_and_build.toml --screenshot out/turned.png",
+            "rwgpu play tests/build_town.toml --headless --json",
+        ],
     },
     Command {
         name: "help",

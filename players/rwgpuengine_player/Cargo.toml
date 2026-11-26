@@ -1,0 +1,29 @@
+[package]
+name = "rwgpuengine_player"
+description = "The native player: a project in a window, stepped by the engine's Session and drawn by rwgpuengine_gpu. `rwgpu play` runs it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "rwgpu-player"
+path = "src/main.rs"
+
+[dependencies]
+rwgpuengine_core.workspace = true
+rwgpuengine_data.workspace = true
+rwgpuengine_sim.workspace = true
+rwgpuengine_render.workspace = true
+rwgpuengine_runtime.workspace = true
+rwgpuengine_cli.workspace = true
+rwgpuengine_gpu.workspace = true
+winit.workspace = true
+
+[lints]
+workspace = true

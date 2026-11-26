@@ -9,7 +9,7 @@
 
 [workspace]
 resolver = "3"
-members = ["rwgpuengine_gpu", "gpu_check"]
+members = ["rwgpuengine_gpu", "rwgpuengine_player", "gpu_check"]
 
 [workspace.package]
 version = "0.1.0"
@@ -24,8 +24,14 @@ publish = false
 rwgpuengine_core = { path = "../crates/rwgpuengine_core" }
 rwgpuengine_data = { path = "../crates/rwgpuengine_data" }
 rwgpuengine_render = { path = "../crates/rwgpuengine_render" }
+rwgpuengine_sim = { path = "../crates/rwgpuengine_sim" }
 rwgpuengine_runtime = { path = "../crates/rwgpuengine_runtime" }
+# The command line's library, for what a player shares with `rwgpu`: the
+# arguments of `rwgpu play`, finding and loading a project, and printing
+# results and diagnostics. Only its library is built here, never `rwgpu`.
+rwgpuengine_cli = { path = "../crates/rwgpuengine_cli" }
 rwgpuengine_gpu = { path = "rwgpuengine_gpu" }
+rwgpuengine_player = { path = "rwgpuengine_player" }
 
 # Rented. The exact version is pinned: wgpu's API changes between versions.
 # No GL backend: Vulkan, Metal and Direct3D 12 natively, WebGPU in a browser
@@ -39,6 +45,11 @@ wgpu = { version = "=30.0.2", default-features = false, features = [
     "webgpu",
     "wgsl",
 ] }
+# The native window. The exact version is pinned: winit's API changes between
+# versions. X11 and Wayland, both loaded at run time, without the drawn
+# Wayland title bar (`wayland-csd-adwaita`, 9 crates more): ADR 0022 has the
+# measured choices.
+winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -47,6 +58,9 @@ missing_debug_implementations = "allow"
 [workspace.lints.clippy]
 dbg_macro = "warn"
 todo = "warn"
+# As in the agent's half: diagnostics are rich (message, location, hint,
+# notes) and only travel on the error path; boxing them would buy nothing.
+result_large_err = "allow"
 
 [profile.dev]
 debug = "line-tables-only"
