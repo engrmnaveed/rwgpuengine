@@ -8,7 +8,7 @@ use std::time::Instant;
 const SHADER: &str = r#"
 struct Globals { view_proj: mat4x4<f32>, light: vec4<f32> };
 @group(0) @binding(0) var<uniform> g: Globals;
-struct VOut { @builtin(position) clip: vec4<f32>, @location(0) color: vec4<f32> };
+struct VOut { @builtin(position) clip: vec4<f32>, @location(0) INTERP color: vec4<f32> };
 @vertex fn vs(@location(0) pos: vec3<f32>, @location(1) normal: vec3<f32>,
               @location(2) offset: vec3<f32>, @location(3) size: vec3<f32>, @location(4) color: vec4<f32>) -> VOut {
   var o: VOut;
@@ -17,8 +17,24 @@ struct VOut { @builtin(position) clip: vec4<f32>, @location(0) color: vec4<f32> 
   o.color = vec4<f32>(color.rgb * k, 1.0);
   return o;
 }
-@fragment fn fs(i: VOut) -> @location(0) vec4<f32> { return i.color; }
+@fragment fn fs(i: VOut) -> @location(0) vec4<f32> { return OUT; }
 "#;
+
+/// The shader: the study's (`smooth`, the default), or with the color not interpolated across
+/// the triangle (`flat`), or flat and rounded to a whole 8-bit level before it is written
+/// (`flat-rounded`). Chosen by SPIKE_SHADER.
+fn shader_source() -> String {
+    let variant = std::env::var("SPIKE_SHADER").unwrap_or_else(|_| "smooth".into());
+    let (interp, out) = match variant.as_str() {
+        "smooth" => ("", "i.color"),
+        "flat" => ("@interpolate(flat, either)", "i.color"),
+        "flat-rounded" => ("@interpolate(flat, either)", "vec4<f32>(floor(i.color.rgb * 255.0 + 0.5) / 255.0, 1.0)"),
+        v => panic!("SPIKE_SHADER: smooth, flat or flat-rounded, not {v:?}"),
+    };
+    println!("shader: {variant}");
+    let interp = if interp.is_empty() { String::new() } else { format!(" {interp}") };
+    SHADER.replace(" INTERP", &interp).replace("OUT", out)
+}
 
 fn bytes_f32(v: &[f32]) -> Vec<u8> {
     v.iter().flat_map(|f| f.to_le_bytes()).collect()
@@ -121,7 +137,7 @@ fn main() {
     let depth_view = depth.create_view(&Default::default());
 
     let t1 = Instant::now();
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: None, source: wgpu::ShaderSource::Wgsl(SHADER.into()) });
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: None, source: wgpu::ShaderSource::Wgsl(shader_source().into()) });
     let vertex_attrs = [
         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
         wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 12, shader_location: 1 },
