@@ -90,7 +90,7 @@ enum Eye {
 /// uses −1..1 with its center at 0. The perspective view uses −near / w,
 /// which runs from −1 toward 0: floats are densest near 0, so far things
 /// keep their precision.
-pub(crate) type Hom = [f64; 4];
+pub type Hom = [f64; 4];
 
 /// The camera's math for one frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -196,9 +196,20 @@ impl Projector {
         }
     }
 
+    /// The matrix: rows x, y, z and w, each dotted with (wx, wy, wz, 1). A
+    /// GPU renderer loads it, so both renderers share one projection.
+    pub fn rows(&self) -> &[[f64; 4]; 4] {
+        &self.m
+    }
+
+    /// The depths that are drawn: from −1 (nearest) to this one (farthest).
+    pub fn far_depth(&self) -> f64 {
+        self.planes[1][3]
+    }
+
     /// Project a world point, drawn `lift` steps nearer the camera than it is
     /// (its pixel does not move; only its depth does).
-    pub(crate) fn hom(&self, p: [f64; 3], lift: u8) -> Hom {
+    pub fn hom(&self, p: [f64; 3], lift: u8) -> Hom {
         let row = |r: &[f64; 4]| r[0] * p[0] + r[1] * p[1] + r[2] * p[2] + r[3];
         let (x, y, mut z, w) = (row(&self.m[0]), row(&self.m[1]), row(&self.m[2]), row(&self.m[3]));
         if lift > 0 {
@@ -213,7 +224,7 @@ impl Projector {
     }
 
     /// Is `h` inside every bounding half-plane?
-    pub(crate) fn inside(&self, h: &Hom) -> bool {
+    pub fn inside(&self, h: &Hom) -> bool {
         self.planes.iter().all(|p| dot4(p, h) >= 0.0)
     }
 
@@ -239,7 +250,7 @@ impl Projector {
     /// stands on, toward the viewer. So a tall sprite is not cut by a wall
     /// behind it, and a sprite nudged down a few pixels is not cut by the
     /// floor in front of it, while anything really in front still covers it.
-    pub(crate) fn card(&self, anchor: [f64; 3], lift: u8) -> Option<CardPlace> {
+    pub fn card(&self, anchor: [f64; 3], lift: u8) -> Option<CardPlace> {
         let h = self.hom(anchor, lift);
         if !self.inside(&h) {
             return None;
@@ -273,7 +284,7 @@ impl Projector {
 
 /// Where a card is on the screen, and its depth row by row.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) struct CardPlace {
+pub struct CardPlace {
     /// The pixel its anchor is drawn at.
     pub x: f64,
     pub y: f64,
@@ -281,8 +292,8 @@ pub(crate) struct CardPlace {
     pub scale: f64,
     /// Depth at the anchor's row, and its change per pixel above and below.
     pub at: f64,
-    up: f64,
-    down: f64,
+    pub up: f64,
+    pub down: f64,
 }
 
 impl CardPlace {

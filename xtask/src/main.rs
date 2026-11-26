@@ -7,6 +7,9 @@
 //! cargo xtask budgets   measure and enforce budgets.toml
 //! cargo xtask docs      regenerate docs/reference (`--check` to verify only)
 //! cargo xtask wasm-check  the wasm module against the native command (needs Node)
+//! cargo xtask gpu       the players' half: the wgpu renderer against the CPU
+//!                       reference, and the players' budgets (needs a GPU or a
+//!                       software adapter; not part of `ci`)
 //! ```
 //!
 //! `render-bench` is internal: `budgets` runs it as a release build.
@@ -18,6 +21,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Instant;
+
+mod town;
 
 use rwgpuengine_core::diag::SourceFile;
 use rwgpuengine_core::json::Json;
@@ -37,8 +42,12 @@ fn main() -> ExitCode {
         "docs" => docs(rest.iter().any(|a| a == "--check")),
         "wasm-check" => wasm_check(),
         "render-bench" => render_bench(),
+        "gpu" => gpu(rest),
         _ => {
-            eprintln!("usage: cargo xtask <ci | web | smoke | budgets | docs [--check] | wasm-check>");
+            eprintln!(
+                "usage: cargo xtask <ci | web | smoke | budgets | docs [--check] | wasm-check | gpu [--fast | --study] \
+                 [-- <options of players/gpu_check>]>"
+            );
             return ExitCode::from(2);
         }
     };
@@ -64,6 +73,13 @@ fn run(program: &str, args: &[&str]) -> Result {
     eprintln!("$ {program} {}", args.join(" "));
     let status =
         Command::new(program).args(args).current_dir(root()).status().map_err(|e| format!("{program}: {e}"))?;
+    if status.success() { Ok(()) } else { Err(format!("`{program} {}` failed ({status})", args.join(" "))) }
+}
+
+/// Run a command in `dir`; error if it fails.
+fn run_in(dir: &Path, program: &str, args: &[&str]) -> Result {
+    eprintln!("$ {program} {}", args.join(" "));
+    let status = Command::new(program).args(args).current_dir(dir).status().map_err(|e| format!("{program}: {e}"))?;
     if status.success() { Ok(()) } else { Err(format!("`{program} {}` failed ({status})", args.join(" "))) }
 }
 
@@ -269,8 +285,13 @@ impl Budgets {
     /// slower machines such as CI runners, so a regression of many times
     /// still fails there.
     fn time(&self, key: &str) -> i64 {
+        self.scaled("time", key)
+    }
+
+    /// A time limit in any section, scaled the same way.
+    fn scaled(&self, section: &str, key: &str) -> i64 {
         let scale = std::env::var("RWGPU_TIME_BUDGET_SCALE").ok().and_then(|v| v.parse::<i64>().ok()).unwrap_or(1);
-        self.limit("time", key) * scale.max(1)
+        self.limit(section, key) * scale.max(1)
     }
 }
 
@@ -387,7 +408,7 @@ fn check_web_profile() -> Result {
 /// made to repaint (what a player does for a frame that changed: build the
 /// render list and paint it, with the buffers it keeps between frames). Each
 /// is the median of 5 batches of 100. The third number is the CPU reference
-/// renderer on a town of 5,000 boxes at 1280x720 ([`town`]): the render
+/// renderer on a town of 5,000 boxes at 1280x720 ([`town::town`]): the render
 /// list, its projection and the pixels with their owners, median of 5
 /// batches of 10. Printed on stdout as `render paint town`; meant for a
 /// release build (`budgets` runs it that way).
@@ -424,44 +445,13 @@ fn render_bench() -> Result {
         presenter.present(&session);
         std::hint::black_box(presenter.pixels());
     });
-    let big =
-        Session::load(&town(5_000), &SessionConfig::default(), Box::new(DataOnly)).map_err(|d| format!("{d:?}"))?;
+    let big = Session::load(&town::town(5_000), &SessionConfig::default(), Box::new(DataOnly))
+        .map_err(|d| format!("{d:?}"))?;
     let town = median(10, &mut || {
         std::hint::black_box(rwgpuengine_render::render(&big.projected(false)));
     });
     println!("{render} {paint} {town}");
     Ok(())
-}
-
-/// A project with one scene: `n` boxes, one per cell of a square ground, with
-/// heights from 0.4 to 3 and six colors (the town of the 3D study's spikes),
-/// seen at 1280x720 by a perspective camera far enough out to see all of it.
-fn town(n: usize) -> rwgpuengine_data::Vfs {
-    let side = (1..).find(|g| g * g >= n).unwrap_or(1);
-    let mut seed: u32 = 0x1234_5678;
-    let mut next = || {
-        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        seed >> 8
-    };
-    let palette = ["#b5651d", "#8b2f2f", "#3f8a3f", "#c8bea0", "#5a6ea0", "#e6c850"];
-    let mut scene = format!("[camera]\nview = \"perspective\"\nzoom = 0.2\n\n[ground]\nsize = [{side}, {side}]\n");
-    for i in 0..n {
-        // Quarter units, so every height is an exact number in the file.
-        let height = 0.5 + (next() % 11) as f32 * 0.25;
-        let color = palette[(next() % 6) as usize];
-        scene.push_str(&format!(
-            "\n[[entity]]\npos = [{}, {}]\nblock = {{ color = \"{color}\", height = {height} }}\n",
-            i % side,
-            i / side
-        ));
-    }
-    let mut vfs = rwgpuengine_data::Vfs::new();
-    vfs.insert(
-        "rwgpu.toml",
-        "[project]\nname = \"town\"\nmain_scene = \"scenes/main.toml\"\n[display]\nwidth = 1280\nheight = 720\n",
-    );
-    vfs.insert("scenes/main.toml", scene);
-    vfs
 }
 
 fn file_size(p: &Path) -> Result<i64> {
@@ -470,24 +460,29 @@ fn file_size(p: &Path) -> Result<i64> {
 
 /// (external crates, proc-macro crates) in rwgpuengine_runtime's normal dependency tree.
 fn runtime_deps() -> Result<(Vec<String>, Vec<String>)> {
-    let (ok, tree) = capture(
-        "cargo",
-        &["tree", "-p", "rwgpuengine_runtime", "-e", "normal", "--prefix", "none", "--format", "{p}"],
-        &root(),
-    )?;
+    deps(&root(), &["-p", "rwgpuengine_runtime"])
+}
+
+/// (external crates, proc-macro crates) in the normal dependency tree that
+/// `cargo tree <which>` prints in the workspace at `dir`.
+fn deps(dir: &Path, which: &[&str]) -> Result<(Vec<String>, Vec<String>)> {
+    let mut args = vec!["tree"];
+    args.extend_from_slice(which);
+    args.extend_from_slice(&["-e", "normal", "--prefix", "none", "--format", "{p}"]);
+    let (ok, tree) = capture("cargo", &args, dir)?;
     if !ok {
         return Err("cargo tree failed".into());
     }
     let mut names: Vec<String> = tree
         .lines()
         .filter_map(|l| l.split_whitespace().next())
-        .filter(|n| !n.starts_with("rwgpuengine_"))
+        .filter(|n| !n.starts_with("rwgpuengine_") && *n != "gpu_check")
         .map(str::to_string)
         .collect();
     names.sort();
     names.dedup();
 
-    let (ok, meta) = capture("cargo", &["metadata", "--format-version", "1"], &root())?;
+    let (ok, meta) = capture("cargo", &["metadata", "--format-version", "1"], dir)?;
     if !ok {
         return Err("cargo metadata failed".into());
     }
@@ -503,4 +498,117 @@ fn runtime_deps() -> Result<(Vec<String>, Vec<String>)> {
         }
     }
     Ok((names, proc_macros))
+}
+
+// ---------------------------------------------------------------------------
+// The players' half (players/): everything that needs a GPU
+
+/// `cargo xtask gpu`: the gate of the players' half. It is separate from
+/// `ci`, which never needs a GPU and never compiles wgpu.
+///
+/// - `--fast`: only the picture check, built incrementally. For the edit loop.
+/// - `--study`: the options ADR 0021 chose between, measured on this adapter.
+/// - anything after `--` goes to the check itself (`players/gpu_check`).
+fn gpu(args: &[String]) -> Result {
+    let split = args.iter().position(|a| a == "--").unwrap_or(args.len());
+    let (flags, pass) = (&args[..split], &args[(split + 1).min(args.len())..]);
+    let pass: Vec<&str> = pass.iter().map(String::as_str).collect();
+    if let Some(bad) = flags.iter().find(|a| !["--fast", "--study"].contains(&a.as_str())) {
+        return Err(format!("unknown option `{bad}`: gpu takes --fast, --study, and `-- <options of the check>`"));
+    }
+    let players = root().join("players");
+    let b = Budgets::load()?;
+    let pixels = b.limit("players", "pixels_apart").to_string();
+    let frame_us = b.scaled("players", "gpu_frame_us").to_string();
+    let limits = ["--max-pixels", pixels.as_str(), "--frame-budget-us", frame_us.as_str()];
+
+    // Release builds of the players' half go to one folder of their own.
+    // The gate empties it first (it times a clean build); --fast and --study
+    // build on what is there.
+    let built = players.join("target-release");
+    let built_s = built.to_string_lossy().into_owned();
+    let study = flags.iter().any(|a| a == "--study");
+    if study || flags.iter().any(|a| a == "--fast") {
+        let mut cmd = vec!["run", "--release", "--quiet", "-p", "gpu_check", "--target-dir", &built_s, "--"];
+        cmd.extend_from_slice(&limits);
+        if study {
+            cmd.push("--study");
+        }
+        cmd.extend_from_slice(&pass);
+        return run_in(&players, "cargo", &cmd);
+    }
+
+    step("the agent's half does not know wgpu");
+    let lock = std::fs::read_to_string(root().join("Cargo.lock")).map_err(|e| format!("Cargo.lock: {e}"))?;
+    if let Some(line) = lock.lines().find(|l| l.starts_with("name = \"wgpu") || *l == "name = \"winit\"") {
+        return Err(format!("Cargo.lock of the agent's half has `{line}`; GPU and window crates belong in players/"));
+    }
+    eprintln!("ok: no GPU or window crate in Cargo.lock");
+
+    step("players: format");
+    run_in(&players, "cargo", &["fmt", "--check", "-p", "rwgpuengine_gpu", "-p", "gpu_check"])?;
+    step("players: clippy (native)");
+    run_in(&players, "cargo", &["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])?;
+    step("players: clippy (wasm): the renderer must build for the browser");
+    let wasm = ["clippy", "-p", "rwgpuengine_gpu", "--target", "wasm32-unknown-unknown", "--", "-D", "warnings"];
+    run_in(&players, "cargo", &wasm)?;
+    step("players: tests");
+    run_in(&players, "cargo", &["test", "--workspace"])?;
+
+    let mut r = Report { rows: Vec::new() };
+    step("players: dependencies");
+    // Counted for each system; each budget is held on the system where its
+    // number is the largest.
+    let (mut crates, mut macros) = (0, 0);
+    for target in ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"] {
+        let (external, proc_macros) = deps(&players, &["--workspace", "--target", target])?;
+        eprintln!(
+            "{target}: {} rented crates; {} proc macros ({})",
+            external.len(),
+            proc_macros.len(),
+            proc_macros.join(", ")
+        );
+        crates = crates.max(external.len());
+        macros = macros.max(proc_macros.len());
+    }
+    let (web, _) = deps(&players, &["-p", "rwgpuengine_gpu", "--target", "wasm32-unknown-unknown"])?;
+    eprintln!("wasm32-unknown-unknown (the renderer alone): {} rented crates", web.len());
+    r.add("players.crates", crates as i64, b.limit("players", "crates"));
+    r.add("players.proc_macro_crates", macros as i64, b.limit("players", "proc_macro_crates"));
+
+    step("players: clean release build");
+    // Emptied first, so nothing is reused; the check then runs from there,
+    // so nothing is built twice.
+    let _ = std::fs::remove_dir_all(&built);
+    let start = Instant::now();
+    run_in(&players, "cargo", &["build", "--release", "-p", "gpu_check", "--target-dir", &built_s])?;
+    r.add(
+        "players.clean_release_build_ms",
+        start.elapsed().as_millis() as i64,
+        b.scaled("players", "clean_release_build_ms"),
+    );
+
+    step("players: the wgpu renderer against the CPU reference");
+    let exe = built.join("release").join(format!("gpu_check{}", std::env::consts::EXE_SUFFIX));
+    let results = root().join("target/gpu-check/results.txt");
+    let _ = std::fs::remove_file(&results);
+    let mut cmd = limits.to_vec();
+    cmd.extend_from_slice(&pass);
+    let checked = run_in(&root(), &exe.to_string_lossy(), &cmd);
+    // What the check measured: `key value` lines.
+    let text = std::fs::read_to_string(&results).unwrap_or_default();
+    let measured = |key: &str| text.lines().find_map(|l| l.strip_prefix(key)?.trim().parse::<i64>().ok());
+    if let Some(px) = measured("pixels_apart") {
+        r.add("players.pixels_apart", px, b.limit("players", "pixels_apart"));
+    }
+    if let Some(us) = measured("gpu_frame_us") {
+        // Only a real GPU is held to the frame time; a software adapter's is printed.
+        let limit = if measured("real_gpu") == Some(1) { b.scaled("players", "gpu_frame_us") } else { 0 };
+        r.add("players.gpu_frame_us", us, limit);
+    }
+    let budgets = r.print_and_check();
+    checked?;
+    budgets?;
+    eprintln!("\ngpu: all green");
+    Ok(())
 }

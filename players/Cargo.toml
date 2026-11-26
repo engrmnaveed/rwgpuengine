@@ -1,0 +1,59 @@
+# The players' half of rwgpuengine: everything that needs a GPU.
+#
+# This is its own workspace, with its own Cargo.lock and its own budgets
+# (budgets.toml, [players]). The agent's half is the workspace one folder up;
+# wgpu is not in its lockfile, so no command there can compile it
+# (docs/decisions/0021-wgpu-renderer-held-to-the-reference.md).
+#
+# Run the gate with `cargo xtask gpu` from the repository root.
+
+[workspace]
+resolver = "3"
+members = ["rwgpuengine_gpu", "gpu_check"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+license = "Apache-2.0"
+repository = "https://github.com/engrmnaveed/rwgpuengine"
+publish = false
+
+[workspace.dependencies]
+# The agent's half, by path: the render list and the reference renderer.
+rwgpuengine_core = { path = "../crates/rwgpuengine_core" }
+rwgpuengine_data = { path = "../crates/rwgpuengine_data" }
+rwgpuengine_render = { path = "../crates/rwgpuengine_render" }
+rwgpuengine_runtime = { path = "../crates/rwgpuengine_runtime" }
+rwgpuengine_gpu = { path = "rwgpuengine_gpu" }
+
+# Rented. The exact version is pinned: wgpu's API changes between versions.
+# No GL backend: Vulkan, Metal and Direct3D 12 natively, WebGPU in a browser
+# (the measured crate counts are in ADR 0021).
+wgpu = { version = "=30.0.2", default-features = false, features = [
+    "std",
+    "parking_lot",
+    "vulkan",
+    "metal",
+    "dx12",
+    "webgpu",
+    "wgsl",
+] }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "allow"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+debug = false
+strip = true

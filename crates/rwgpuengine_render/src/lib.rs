@@ -24,7 +24,7 @@ pub mod reference;
 pub mod report;
 pub mod view;
 
-pub use camera::{Camera, Projector};
+pub use camera::{Camera, CardPlace, Projector};
 pub use draw::{DrawItem, Part, Rect, Shape};
 pub use list::{Card, CardBody, Instance, Light, Mesh, RenderList};
 pub use reference::{Coverage, Frame, Item, ItemStats, Painter, Projected, project, render};

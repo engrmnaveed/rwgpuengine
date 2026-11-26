@@ -56,3 +56,29 @@ reference_town_frame_us = 20_000
 # Cold start of the web player on a mid-range tablet. Needs a device to
 # measure on; see docs/open-questions.md (Q8).
 startup_ms = 0
+
+# The players' half (players/): everything that needs a GPU. It has its own
+# budgets (the 3D proposal, section 5), measured and enforced by
+# `cargo xtask gpu`, not by `cargo xtask ci` (ADR 0021).
+[players]
+# Rented crates in the normal dependency tree of the players' workspace, on
+# the system where that is the most. Measured without a window library:
+# Windows 76, macOS 67, Linux 65 (and 54 for the renderer alone on wasm32).
+# The proposal measured that winit adds 51 on Linux and 11 on Windows, which
+# will make Linux the widest at about 116.
+crates = 130
+# Proc-macro crates in that tree, on the system where that is the most.
+# Measured: Windows 6 (`windows-implement` and `windows-interface` come with
+# Direct3D 12), macOS and Linux 4. Windows has nothing to spare.
+proc_macro_crates = 6
+# A clean release build of the check (wgpu, the renderer, and the agent's
+# crates it draws with). A time budget: scaled by RWGPU_TIME_BUDGET_SCALE.
+clean_release_build_ms = 60_000
+# One frame of 50,000 boxes on a 224 x 224 ground at 1280x720, with nothing
+# uploaded, until the GPU has finished it. Enforced only on a real GPU (a
+# software adapter's time is printed); scaled like the other time budgets.
+gpu_frame_us = 4_000
+# The wgpu renderer against the CPU reference, per reference scene: the most
+# pixels that may differ. Each must also lie on an edge of the reference
+# picture; there is no per-channel tolerance.
+pixels_apart = 50

@@ -1,0 +1,20 @@
+[package]
+name = "rwgpuengine_gpu"
+description = "Draws a render list with wgpu, for players. No window: it is handed a device and a queue."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+rwgpuengine_core.workspace = true
+rwgpuengine_render.workspace = true
+wgpu.workspace = true
+
+[dev-dependencies]
+rwgpuengine_data.workspace = true
+
+[lints]
+workspace = true

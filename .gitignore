@@ -9,3 +9,7 @@
 /docs/**/target/
 /docs/**/Cargo.lock
 /docs/**/pkg/
+
+# The players' workspace builds into its own folders (`cargo xtask gpu`).
+/players/target/
+/players/target-release/

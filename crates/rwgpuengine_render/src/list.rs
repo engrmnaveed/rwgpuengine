@@ -76,7 +76,7 @@ pub struct Instance {
     /// height 0 has 2. Between equal layers the earlier one in the list shows.
     pub layer: u8,
     /// Position in the drawing order: 0 for the ground, then one per entity.
-    pub(crate) seq: u32,
+    pub seq: u32,
 }
 
 /// What a [`Card`] shows.
@@ -109,7 +109,7 @@ pub struct Card {
     /// nearer the camera than it stands: a sprite has 0 and a label 1, so a
     /// label is in front of its own sprite.
     pub lift: u8,
-    pub(crate) seq: u32,
+    pub seq: u32,
 }
 
 /// Everything one frame draws. Two equal lists give the same picture, so a

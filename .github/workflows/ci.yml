@@ -1,7 +1,12 @@
-# CI runs exactly what developers run locally: `cargo xtask ci`.
-# That covers fmt, clippy (native + wasm), tests, generated-docs drift,
-# example playtests, the hard budgets in budgets.toml, and the check that the
-# wasm module gives the native command's state hashes and pixels.
+# CI runs exactly what developers run locally.
+#
+# `ci` is `cargo xtask ci`: fmt, clippy (native + wasm), tests, generated-docs
+# drift, example playtests, the hard budgets in budgets.toml, and the check
+# that the wasm module gives the native command's state hashes and pixels.
+# It never needs a GPU and never compiles wgpu.
+#
+# `gpu` is `cargo xtask gpu`: the players' half. It holds the wgpu renderer
+# to the CPU reference renderer and enforces the players' budgets (ADR 0021).
 name: ci
 
 on:
@@ -38,3 +43,47 @@ jobs:
         run: node --version
       - name: cargo xtask ci
         run: cargo xtask ci
+
+  # GitHub's runners have no graphics card. Linux draws with Mesa's software
+  # Vulkan driver (lavapipe), Windows with WARP (Direct3D 12), macOS with the
+  # runner's virtual GPU (Metal). wgpu picks each by itself.
+  gpu:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      RWGPU_TIME_BUDGET_SCALE: "4"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: gpu
+          workspaces: |
+            . -> target
+            players -> target
+      - name: Install Mesa's software Vulkan driver
+        if: runner.os == 'Linux'
+        # Without `apt-get update` first when the image's package lists still resolve.
+        run: |
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 \
+            || { sudo apt-get update -q && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1; }
+      - name: cargo xtask gpu
+        run: cargo xtask gpu
+      # A measurement, not a gate: the options ADR 0021 chose between, on this
+      # runner's adapter. It reuses the build of the step before.
+      - name: cargo xtask gpu --study
+        if: always()
+        run: cargo xtask gpu --study -- --no-timing
+      # The reference's picture, the GPU's and their difference, for every scene that failed.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: gpu-check-${{ matrix.os }}
+          path: target/gpu-check
+          retention-days: 14
+          if-no-files-found: ignore

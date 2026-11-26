@@ -146,7 +146,7 @@ pub struct Coverage {
 
 /// The six faces of a box: outward normal and corners. Corner `i` is at
 /// `pos + size * (i & 1, i >> 1 & 1, i >> 2 & 1)`.
-const BOX_FACES: [([f32; 3], [usize; 4]); 6] = [
+pub const BOX_FACES: [([f32; 3], [usize; 4]); 6] = [
     ([1.0, 0.0, 0.0], [1, 3, 7, 5]),
     ([-1.0, 0.0, 0.0], [0, 4, 6, 2]),
     ([0.0, 1.0, 0.0], [2, 6, 7, 3]),
@@ -156,7 +156,7 @@ const BOX_FACES: [([f32; 3], [usize; 4]); 6] = [
 ];
 
 /// A face's color under the light: each channel rounded to the nearest level.
-fn shade(color: Rgba, k: f32) -> Rgba {
+pub fn shade(color: Rgba, k: f32) -> Rgba {
     let s = |c: u8| (c as f32 * k + 0.5).floor().clamp(0.0, 255.0) as u8;
     Rgba { r: s(color.r), g: s(color.g), b: s(color.b), a: color.a }
 }
@@ -250,7 +250,7 @@ impl Projected {
             }
         }
         let tris = &self.tris[start..];
-        let middle = proj.hom([p[0] + s[0] / 2.0, p[1] + s[1] / 2.0, p[2] + s[2] / 2.0], 0);
+        let (middle, sort) = middle_depth(proj, inst);
         self.items.push(Item {
             entity: inst.entity,
             part: inst.part,
@@ -259,7 +259,7 @@ impl Projected {
             bounds: tri_bounds(tris),
             out_of_range: !proj.inside(&middle) && tris.is_empty(),
             translucent: inst.color.a < 255 || inst.top.a < 255,
-            sort: (middle[2] / middle[3]) as f32,
+            sort,
             kind: Kind::Solid { tris: (start as u32, self.tris.len() as u32) },
         });
     }
@@ -316,20 +316,7 @@ impl Projected {
         let place = proj.card(card.anchor.map(f64::from), card.lift);
         let start = self.shapes.len();
         if let Some(at) = &place {
-            let (ax, ay) = (at.x as f32, at.y as f32);
-            match &card.body {
-                CardBody::Sprite(s) => {
-                    let scale = at.scale as f32;
-                    let (x0, y0) = (round(ax + card.origin[0] * scale), round(ay + card.origin[1] * scale));
-                    self.shapes.push(draw::sprite_shape(s, x0, y0, scale));
-                }
-                CardBody::Text { glyphs, scale } => {
-                    let (x0, y0) = (round(ax + card.origin[0]), round(ay + card.origin[1]));
-                    for &(gx, gy, index) in glyphs {
-                        self.shapes.push(Shape::Glyph { x0: x0 + gx, y0: y0 + gy, scale: *scale, index });
-                    }
-                }
-            }
+            card_shapes(card, at, &mut self.shapes);
         }
         let out_of_range = place.is_none();
         let place = place.unwrap_or_default();
@@ -396,6 +383,36 @@ impl Projected {
     pub fn bounds_of(&self, id: EntityId) -> Rect {
         self.items.iter().filter(|i| i.entity == Some(id)).fold(Rect::EMPTY, |acc, i| acc.union(&i.bounds))
     }
+}
+
+/// The flat shapes a card is drawn with when its anchor is at `at`: one for
+/// a sprite, one per character for text. They are added to `out`.
+#[inline]
+pub fn card_shapes(card: &Card, at: &CardPlace, out: &mut Vec<Shape>) {
+    let (ax, ay) = (at.x as f32, at.y as f32);
+    match &card.body {
+        CardBody::Sprite(s) => {
+            let scale = at.scale as f32;
+            let (x0, y0) = (round(ax + card.origin[0] * scale), round(ay + card.origin[1] * scale));
+            out.push(draw::sprite_shape(s, x0, y0, scale));
+        }
+        CardBody::Text { glyphs, scale } => {
+            let (x0, y0) = (round(ax + card.origin[0]), round(ay + card.origin[1]));
+            for &(gx, gy, index) in glyphs {
+                out.push(Shape::Glyph { x0: x0 + gx, y0: y0 + gy, scale: *scale, index });
+            }
+        }
+    }
+}
+
+/// Where a see-through instance is in the far-to-near order: the depth of
+/// its middle.
+#[inline]
+pub fn middle_depth(proj: &Projector, inst: &Instance) -> (Hom, f32) {
+    let p = inst.pos.map(f64::from);
+    let s = inst.size.map(f64::from);
+    let middle = proj.hom([p[0] + s[0] / 2.0, p[1] + s[1] / 2.0, p[2] + s[2] / 2.0], 0);
+    (middle, (middle[2] / middle[3]) as f32)
 }
 
 fn tri_bounds(tris: &[Tri]) -> Rect {
