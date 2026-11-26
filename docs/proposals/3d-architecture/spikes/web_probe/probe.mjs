@@ -11,7 +11,7 @@
 // Node only: the browser is driven over the DevTools protocol on a pipe.
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -34,7 +34,18 @@ function found() {
     linux: [],
   }[process.platform] || [];
   const named = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'microsoft-edge'].map(onPath);
-  return [...new Set([...fixed.filter((p) => existsSync(p)), ...named.filter(Boolean)])];
+  // On Linux, only programs that say their version within 10 s, each once: the image's /usr/bin/chromium is
+  // a stand-in that never answered (web-probe run 45890709459), and google-chrome-stable is google-chrome.
+  // (Chrome on Windows prints no version, so the fixed paths there are taken as they are.)
+  const seen = new Set();
+  return [...new Set([...fixed.filter((p) => existsSync(p)), ...named.filter(Boolean)])].filter((p) => {
+    if (process.platform !== 'linux') return true;
+    const v = spawnSync(p, ['--version'], { encoding: 'utf8', timeout: 10000 });
+    const real = (() => { try { return realpathSync(p); } catch (_) { return p; } })();
+    if (v.status !== 0 || !/\d+\.\d+/.test(v.stdout) || seen.has(real)) return false;
+    seen.add(real);
+    return true;
+  });
 }
 
 const FLAGS = {
