@@ -190,8 +190,11 @@ On an Apple M5 Pro, Chrome 158 headless:
   `Renderer::draw`, 66 to 98 µs to show it on the canvas: about 0.25 to 0.4 ms of the page's time.
   `turn_and_build` in real time: 90 frames in 1,505 to 1,529 ms, no step let go. Left alone for 3 s: 178
   steps, one frame drawn.
-- **Runs.** The browser check ran 5 times in a row in one `cargo xtask gpu`, 3 times in another and 4 times by
-  hand: green 12 of 12 times. The whole check takes 9 s, 8 of them the real-time measurements.
+- **Runs.** On this Mac the browser check was green 12 of 12 times on Metal before the Linux work, and 3 of 3
+  after it; with SwiftShader as the default adapter and `RWGPU_BROWSER_LOSES_DEVICE=1`, 5 of 5. On the
+  runners (run 45884520090, three runs per job): `macos-latest` 3 of 3, `windows-latest` 3 of 3, both 0
+  pixels apart; `ubuntu-latest` 3 of 3, every WebGPU-path playtest handed to the CPU at the engine's state.
+  The whole check takes 9 s here, 8 of them the real-time measurements; 13 to 25 s on the runners.
 
 | budget | before | now | limit |
 |---|---|---|---|
@@ -225,9 +228,10 @@ first shows a picture. The browser's words, on the device and on the frame copy 
 valid external Instance reference no longer exists." Chrome logs nothing else about it.
 
 - It is Chrome and not wgpu: web_probe's canvas test is plain WebGPU (60 frames into a texture, each shown
-  on a canvas, then the texture read back) and fails the same way on that runner under eight sets of
+  on a canvas, then the texture read back) and fails the same way on that runner under nine sets of
   flags (`--enable-unsafe-webgpu` alone, with Vulkan, without the GPU blocklist, with SwiftShader or
-  ANGLE-on-SwiftShader for Chrome's own GL; run 45852696750), with Mesa's lavapipe installed or not. Without a canvas the same device draws and reads back.
+  ANGLE-on-SwiftShader for Chrome's own GL, with software compositing; runs 45852696750 and 45884520276),
+  with Mesa's lavapipe installed or not. With `--in-process-gpu` Chrome hung there. Without a canvas the same device draws and reads back.
 - To reproduce it on a Mac with Chrome: `node docs/proposals/3d-architecture/spikes/web_probe/probe.mjs`
   (the rows with SwiftShader as the adapter), or the player itself:
   `RWGPU_BROWSER_FLAGS=--use-webgpu-adapter=swiftshader node players/rwgpuengine_player/web/check.mjs

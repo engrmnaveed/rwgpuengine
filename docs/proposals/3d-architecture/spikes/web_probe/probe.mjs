@@ -47,10 +47,9 @@ const FLAGS = {
   // SwiftShader may draw Chrome's own GL too: a WebGPU canvas on SwiftShader keeps its device then.
   'unsafe, no blocklist, unsafe SwiftShader': ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'],
   'unsafe, ANGLE SwiftShader': ['--enable-unsafe-webgpu', '--use-angle=swiftshader'],
-  // More tries at keeping SwiftShader's canvas on Linux: software compositing, the GPU in the browser's own
-  // process, and every GL fallback allowed at once.
+  // More tries at keeping SwiftShader's canvas on Linux: software compositing, and every GL fallback allowed
+  // at once. (`--in-process-gpu` made Chrome hang on the Linux runner, run 45884520276: left out.)
   'unsafe, software compositing': ['--enable-unsafe-webgpu', '--disable-gpu-compositing'],
-  'unsafe, GPU in process': ['--enable-unsafe-webgpu', '--in-process-gpu'],
   'unsafe, all SwiftShader, no blocklist': ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader',
     '--use-gl=angle', '--use-angle=swiftshader'],
 };
@@ -96,8 +95,15 @@ async function run(browser, flags) {
   } catch (e) {
     out = { error: e.message, stderr: stderr.slice(-300) };
   }
+  // A browser that does not stop is stopped harder: a hung one must not hold the job.
+  const exited = (ms) => new Promise((ok) => {
+    if (child.exitCode !== null) return ok();
+    const t = setTimeout(ok, ms);
+    child.on('exit', () => { clearTimeout(t); ok(); });
+  });
   child.kill();
-  await new Promise((ok) => { if (child.exitCode !== null) ok(); else child.on('exit', ok); });
+  await exited(5000);
+  if (child.exitCode === null) { child.kill('SIGKILL'); await exited(5000); }
   // On Windows Chrome's crash handler can hold the folder a moment longer: a temporary folder left behind is fine.
   try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch (_) { /* left */ }
   return { ...out, ms: Date.now() - t0 };

@@ -29,8 +29,16 @@ findings that are not code (experiment results, surprises, things to remember).
 - **The proof, in `cargo xtask gpu`:** a headless Chrome plays all ten example playtests on WebGPU and on the
   CPU path; every state hash is `rwgpu test`'s; the WebGPU frames are 0 pixels apart from the reference (Metal,
   and SwiftShader by hand); the CPU canvas holds the reference's pixels; a device lost halfway through a
-  playtest hands the game to the CPU path at the same state; a still scene draws one frame in 3 s. Green 12 of
-  12 times here; CI runs it three times per job.
+  playtest hands the game to the CPU path at the same state; a still scene draws one frame in 3 s. CI runs
+  it three times per job: green 3 of 3 on each runner of run 45884520090.
+- **The Linux runner cannot show WebGPU on a canvas.** Chrome's only adapter there is SwiftShader, which loses
+  the device a few frames after a WebGPU canvas first shows a picture ("A valid external Instance reference
+  no longer exists"); a plain-WebGPU page in web_probe fails the same way under nine sets of flags, and it
+  reproduces on a Mac with SwiftShader. There the gate proves the build, the CPU path in the browser and
+  the handover after the browser's loss; the WebGPU picture is carried by the macOS and Windows runners and
+  this Mac. The search found three real faults: the player ignored a loss Chrome reports as `destroyed`;
+  the check let a WebGPU path that fell back pass; and `rwgpu serve` answered one connection at a time, so
+  an idle one stalled a page on the Windows runner. All three are fixed.
 - **Timings, this Mac:** navigation to the first frame 39 to 95 ms; with the camera turning, 0.25 to 0.4 ms of
   the page's time per drawn frame.
 - Not done: `rwgpu export web` (piece 3), WebGL2, offline pages, sound, gamepads, phone shells; the CPU player

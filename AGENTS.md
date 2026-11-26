@@ -39,6 +39,8 @@ command: `rwgpu play <project> --input <test> --headless --json` (or without `--
 the frame and the state hash, which must match `rwgpu run` for the same file. The web player
 ([ADR 0024](docs/decisions/0024-web-player-on-webgpu.md)) is checked in a headless Chrome by the same gate,
 on WebGPU and on its CPU fallback; it needs Node and a Chromium browser (`RWGPU_BROWSER` names one).
+Where the browser loses the WebGPU device of a canvas (Chrome on SwiftShader, as on the Linux runner),
+`RWGPU_BROWSER_LOSES_DEVICE=1` makes it check the handover to the CPU instead of the WebGPU picture.
 
 ## Rules
 
