@@ -1,0 +1,62 @@
+# A measurement, not a gate: which browsers on GitHub's hosted runners give WebGPU
+# when run headless, and with which flags (ADR 0024). The runners have no real
+# graphics card. Each job prints a table to its summary; see
+# docs/proposals/3d-architecture/spikes/web_probe/probe.mjs.
+name: web-probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [web-gpu-probe]
+  pull_request:
+    paths:
+      - docs/proposals/3d-architecture/spikes/web_probe/**
+      - .github/workflows/web-probe.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, label: "ubuntu-latest", packages: "" }
+          # With Mesa's software Vulkan driver, which the gpu job installs for wgpu.
+          - { os: ubuntu-latest, label: "ubuntu-latest + lavapipe", packages: "mesa-vulkan-drivers libvulkan1" }
+          - { os: windows-latest, label: "windows-latest", packages: "" }
+          - { os: macos-latest, label: "macos-latest", packages: "" }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      LABEL: ${{ matrix.label }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install drivers
+        if: matrix.packages != ''
+        env:
+          PACKAGES: ${{ matrix.packages }}
+        run: |
+          sudo apt-get install -y --no-install-recommends $PACKAGES \
+            || { sudo apt-get update -q && sudo apt-get install -y --no-install-recommends $PACKAGES; }
+      - name: Browsers
+        run: |
+          node --version
+          case "$RUNNER_OS" in
+            Linux) google-chrome --version || true; which chromium chromium-browser microsoft-edge || true ;;
+            macOS) "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version || true ;;
+            Windows) powershell -c "(Get-Item 'C:\Program Files\Google\Chrome\Application\chrome.exe').VersionInfo.ProductVersion" || true ;;
+          esac
+      - name: Probe (run 1)
+        run: node docs/proposals/3d-architecture/spikes/web_probe/probe.mjs
+      - name: Probe (run 2)
+        run: node docs/proposals/3d-architecture/spikes/web_probe/probe.mjs

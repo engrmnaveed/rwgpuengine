@@ -1,0 +1,31 @@
+<!doctype html><meta charset="utf-8"><title>probe</title><pre id="out">start</pre>
+<script type="module">
+const out = document.getElementById('out');
+const r = { gpu: !!navigator.gpu, ua: navigator.userAgent };
+async function info(opts) {
+  try {
+    const a = await navigator.gpu.requestAdapter(opts);
+    if (!a) return null;
+    const i = a.info || {};
+    const d = await a.requestDevice();
+    // A tiny draw: clear a 4x4 texture and read it back.
+    const tex = d.createTexture({ size: [4, 4], format: 'rgba8unorm', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+    const buf = d.createBuffer({ size: 256 * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const enc = d.createCommandEncoder();
+    const p = enc.beginRenderPass({ colorAttachments: [{ view: tex.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 1, g: 0.5, b: 0.25, a: 1 } }] });
+    p.end();
+    enc.copyTextureToBuffer({ texture: tex }, { buffer: buf, bytesPerRow: 256 }, [4, 4]);
+    d.queue.submit([enc.finish()]);
+    await buf.mapAsync(GPUMapMode.READ);
+    const px = Array.from(new Uint8Array(buf.getMappedRange(), 0, 4));
+    return { vendor: i.vendor, architecture: i.architecture, device: i.device, description: i.description, fallback: !!(a.isFallbackAdapter ?? i.isFallbackAdapter), px };
+  } catch (e) { return { error: String(e) }; }
+}
+if (navigator.gpu) {
+  r.preferred = navigator.gpu.getPreferredCanvasFormat();
+  r.default = await info({});
+  r.forced = await info({ forceFallbackAdapter: true });
+}
+window.__result = r;
+out.textContent = JSON.stringify(r);
+</script>
