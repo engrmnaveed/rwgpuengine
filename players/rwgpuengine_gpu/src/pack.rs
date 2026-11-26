@@ -10,11 +10,12 @@ use std::ops::Range;
 use std::sync::OnceLock;
 
 use rwgpuengine_core::color::Rgba;
+use rwgpuengine_render::camera::to_fixed;
 use rwgpuengine_render::font::lit;
 use rwgpuengine_render::reference::{BOX_FACES, card_shapes, middle_depth, shade};
 use rwgpuengine_render::{Instance, Mesh, Projector, Rect, RenderList, Shape};
 
-use crate::{FaceColor, Options, Origin, Rank};
+use crate::{FaceColor, Options, Origin};
 
 /// Bytes of one instance: position, size, two colors, the rank.
 pub(crate) const INSTANCE_BYTES: usize = 36;
@@ -26,13 +27,16 @@ pub(crate) const GLOBALS_BYTES: usize = 1744;
 /// nearest depth to the middle of the range and 60 more to the farthest.
 const ISO_DEPTH_SCALE: f32 = 60.0;
 
+/// Bytes of one instance's corner columns (the iso view).
+pub(crate) const COLUMNS_BYTES: usize = 16;
+
 /// Shader flags (`shader.wgsl`).
 const SHADE_IN_SHADER: u32 = 1;
-const RANK_BY_BIAS: u32 = 2;
 const CARD_ONE_DEPTH: u32 = 4;
+const ISO_COLUMNS: u32 = 8;
 
-/// The highest rank a level face can have. Three bits of its depth hold the
-/// rank, and the highest value is for the part of a card that lies on a floor.
+/// The highest rank a level face can have: what lies in one plane is told
+/// apart by a few steps of depth, and a card that lies there is above them.
 const MAX_RANK: u8 = 6;
 
 fn f32s(out: &mut Vec<u8>, v: &[f32]) {
@@ -74,6 +78,8 @@ pub(crate) struct Instances {
     pub boxes: Range<u32>,
     /// See-through instances: (index in the list, index in `bytes`).
     pub glass: Vec<(usize, u32)>,
+    /// The index in the list of each instance in `bytes`, in that order.
+    pub order: Vec<u32>,
 }
 
 pub(crate) fn see_through(i: &Instance) -> bool {
@@ -89,22 +95,52 @@ pub(crate) fn instances(list: &[Instance]) -> Instances {
         rgba(bytes, i.top);
         bytes.extend_from_slice(&[i.layer.saturating_add(1).min(MAX_RANK), 0, 0, 0]);
     };
-    let drawn = |i: &&Instance| i.enabled;
+    let drawn = |(_, i): &(usize, &Instance)| i.enabled;
     let mut n = 0;
-    for i in list.iter().filter(drawn).filter(|i| !see_through(i) && i.mesh == Mesh::Flat) {
+    for (k, i) in list.iter().enumerate().filter(drawn).filter(|(_, i)| !see_through(i) && i.mesh == Mesh::Flat) {
         push(&mut out.bytes, i);
+        out.order.push(k as u32);
         n += 1;
     }
     out.flats = 0..n;
-    for i in list.iter().filter(drawn).filter(|i| !see_through(i) && i.mesh == Mesh::Box) {
+    for (k, i) in list.iter().enumerate().filter(drawn).filter(|(_, i)| !see_through(i) && i.mesh == Mesh::Box) {
         push(&mut out.bytes, i);
+        out.order.push(k as u32);
         n += 1;
     }
     out.boxes = out.flats.end..n;
     for (k, i) in list.iter().enumerate().filter(|(_, i)| i.enabled && see_through(i)) {
         push(&mut out.bytes, i);
+        out.order.push(k as u32);
         out.glass.push((k, n));
         n += 1;
+    }
+    out
+}
+
+/// The iso view: the pixel column of each instance's four corners (x, y), in
+/// the order of the instance buffer, as whole sub-pixel steps.
+///
+/// A box's upright edges are exactly upright in this view: one column from
+/// top to bottom. The reference snaps that column to 1/256 of a pixel from a
+/// double-precision sum. The GPU's single-precision sum can land one step
+/// beside it, and where one of the two steps is a pixel center, a whole edge
+/// is then drawn one pixel off. So these four numbers come from the
+/// reference's own arithmetic.
+pub(crate) fn columns(list: &[Instance], solid: &Instances, proj: &Projector) -> Vec<u8> {
+    let row = proj.rows()[0];
+    let mut out = Vec::with_capacity(solid.order.len() * COLUMNS_BYTES);
+    for k in &solid.order {
+        let inst = &list[*k as usize];
+        let (p, s) = (inst.pos.map(f64::from), inst.size.map(f64::from));
+        for corner in 0..4 {
+            let x = p[0] + if corner & 1 != 0 { s[0] } else { 0.0 };
+            let y = p[1] + if corner & 2 != 0 { s[1] } else { 0.0 };
+            // The projector's own sum for a point's x (`Projector::hom`); in this view w is 1.
+            let px = row[0] * x + row[1] * y + row[2] * p[2] + row[3];
+            let fixed = to_fixed(px).clamp(-(1 << 23), 1 << 23) as i32;
+            out.extend_from_slice(&fixed.to_le_bytes());
+        }
     }
     out
 }
@@ -156,11 +192,7 @@ pub(crate) fn globals(list: &RenderList, view: &View, options: &Options) -> Vec<
     for j in 0..4 {
         f32s(&mut out, &[rows[0][j] as f32, rows[1][j] as f32, rows[2][j] as f32, rows[3][j] as f32]);
     }
-    let bias = match options.rank {
-        Rank::DepthBits => 0.0,
-        Rank::Bias(steps) => steps as f32 / 16_777_216.0,
-    };
-    f32s(&mut out, &[origin[0], origin[1], origin[2], bias]);
+    f32s(&mut out, &[origin[0], origin[1], origin[2], 0.0]);
 
     // The depth of a level plane over the screen: the reference's own equation.
     let p = view.proj.level_planes();
@@ -183,11 +215,11 @@ pub(crate) fn globals(list: &RenderList, view: &View, options: &Options) -> Vec<
     if options.color == FaceColor::Shader {
         flags |= SHADE_IN_SHADER;
     }
-    if options.rank != Rank::DepthBits {
-        flags |= RANK_BY_BIAS;
-    }
     if options.cards == crate::CardDepth::Anchor {
         flags |= CARD_ONE_DEPTH;
+    }
+    if view.iso() && options.columns == crate::Columns::Reference {
+        flags |= ISO_COLUMNS;
     }
     out.extend_from_slice(&flags.to_le_bytes());
     out.extend_from_slice(&[0; 12]);

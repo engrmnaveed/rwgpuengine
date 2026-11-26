@@ -22,9 +22,14 @@
 //! order two faces in one plane, so level faces carry a rank, and where two
 //! of them are at the same depth the higher rank shows ([`nearer`]). For
 //! that to hold whatever the faces' corners are, a level face takes its
-//! depth from its plane's equation ([`LevelPlanes`]), not from its corners.
+//! depth from its plane's equation ([`FacePlanes`]), not from its corners.
 //! The part of a card below its anchor lies in such a plane too, and shows
 //! over a floor there.
+//!
+//! Faces that are not level still take their depth from their corners. Where
+//! two of them have the same depth (the sides of two boxes that share a
+//! plane, or that meet in a line through pixel centers), the snapping of the
+//! corners decides which shows.
 //!
 //! [`Painter`] is the same drawing without the owners, for players that only
 //! show the picture.
@@ -35,7 +40,7 @@ use rwgpuengine_core::color::Rgba;
 use rwgpuengine_core::hash::fnv1a64;
 use rwgpuengine_sim::EntityId;
 
-use crate::camera::{CardPlace, Hom, LevelPlanes, Projector, dot4, to_fixed};
+use crate::camera::{CardPlace, FacePlanes, Hom, Projector, dot4, to_fixed};
 use crate::draw::{self, Part, Rect, Shape};
 use crate::list::{Card, CardBody, Instance, Light, Mesh, RenderList};
 use crate::paint::{ceil_div, fill, solid, spans};
@@ -52,7 +57,7 @@ struct Tri {
     p: [[i64; 2]; 3],
     z: [f64; 3],
     /// A level face: its plane's depth over the pixels
-    /// ([`LevelPlanes::over_pixels`]), used in place of the corners' depths.
+    /// ([`FacePlanes::over_pixels`]), used in place of the corners' depths.
     /// Corners are snapped to the sub-pixel grid, so two triangles of one
     /// plane would give depths that differ by more than rounding.
     plane: Option<[f64; 3]>,
@@ -234,7 +239,7 @@ impl Projected {
     fn push_instance(
         &mut self,
         proj: &Projector,
-        planes: &LevelPlanes,
+        planes: &FacePlanes,
         light: &Light,
         inst: &Instance,
         clip: &mut (Vec<Hom>, Vec<Hom>),
@@ -341,7 +346,7 @@ impl Projected {
         }
     }
 
-    fn push_card(&mut self, proj: &Projector, planes: &LevelPlanes, card: &Card) {
+    fn push_card(&mut self, proj: &Projector, planes: &FacePlanes, card: &Card) {
         let place = proj.card(card.anchor.map(f64::from), card.lift);
         let start = self.shapes.len();
         if let Some(at) = &place {
@@ -459,10 +464,19 @@ type Face = (Rgba, u8, Option<[f64; 3]>);
 /// The depth along pixel row `y` of a card that lies there on its anchor's
 /// level plane; `None` where the card stands upright (above the anchor) or
 /// is lifted off the plane.
+///
+/// A card stands on that plane, never behind it. In the one row just above
+/// the anchor the card can be upright by less than a depth can hold; where
+/// it is not nearer than the plane there, the row lies on the plane too.
+/// Without this, an anchor a hair above a pixel center leaves a gap of one
+/// row across the card.
 #[inline]
 fn lying_row(place: &CardPlace, lying: &Option<[f64; 3]>, y: i32) -> Option<Row> {
-    let plane = lying.as_ref().filter(|_| place.lies(y))?;
-    Some(Row { dx: plane[0], at_zero: plane[1] * y as f64 + plane[2] })
+    let plane = lying.as_ref()?;
+    let row = Row { dx: plane[0], at_zero: plane[1] * y as f64 + plane[2] };
+    let above = place.y - (y as f64 + 0.5);
+    let lies = above <= 0.0 || (above < 1.0 && place.depth(y) >= row.depth(place.x.floor() as i32));
+    lies.then_some(row)
 }
 
 fn tri_bounds(tris: &[Tri]) -> Rect {

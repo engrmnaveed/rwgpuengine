@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use rwgpuengine_render::{Instance, Rect, RenderList};
 
-use pack::{GLOBALS_BYTES, Glass, INSTANCE_BYTES, SHAPE_BYTES};
+use pack::{COLUMNS_BYTES, GLOBALS_BYTES, Glass, INSTANCE_BYTES, SHAPE_BYTES};
 
 /// The exact wgpu this crate is written against.
 pub use wgpu;
@@ -55,16 +55,6 @@ pub enum FaceColor {
     Shader,
 }
 
-/// How level faces in one plane are ordered.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Rank {
-    /// The plane's depth is computed per pixel and its lowest bits hold the
-    /// rank: faces in one plane differ in nothing else.
-    DepthBits,
-    /// The rasterizer's depth, moved this many depth steps nearer per rank.
-    Bias(u32),
-}
-
 /// The depth of a card.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CardDepth {
@@ -83,6 +73,16 @@ pub enum IsoDepth {
     Line,
 }
 
+/// Where the pixel column of a box's corner comes from in the iso view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Columns {
+    /// From the CPU, computed and snapped as the reference does: four
+    /// numbers per instance, sent again when the camera moves.
+    Reference,
+    /// From the GPU's projection, like every other coordinate.
+    Projected,
+}
+
 /// The point positions are measured from before the GPU projects them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Origin {
@@ -98,10 +98,10 @@ pub enum Origin {
 pub struct Options {
     pub blend: Blend,
     pub color: FaceColor,
-    pub rank: Rank,
     pub cards: CardDepth,
     pub origin: Origin,
     pub iso_depth: IsoDepth,
+    pub columns: Columns,
 }
 
 impl Default for Options {
@@ -109,10 +109,10 @@ impl Default for Options {
         Options {
             blend: Blend::Exact,
             color: FaceColor::Table,
-            rank: Rank::DepthBits,
             cards: CardDepth::TwoPlanes,
             origin: Origin::Camera,
             iso_depth: IsoDepth::Exponent,
+            columns: Columns::Reference,
         }
     }
 }
@@ -126,6 +126,9 @@ pub struct Stats {
     pub draws: u32,
     /// Were the instances sent to the GPU again (they changed)?
     pub uploaded_instances: bool,
+    /// Were the corner columns of the iso view computed and sent again (the
+    /// camera or the instances changed)?
+    pub uploaded_columns: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,12 +167,20 @@ impl Growing {
     }
 
     fn write(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8]) {
-        if bytes.len() as u64 > self.buffer.size() {
-            self.buffer = buffer(device, (bytes.len() as u64).next_power_of_two(), self.usage);
-        }
+        self.reserve(device, bytes.len() as u64);
         if !bytes.is_empty() {
             queue.write_buffer(&self.buffer, 0, bytes);
         }
+    }
+
+    /// Make room for `size` bytes; what the buffer held is not kept. Says
+    /// whether the buffer is a new one.
+    fn reserve(&mut self, device: &wgpu::Device, size: u64) -> bool {
+        if size <= self.buffer.size() {
+            return false;
+        }
+        self.buffer = buffer(device, size.next_power_of_two(), self.usage);
+        true
     }
 }
 
@@ -201,6 +212,10 @@ pub struct Renderer {
     sides: wgpu::Buffer,
     levels: wgpu::Buffer,
     instances: Growing,
+    /// The iso view: each instance's corner columns, and the view and camera
+    /// they were computed for.
+    columns: Growing,
+    columns_for: Option<(rwgpuengine_render::View, rwgpuengine_render::Camera)>,
     shapes: Growing,
     target: Option<Target>,
     /// The instances on the GPU, and the list they were made from.
@@ -279,6 +294,7 @@ impl Renderer {
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 56, shader_location: 5 },
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 72, shader_location: 6 },
         ];
+        let columns = [wgpu::VertexAttribute { format: wgpu::VertexFormat::Sint32x4, offset: 0, shader_location: 6 }];
         let mesh_buffers = [
             Some(wgpu::VertexBufferLayout {
                 array_stride: 4,
@@ -289,6 +305,11 @@ impl Renderer {
                 array_stride: INSTANCE_BYTES as u64,
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &instance,
+            }),
+            Some(wgpu::VertexBufferLayout {
+                array_stride: COLUMNS_BYTES as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &columns,
             }),
         ];
         let shape_buffers = [Some(wgpu::VertexBufferLayout {
@@ -358,12 +379,12 @@ impl Renderer {
                 cache: None,
             })
         };
-        // With the rank as a depth bias (study), level faces keep the
-        // rasterizer's depth, like sides.
-        let biased = options.rank != Rank::DepthBits;
+        // Sides store their depth differently in the iso view.
         let mut pipes = vec![
+            (Pipe::Level, None, make(Pipe::Level, "vs_mesh", "fs_level", "fs_level_x", true, true)),
             (Pipe::Card, None, make(Pipe::Card, "vs_shape", "fs_card", "fs_card_x", false, true)),
             (Pipe::Overlay, None, make(Pipe::Overlay, "vs_shape", "fs_overlay", "fs_overlay_x", false, false)),
+            (Pipe::LevelGlass, None, make(Pipe::LevelGlass, "vs_mesh", "fs_level", "fs_level_x", true, true)),
             (Pipe::CardGlass, None, make(Pipe::CardGlass, "vs_shape", "fs_card", "fs_card_x", false, true)),
             (
                 Pipe::OverlayGlass,
@@ -375,18 +396,6 @@ impl Renderer {
             let (side, side_x) = if iso { ("fs_side_iso", "fs_side_iso_x") } else { ("fs_side", "fs_side_x") };
             pipes.push((Pipe::Side, Some(iso), make(Pipe::Side, "vs_mesh", side, side_x, true, true)));
             pipes.push((Pipe::SideGlass, Some(iso), make(Pipe::SideGlass, "vs_mesh", side, side_x, true, true)));
-            if biased {
-                pipes.push((Pipe::Level, Some(iso), make(Pipe::Level, "vs_mesh", side, side_x, true, true)));
-                pipes.push((Pipe::LevelGlass, Some(iso), make(Pipe::LevelGlass, "vs_mesh", side, side_x, true, true)));
-            }
-        }
-        if !biased {
-            pipes.push((Pipe::Level, None, make(Pipe::Level, "vs_mesh", "fs_level", "fs_level_x", true, true)));
-            pipes.push((
-                Pipe::LevelGlass,
-                None,
-                make(Pipe::LevelGlass, "vs_mesh", "fs_level", "fs_level_x", true, true),
-            ));
         }
 
         let globals = buffer(device, GLOBALS_BYTES as u64, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
@@ -451,6 +460,8 @@ impl Renderer {
             sides: mesh(0..4),
             levels: mesh(4..6),
             instances: Growing::new(device, vertex),
+            columns: Growing::new(device, vertex),
+            columns_for: None,
             shapes: Growing::new(device, vertex),
             target: None,
             held: None,
@@ -548,6 +559,19 @@ impl Renderer {
         let solid = &self.held.as_ref().expect("just set").1;
         let view = pack::View::new(list);
         let iso = view.iso();
+        // The corner columns of the iso view depend on the camera: sent when
+        // it or the instances changed. In perspective they are not read.
+        let fresh = self.columns.reserve(device, (solid.order.len() * COLUMNS_BYTES) as u64);
+        let seen = Some((list.view, list.camera));
+        if iso && self.options.columns == Columns::Reference {
+            if fresh || stats.uploaded_instances || self.columns_for != seen {
+                self.columns.write(device, queue, &pack::columns(&list.instances, solid, &view.proj));
+                self.columns_for = seen;
+                stats.uploaded_columns = true;
+            }
+        } else if fresh {
+            self.columns_for = None;
+        }
         queue.write_buffer(&self.globals, 0, &pack::globals(list, &view, &self.options));
         let shapes = pack::shapes(list, &view, solid);
         self.shapes.write(device, queue, &shapes.bytes);
@@ -650,10 +674,12 @@ impl Renderer {
                         Pipe::Side | Pipe::SideGlass => {
                             pass.set_vertex_buffer(0, self.sides.slice(..));
                             pass.set_vertex_buffer(1, self.instances.buffer.slice(..));
+                            pass.set_vertex_buffer(2, self.columns.buffer.slice(..));
                         }
                         Pipe::Level | Pipe::LevelGlass => {
                             pass.set_vertex_buffer(0, self.levels.slice(..));
                             pass.set_vertex_buffer(1, self.instances.buffer.slice(..));
+                            pass.set_vertex_buffer(2, self.columns.buffer.slice(..));
                         }
                         _ => pass.set_vertex_buffer(0, self.shapes.buffer.slice(..)),
                     }

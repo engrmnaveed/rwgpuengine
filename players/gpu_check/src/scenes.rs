@@ -7,20 +7,43 @@
 //! - 200 random scenes, each under a random camera, the same on every run:
 //!   they look for what the hand-made scenes miss.
 //!
-//! One thing is kept out of these scenes on purpose, because there the
+//! Two things are kept out of the random scenes on purpose, because there
+//! two things have the same depth, no rule says which shows, and the
 //! reference's own picture is decided by rounding (ADR 0021, "what stays
-//! undefined"): two faces that are not level, in one plane and over each
-//! other, as when two boxes stand in one cell and their sides coincide.
+//! undefined").
+//!
+//! 1. **Two faces that are not level.** The reference takes the depth of
+//!    such a face from its corners, which are snapped to 1/256 of a pixel,
+//!    so that snapping decides. It happens in two ways:
+//!    - two boxes in one cell: their sides share a plane (kept out by never
+//!      putting two boxes in one cell);
+//!    - two boxes side by side, in the iso view: their sides meet in an
+//!      upright edge, and when the reference puts that edge exactly on a
+//!      column of pixel centers, the whole column is such a tie (kept out by
+//!      turning the camera a tenth of a degree further, see [`upright_tie`]).
+//!
+//!    Where a slanted edge passes through a single pixel center the same tie
+//!    is one pixel on an edge, and is inside the limit.
+//! 2. **Two cards of different entities on one upright line, at different
+//!    heights**: a label on a box and the label of something standing in the
+//!    box's cell. Both are upright in one plane, one above the other (kept
+//!    out by giving a box of one cell a label only where nothing with a
+//!    sprite or a label stands, and the other way round). At one height the
+//!    two are the same arithmetic, and the first in the file shows.
 
 use std::path::Path;
 
 use rwgpuengine_data::{CameraMove, CameraView, Vfs};
-use rwgpuengine_render::RenderList;
+use rwgpuengine_render::camera::to_fixed;
+use rwgpuengine_render::{Mesh, Projector, RenderList};
 use rwgpuengine_runtime::{DataOnly, Session, SessionConfig};
 
 pub struct Scene {
     pub name: String,
     pub list: RenderList,
+    /// The scene file and the camera, for a scene made here: written next to
+    /// the pictures of a failing scene, so it can be looked at with `rwgpu`.
+    pub source: Option<String>,
 }
 
 fn session(vfs: &Vfs, script: Option<&str>) -> Result<Session, String> {
@@ -32,9 +55,14 @@ fn session(vfs: &Vfs, script: Option<&str>) -> Result<Session, String> {
 /// The generated town (`xtask/src/town.rs`), as its scene's camera sees it
 /// (in perspective), or through the iso view at the same zoom.
 pub fn town_list(boxes: usize, iso: bool) -> Result<RenderList, String> {
+    town_seen(boxes, iso.then_some((ISO, 0.0, 1.0, [0.0, 0.0])))
+}
+
+/// The generated town after one move of its camera.
+fn town_seen(boxes: usize, cam: Option<Cam>) -> Result<RenderList, String> {
     let mut s = session(&crate::town::town(boxes), None)?;
-    if iso {
-        s.move_camera(&CameraMove { view: Some(ISO), turn: 0.0, zoom: 1.0, pan: [0.0, 0.0] });
+    if let Some(cam) = cam {
+        s.move_camera(&CameraMove { view: Some(cam.0), turn: cam.1, zoom: cam.2, pan: cam.3 });
     }
     Ok(s.render_list(false))
 }
@@ -580,6 +608,35 @@ footprint = [2, 2]
 block = { height = 64, color = "#3060c0", top = "#80d0f0" }
 "##;
 
+/// Found by random scenes, each with the camera it was found under. Small
+/// copies of what went wrong, so that it stays right.
+///
+/// - An upright edge of a box that the reference puts on a column of pixel
+///   centers, one sub-pixel step from where single precision puts it: the
+///   whole edge was drawn one pixel off (random scene 2998).
+/// - A sprite standing inside a see-through box, where it passes through the
+///   box's top less than a hundredth of a pixel from a row's center: that
+///   row went the wrong way (random scene 2757).
+/// - A sprite whose anchor is a hair above a pixel center: the reference
+///   left a gap of one row across it (random scene 9804).
+const FOUND: [(&str, &str, Cam); 3] = [
+    (
+        "an upright edge on pixel centers",
+        "[ground]\nsize = [7, 7]\n\n[[entity]]\npos = [5, 6]\nblock = { height = 2, color = \"#686aaa\", top = \"#cd0579\" }\n",
+        (ISO, 155.9, 1.0, [1.25, 2.0]),
+    ),
+    (
+        "a card through the top of a see-through box",
+        "[ground]\nsize = [4, 4]\n\n[[entity]]\npos = [1, 0]\nsprite = { shape = \"diamond\", color = \"#535e94\", size = [43, 50], offset = [-2, 3] }\n\n[[entity]]\npos = [1, 0]\nblock = { height = 0.4, color = \"#9566fbbd\", top = \"#252b8e97\" }\n",
+        (ISO, 93.6, 3.0, [1.25, -1.0]),
+    ),
+    (
+        "an anchor a hair above a pixel center",
+        "[ground]\nsize = [5, 5]\n\n[[entity]]\npos = [3, 0]\nsprite = { shape = \"rect\", color = \"#ef1912\", size = [14, 12], offset = [3, 7] }\n",
+        (PER, 314.4, 2.0, [-0.5, 1.25]),
+    ),
+];
+
 fn project_files(scene: &str, width: u32, height: u32) -> Vfs {
     let mut vfs = Vfs::new();
     vfs.insert("rwgpu.toml", format!("[project]\nname = \"check\"\n[display]\nwidth = {width}\nheight = {height}\n"));
@@ -598,7 +655,13 @@ fn rule(out: &mut Vec<Scene>, name: &str, scene: &str, cameras: &[Cam], disabled
     for cam in cameras {
         let mut s = session(&vfs, None).map_err(|e| format!("{name}: {e}"))?;
         s.move_camera(&CameraMove { view: Some(cam.0), turn: cam.1, zoom: cam.2, pan: cam.3 });
-        out.push(Scene { name: format!("{name}: {}", camera_name(cam)), list: s.render_list(disabled) });
+        let source = format!(
+            "# {name}: {}; a 640 x 480 frame{}\n{scene}",
+            camera_name(cam),
+            if disabled { "; the list is built with disabled things in it" } else { "" }
+        );
+        let name = format!("{name}: {}", camera_name(cam));
+        out.push(Scene { name, list: s.render_list(disabled), source: Some(source) });
     }
     Ok(())
 }
@@ -616,7 +679,7 @@ fn example(out: &mut Vec<Scene>, root: &Path, name: &str) -> Result<(), String> 
         frames.dedup();
         for frame in frames {
             s.run_to(frame);
-            out.push(Scene { name: format!("{name}/{test} frame {frame}"), list: s.render_list(false) });
+            out.push(Scene { name: format!("{name}/{test} frame {frame}"), list: s.render_list(false), source: None });
         }
     }
     Ok(())
@@ -627,7 +690,17 @@ pub fn all(root: &Path) -> Result<Vec<Scene>, String> {
     for name in ["iso_garden", "coin_vault", "tiny_town"] {
         example(&mut out, root, name)?;
     }
-    out.push(Scene { name: "town of 5,000 boxes".into(), list: town_list(5_000, false)? });
+    out.push(Scene { name: "town of 5,000 boxes".into(), list: town_list(5_000, false)?, source: None });
+    // The same town through the iso view, straight and turned, far and near: its boxes stand wall to wall.
+    for cam in [
+        (ISO, 0.0, 1.0, [0.0, 0.0]),
+        (ISO, 33.0, 1.0, [0.0, 0.0]),
+        (ISO, 217.0, 4.0, [3.0, -2.0]),
+        (PER, 123.0, 3.0, [0.0, 0.0]),
+    ] {
+        let name = format!("town of 5,000 boxes: {}", camera_name(&cam));
+        out.push(Scene { name, list: town_seen(5_000, Some(cam))?, source: None });
+    }
     rule(&mut out, "solids", SOLIDS, &CAMERAS, false)?;
     rule(&mut out, "cards", CARDS, &CAMERAS, false)?;
     rule(&mut out, "cards below their anchor", CARDS_BELOW, &CAMERAS, false)?;
@@ -639,29 +712,52 @@ pub fn all(root: &Path) -> Result<Vec<Scene>, String> {
     rule(&mut out, "range, hall", HALL, &near, false)?;
     rule(&mut out, "range, deep floor", DEEP, &[(PER, 0.0, 16.0, [0.0, 0.0]), (PER, 40.0, 16.0, [0.0, 0.0])], false)?;
     rule(&mut out, "range, iso", FLOATERS, &[(ISO, 0.0, 1.0, [0.0, 0.0]), (ISO, 0.0, 0.5, [0.0, 0.0])], false)?;
+    for (name, scene, cam) in FOUND {
+        rule(&mut out, &format!("found, {name}"), scene, &[cam], false)?;
+    }
     for seed in 1..=RANDOM_SCENES {
         out.push(random(seed)?);
     }
     Ok(out)
 }
 
-/// The case outside the gate (see the top of this file), under every
-/// camera: two boxes in one cell, the red one listed second or first. Their
-/// sides coincide up to the lower one's height. Only the red box is pure red.
+/// The case outside the gate (the top of this file), in its two forms.
+/// Only the red box is pure red.
+///
+/// - Two boxes in one cell, the lower red one listed second or first, under
+///   every camera: their sides share a plane up to the red one's height.
+/// - Two boxes side by side, under an iso camera that puts their shared
+///   upright edge on a column of pixel centers (it is random scene 596).
 pub fn gaps() -> Result<Vec<(&'static str, Vec<Scene>)>, String> {
-    let grey = "\n[[entity]]\npos = [2, 2]\nblock = { height = 2, color = \"#808080\", top = \"#a0a0a0\" }\n";
-    let red = "\n[[entity]]\npos = [2, 2]\nblock = { height = 1, color = \"#ff0000\", top = \"#ff0000\" }\n";
+    let grey = |cell: &str| {
+        format!("\n[[entity]]\npos = {cell}\nblock = {{ height = 2, color = \"#808080\", top = \"#a0a0a0\" }}\n")
+    };
+    let red = |cell: &str| {
+        format!("\n[[entity]]\npos = {cell}\nblock = {{ height = 0.8, color = \"#ff0000\", top = \"#ff0000\" }}\n")
+    };
     let mut out = Vec::new();
     for (name, scene) in [
-        ("two boxes in one cell, the lower one second", format!("[ground]\nsize = [5, 5]\n{grey}{red}")),
-        ("two boxes in one cell, the lower one first", format!("[ground]\nsize = [5, 5]\n{red}{grey}")),
+        (
+            "two boxes in one cell, the lower one second",
+            format!("[ground]\nsize = [5, 5]\n{}{}", grey("[2, 2]"), red("[2, 2]")),
+        ),
+        (
+            "two boxes in one cell, the lower one first",
+            format!("[ground]\nsize = [5, 5]\n{}{}", red("[2, 2]"), grey("[2, 2]")),
+        ),
     ] {
         let mut scenes = Vec::new();
         rule(&mut scenes, "", &scene, &CAMERAS, false)?;
-        for s in &mut scenes {
+        out.push((name, scenes));
+    }
+    let side_by_side = format!("[ground]\nsize = [8, 8]\n{}{}", grey("[2, 3]"), red("[2, 4]"));
+    let mut scenes = Vec::new();
+    rule(&mut scenes, "", &side_by_side, &[(ISO, 100.4, 2.0, [1.5, 1.25]), (ISO, 100.5, 2.0, [1.5, 1.25])], false)?;
+    out.push(("two boxes side by side, an upright edge on pixel centers, then turned a tenth further", scenes));
+    for (_, scenes) in &mut out {
+        for s in scenes {
             s.name = s.name.trim_start_matches(": ").to_string();
         }
-        out.push((name, scenes));
     }
     Ok(out)
 }
@@ -670,7 +766,8 @@ pub fn gaps() -> Result<Vec<(&'static str, Vec<Scene>)>, String> {
 /// ground, boxes, flat things of one to nine cells (tiles and blocks of
 /// height 0, over each other, under boxes and on top of them), sprites and
 /// text that stand on, above or below their anchor, some see-through, some
-/// disabled, and a HUD. Boxes never share a cell (the top of this file).
+/// disabled, and a HUD. Boxes never share a cell, and the camera is never
+/// where two of them tie along an upright edge (the top of this file).
 /// The gate draws the first [`RANDOM_SCENES`];
 /// `cargo xtask gpu --fast -- --random N` draws the first N alone.
 pub fn random(seed: u64) -> Result<Scene, String> {
@@ -692,6 +789,10 @@ pub fn random(seed: u64) -> Result<Scene, String> {
     };
     let mut boxed = vec![false; (size * size) as usize];
     let free = |boxed: &[bool], x: i32, y: i32| x < size && y < size && !boxed[(y * size + x) as usize];
+    // Cells where a sprite or a label stands on the ground, and cells whose
+    // box carries a label on its top: never the same cell (2, at the top of this file).
+    let mut stands = vec![false; (size * size) as usize];
+    let mut labelled = vec![false; (size * size) as usize];
     for k in 0..rng.range_i32(6, 14) {
         let (x, y) = (rng.range_i32(0, size - 1), rng.range_i32(0, size - 1));
         let glass = rng.below(4) == 0;
@@ -699,9 +800,14 @@ pub fn random(seed: u64) -> Result<Scene, String> {
         let kind = rng.below(7);
         let height = heights[rng.below(heights.len() as u32) as usize];
         let flat = kind == 0 || height == "0";
+        let here = (y * size + x) as usize;
         if (1..=2).contains(&kind) && !flat && !free(&boxed, x, y) {
             continue;
         }
+        if kind >= 3 && labelled[here] {
+            continue;
+        }
+        stands[here] |= kind >= 3;
         scene.push_str(&format!("\n[[entity]]\nname = \"e{k}\"\npos = [{x}, {y}]\n{enabled}"));
         match kind {
             0 => {
@@ -726,9 +832,11 @@ pub fn random(seed: u64) -> Result<Scene, String> {
                     color(&mut rng, glass_top)
                 ));
                 match rng.below(4) {
-                    0 => {
+                    0 if wide || !stands[here] => {
+                        labelled[here] = !wide;
                         scene.push_str(&format!("label = {{ text = \"B{k}\", color = {} }}\n", color(&mut rng, false)))
                     }
+                    0 => {}
                     // Something flat on one cell of its top.
                     1 => scene.push_str(&format!(
                         "\n[[entity]]\nname = \"t{k}\"\npos = [{x}, {y}, {height}]\ntile = {{ color = {} }}\n",
@@ -772,13 +880,48 @@ pub fn random(seed: u64) -> Result<Scene, String> {
         ));
     }
     let view = if rng.below(2) == 0 { ISO } else { PER };
-    let cam: Cam = (
+    let mut cam: Cam = (
         view,
         rng.below(3600) as f32 / 10.0,
         [0.5, 0.75, 1.0, 1.25, 1.6, 2.0, 3.0][rng.below(7) as usize],
         [rng.range_i32(-8, 8) as f32 / 4.0, rng.range_i32(-8, 8) as f32 / 4.0],
     );
-    let mut out = Vec::new();
-    rule(&mut out, &format!("random {seed}"), &scene, &[cam], rng.below(4) == 0)?;
-    Ok(out.remove(0))
+    let disabled = rng.below(4) == 0;
+    loop {
+        let mut out = Vec::new();
+        rule(&mut out, &format!("random {seed}"), &scene, &[cam], disabled)?;
+        let scene = out.remove(0);
+        if !upright_tie(&scene.list) {
+            return Ok(scene);
+        }
+        // The one undefined thing (the top of this file): look from a tenth of a degree further round.
+        cam.1 = (cam.1 * 10.0 + 1.0).round() % 3600.0 / 10.0;
+    }
+}
+
+/// In the iso view: do two boxes share an upright edge that the reference
+/// puts exactly on a column of pixel centers? Along such a column two sides
+/// of different boxes have the same depth, and the reference's picture is
+/// decided by how their corners were snapped (the top of this file).
+pub fn upright_tie(list: &RenderList) -> bool {
+    let proj = Projector::new(&list.view, &list.camera);
+    let w = proj.rows()[3];
+    if w[0] != 0.0 || w[1] != 0.0 || w[2] != 0.0 {
+        // In perspective an upright edge is not one column of the picture.
+        return false;
+    }
+    // Each corner column of each box: where it is in the world, and the sub-pixel step it is drawn at.
+    let mut corners = Vec::new();
+    for inst in list.instances.iter().filter(|i| i.enabled && i.mesh == Mesh::Box) {
+        let (p, s) = (inst.pos.map(f64::from), inst.size.map(f64::from));
+        for corner in 0..4 {
+            let x = p[0] + if corner & 1 != 0 { s[0] } else { 0.0 };
+            let y = p[1] + if corner & 2 != 0 { s[1] } else { 0.0 };
+            let h = proj.hom([x, y, p[2]], 0);
+            corners.push((x.to_bits(), y.to_bits(), to_fixed(h[0] / h[3])));
+        }
+    }
+    corners.sort_unstable();
+    // A pixel center is half a pixel, 128 steps, past a whole pixel.
+    corners.windows(2).any(|c| (c[0].0, c[0].1) == (c[1].0, c[1].1) && c[0].2.rem_euclid(256) == 128)
 }

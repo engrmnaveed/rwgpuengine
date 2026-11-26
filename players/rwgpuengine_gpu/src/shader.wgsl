@@ -9,7 +9,7 @@
 struct Globals {
     // World point (taken from `origin`) to clip space.
     clip: mat4x4<f32>,
-    // xyz: the point positions are taken from. w: study only, depth per rank.
+    // xyz: the point positions are taken from.
     origin: vec4<f32>,
     // The reference's depth of a level plane at height z0, at pixel center p:
     //   dot(la.xyz * z0 + lb.xyz, (p, 1)) / (1 + ld.x * z0)
@@ -36,8 +36,9 @@ struct Globals {
 
 // Study options (ADR 0021); all off in the renderer players get.
 const SHADE_IN_SHADER: u32 = 1u;
-const RANK_BY_BIAS: u32 = 2u;
 const CARD_ONE_DEPTH: u32 = 4u;
+// The iso view: the CPU gives each corner's pixel column (`MeshIn.columns`).
+const ISO_COLUMNS: u32 = 8u;
 
 fn lut(face: u32, level: u32) -> u32 {
     let i = face * 256u + level;
@@ -91,10 +92,16 @@ fn level_depth(p: vec2<f32>, z0: f32) -> f32 {
     return dot(g.la.xyz * z0 + g.lb.xyz, vec3<f32>(p, 1.0)) / (1.0 + g.ld.x * z0);
 }
 
-// A level plane's held depth with its three lowest bits cleared. Every face
-// in one plane computes the same bits here, whatever triangle it is part of.
+// A level plane's held depth as bits. Every face in one plane computes the
+// same bits here, whatever triangle it is part of. What lies in the plane
+// adds a few steps to them, and the larger number is the nearer one:
+//   a level face         2 x its rank (ranks 1 to 6)
+//   a card lying there   14 (a lifted card at least 15)
+// Two steps apart, so that a last-bit difference between two shaders cannot
+// change the order. Nothing is rounded away: against a face that is not in
+// the plane, these depths are within a few steps of the true one.
 fn level_bits(p: vec2<f32>, z0: f32) -> u32 {
-    return bitcast<u32>(held(level_depth(p, z0))) & 0xfffffff8u;
+    return bitcast<u32>(held(level_depth(p, z0)));
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +116,9 @@ struct MeshIn {
     @location(4) top: vec4<u32>,
     // x: the rank of the level faces.
     @location(5) extra: vec4<u32>,
+    // Iso: the pixel column of each of the four corners (x, y), in 1/256 of
+    // a pixel, computed and snapped as the reference does.
+    @location(6) columns: vec4<i32>,
 }
 
 struct MeshOut {
@@ -126,19 +136,18 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
     let c = vec3<f32>(v.corner.xyz);
     let world = (v.pos - g.origin.xyz) + c * v.size;
     let face = v.corner.w;
-    let level = face >= 4u;
     var o: MeshOut;
     o.clip = g.clip * vec4<f32>(world, 1.0);
-    o.color = shade(face, select(v.color, v.top, level));
+    if (g.flags.x & ISO_COLUMNS) != 0u {
+        // A box's upright edges are one pixel column from top to bottom. In
+        // single precision that column can land one step beside the
+        // reference's, and then a whole edge is drawn a pixel off.
+        o.clip.x = f32(v.columns[v.corner.x + 2u * v.corner.y]) * (g.frame.x / 256.0) - 1.0;
+    }
+    o.color = shade(face, select(v.color, v.top, face >= 4u));
     o.plane = vec2<f32>(v.pos.z + c.z * v.size.z, 0.0);
     o.rank = v.extra.x;
     o.depth = dot(g.zrow, vec4<f32>(world, 1.0));
-    if level && (g.flags.x & RANK_BY_BIAS) != 0u {
-        // Study: a step is 1 / 2^24 of the range, as a depth bias counts it.
-        let nearer = g.origin.w * f32(v.extra.x - 1u);
-        o.clip.z += nearer * o.clip.w;
-        o.depth -= 2.0 * nearer;
-    }
     return o;
 }
 
@@ -175,14 +184,14 @@ fn fs_side_iso_x(i: MeshOut) -> DepthOut {
     return o;
 }
 
-// Level faces: the plane's depth with the rank (1 to 6) in its lowest bits,
-// so of two faces in one plane the higher rank is the nearer one, and equal
-// ranks are equal depths (the first drawn stays).
+// Level faces: the plane's depth, two steps nearer per rank. Of two faces in
+// one plane the higher rank is the nearer one, and equal ranks are equal
+// depths (the first drawn stays).
 @fragment
 fn fs_level(i: MeshOut) -> DepthOut {
     var o: DepthOut;
     o.color = rgba(i.color);
-    o.depth = bitcast<f32>(level_bits(i.clip.xy, i.plane.x) | i.rank);
+    o.depth = bitcast<f32>(level_bits(i.clip.xy, i.plane.x) + 2u * i.rank);
     return o;
 }
 
@@ -190,7 +199,7 @@ fn fs_level(i: MeshOut) -> DepthOut {
 fn fs_level_x(i: MeshOut) -> DepthOut {
     var o: DepthOut;
     o.color = over(i.color, vec2<i32>(floor(i.clip.xy)));
-    o.depth = bitcast<f32>(level_bits(i.clip.xy, i.plane.x) | i.rank);
+    o.depth = bitcast<f32>(level_bits(i.clip.xy, i.plane.x) + 2u * i.rank);
     return o;
 }
 
@@ -305,31 +314,35 @@ fn covers(i: ShapeOut, px: vec2<i32>) -> bool {
 }
 
 // A card's held depth in pixel row `p.y`. Above its anchor the card stands
-// upright; below it the card lies in the level plane through the anchor.
+// upright; at and below it the card lies in the level plane through the
+// anchor, in front of any floor there.
 fn card_depth(i: ShapeOut, p: vec2<f32>) -> f32 {
     let dy = p.y - i.d0.x;
+    let lift = i.kind.y;
     if (g.flags.x & CARD_ONE_DEPTH) != 0u {
         return held(i.d0.y + i.d1.x);
     }
+    let plane = level_bits(p, i.d0.w);
     if dy < 0.0 {
         // The same bits for every card at this anchor, then the lift: a
-        // label is in front of its own sprite. Sixteen steps nearer, so the
-        // row just above the anchor is in front of the floor it stands on.
-        let upright = i.d0.y + dy * i.d0.z;
-        return bitcast<f32>(bitcast<u32>(held(upright + (i.d1.x + dy * i.d1.y))) + 16u);
+        // label is in front of its own sprite.
+        let upright = bitcast<u32>(held(i.d0.y + dy * i.d0.z + (i.d1.x + dy * i.d1.y)));
+        // A card stands on its anchor's plane, never behind it. In the row
+        // just above the anchor it can be upright by less than a depth can
+        // hold: there it is at least where a card lying on the plane is.
+        // Everything else the card meets, the top of a box it stands in for
+        // one, it meets at its own depth.
+        if dy > -1.0 {
+            return bitcast<f32>(max(upright, plane + 14u + lift));
+        }
+        return bitcast<f32>(upright);
     }
-    if (g.flags.x & RANK_BY_BIAS) != 0u {
-        return held(i.d0.y + i.d1.x + dy * (i.d1.w + i.d1.z));
+    if lift == 0u {
+        return bitcast<f32>(plane + 14u);
     }
-    // Lying, in the plane of the floor it stands on: its bits with the
-    // highest rank, so the card shows over any floor there. A lifted card is
-    // at least one step in front of that.
-    let plane = level_bits(p, i.d0.w);
-    if i.kind.y == 0u {
-        return bitcast<f32>(plane | 7u);
-    }
-    let lifted = held(level_depth(p, i.d0.w) + (i.d1.x + dy * i.d1.z));
-    return bitcast<f32>(max(bitcast<u32>(lifted), plane + 8u));
+    // Lifted off the plane: its own depth, and in front of what lies there.
+    let lifted = bitcast<u32>(held(level_depth(p, i.d0.w) + (i.d1.x + dy * i.d1.z)));
+    return bitcast<f32>(max(lifted, plane + 14u + lift));
 }
 
 @fragment

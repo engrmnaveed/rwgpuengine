@@ -207,20 +207,32 @@ impl Projector {
         self.planes[1][3]
     }
 
-    /// The depth of every level plane over the screen, for this camera.
-    pub fn level_planes(&self) -> LevelPlanes {
-        // Columns of the matrix, as (x, y, w): what a step along world x, y
-        // and z adds, and the constant.
+    /// The depth over the screen of every plane that is square to world axis
+    /// `axis` (0, 1 or 2 for x, y and z), for this camera. Axis 2 gives the
+    /// level planes.
+    pub fn face_planes(&self, axis: usize) -> FacePlanes {
+        // Columns of the matrix, as (x, y, w): what a step along each world
+        // axis adds, and the constant. `u` and `v` are the two axes in the plane.
         let m = &self.m;
         let col = |j: usize| [m[0][j], m[1][j], m[3][j]];
-        let (c0, c1, cz, c3) = (col(0), col(1), col(2), col(3));
-        let n = cross(c0, c1);
+        let (u, v) = ((axis + 1) % 3, (axis + 2) % 3);
+        let (cu, cv, cw, c3) = (col(u), col(v), col(axis), col(3));
+        let n = cross(cu, cv);
+        // The two axes fall on one line of the screen: every such plane is seen edge-on.
+        if dot3(n, n) <= 1.0e-6 * dot3(cu, cu) * dot3(cv, cv) {
+            return FacePlanes { a: [0.0; 3], b: [0.0; 3], alpha: 0.0, beta: 0.0 };
+        }
         let z = m[2];
         let mix = |c: [f64; 3], k: f64| {
-            let (p, q) = (cross(c1, c), cross(c, c0));
-            std::array::from_fn(|i| z[0] * p[i] + z[1] * q[i] + k * n[i])
+            let (p, q) = (cross(cv, c), cross(c, cu));
+            std::array::from_fn(|i| z[u] * p[i] + z[v] * q[i] + k * n[i])
         };
-        LevelPlanes { a: mix(cz, z[2]), b: mix(c3, z[3]), alpha: dot3(cz, n), beta: dot3(c3, n) }
+        FacePlanes { a: mix(cw, z[axis]), b: mix(c3, z[3]), alpha: dot3(cw, n), beta: dot3(c3, n) }
+    }
+
+    /// The depth of every level plane over the screen, for this camera.
+    pub fn level_planes(&self) -> FacePlanes {
+        self.face_planes(2)
     }
 
     /// Project a world point, drawn `lift` steps nearer the camera than it is
@@ -268,9 +280,9 @@ impl Projector {
     /// floor in front of it, while anything really in front still covers it.
     ///
     /// The part that lies is in the floor's own plane. The reference
-    /// renderer gives it that plane's exact depth ([`LevelPlanes`]) and lets
-    /// it win against a floor there; `down` is the same plane as a slope,
-    /// for a card that is lifted off it.
+    /// renderer gives it that plane's exact depth ([`FacePlanes`]) and lets it
+    /// win against a floor there; `down` is the same plane as a slope, for a
+    /// card that is lifted off it.
     pub fn card(&self, anchor: [f64; 3], lift: u8) -> Option<CardPlace> {
         let h = self.hom(anchor, lift);
         if !self.inside(&h) {
@@ -303,45 +315,52 @@ impl Projector {
     }
 }
 
-/// The depth of level planes over the screen.
+/// The depth, over the screen, of the planes that are square to one world
+/// axis: the level planes, or the planes the sides of boxes are in.
 ///
-/// A point of the plane at height `z0` that is drawn at pixel-space point
-/// (x, y) has the depth `dot(a * z0 + b, (x, y, 1)) / (alpha * z0 + beta)`.
-/// It follows from the projector's matrix alone, so it holds for both views.
+/// A point of the plane at `t` along that axis that is drawn at pixel-space
+/// point (x, y) has the depth
+/// `dot(a * t + b, (x, y, 1)) / (alpha * t + beta)`. It follows from the
+/// projector's matrix alone, so it holds for both views.
 ///
-/// Every level face takes its depth from here, not from its own corners:
-/// two faces at one height then have the same depth in every pixel, bit for
-/// bit, whatever their corners are, and their rank can decide between them.
+/// Every level face takes its depth from here, not from its own corners.
+/// Corners are snapped to the sub-pixel grid, and a depth fitted to snapped
+/// corners is off by more than rounding. From the plane, two faces at one
+/// height have the same depth in every pixel, bit for bit, whatever their
+/// corners are, and their rank can decide between them.
+///
+/// The sides of boxes do not take theirs from here yet: that would change
+/// one pixel of a reference image (ADR 0021, "what stays undefined").
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct LevelPlanes {
+pub struct FacePlanes {
     pub a: [f64; 3],
     pub b: [f64; 3],
     pub alpha: f64,
     pub beta: f64,
 }
 
-impl LevelPlanes {
-    /// The depth of the plane at height `z0` at pixel-space point (x, y).
-    pub fn depth(&self, x: f64, y: f64, z0: f64) -> f64 {
-        let v: [f64; 3] = std::array::from_fn(|i| self.a[i] * z0 + self.b[i]);
-        dot3(v, [x, y, 1.0]) / (self.alpha * z0 + self.beta)
+impl FacePlanes {
+    /// The depth of the plane at `t` at pixel-space point (x, y).
+    pub fn depth(&self, x: f64, y: f64, t: f64) -> f64 {
+        let v: [f64; 3] = std::array::from_fn(|i| self.a[i] * t + self.b[i]);
+        dot3(v, [x, y, 1.0]) / (self.alpha * t + self.beta)
     }
 
-    /// The plane at height `z0` as a function of the pixel: the depth at the
-    /// center of pixel (px, py) is `c[0] * px + (c[1] * py + c[2])`.
+    /// The plane at `t` as a function of the pixel: the depth at the center
+    /// of pixel (px, py) is `c[0] * px + (c[1] * py + c[2])`.
     ///
-    /// The height is a single-precision number on purpose: it is what scene
-    /// files hold, so a tile at 1.2 and the top of a box from 0.4 to 1.2 are
-    /// one plane. `None` if the camera sees the plane edge-on, or within a
+    /// `t` is a single-precision number on purpose: it is what scene files
+    /// hold, so a tile at 1.2 and the top of a box from 0.4 to 1.2 are one
+    /// plane. `None` if the camera sees the plane edge-on, or within a
     /// thousandth of it: such a plane covers a row of pixels at most, and
     /// its equation is steeper than the pixel grid can place.
-    pub fn over_pixels(&self, z0: f32) -> Option<[f64; 3]> {
-        let z0 = z0 as f64;
-        let den = self.alpha * z0 + self.beta;
-        if den.abs() <= 1.0e-3 * self.beta.abs() {
+    pub fn over_pixels(&self, t: f32) -> Option<[f64; 3]> {
+        let t = t as f64;
+        let den = self.alpha * t + self.beta;
+        if den.abs() <= 1.0e-3 * (self.alpha * t).abs().max(self.beta.abs()) {
             return None;
         }
-        let v: [f64; 3] = std::array::from_fn(|i| (self.a[i] * z0 + self.b[i]) / den);
+        let v: [f64; 3] = std::array::from_fn(|i| (self.a[i] * t + self.b[i]) / den);
         Some([v[0], v[1], v[0] * 0.5 + v[1] * 0.5 + v[2]])
     }
 }
@@ -391,8 +410,9 @@ fn snap(v: f64) -> f64 {
     (v * SUB + 0.5).floor() / SUB
 }
 
-/// A projected coordinate as a whole number of sub-pixel steps.
-pub(crate) fn to_fixed(v: f64) -> i64 {
+/// A projected coordinate as a whole number of sub-pixel steps (1/256 of a
+/// pixel): where the reference renderer puts a corner.
+pub fn to_fixed(v: f64) -> i64 {
     (v * SUB + 0.5).floor() as i64
 }
 
@@ -510,35 +530,46 @@ mod tests {
     }
 
     #[test]
-    fn a_level_plane_has_the_depth_the_projector_gives_its_points() {
+    fn a_plane_has_the_depth_the_projector_gives_its_points() {
+        // Planes square to each axis: at `t` along it, with two free coordinates.
         for kind in [CameraView::Iso, CameraView::Perspective] {
             for (turn, zoom) in [(0.0, 1.0), (33.0, 0.5), (217.0, 1.75), (295.0, 3.0)] {
                 let proj = Projector::new(&view(), &cam(kind, turn, zoom));
-                let planes = proj.level_planes();
-                for z0 in [0.0f32, 0.5, 1.2, -2.0, 3.0] {
-                    let over = planes.over_pixels(z0).expect("not edge-on");
-                    for (x, y) in [(4.5, 3.5), (0.0, 0.0), (9.25, -1.5), (-3.0, 8.0), (4.0, 3.0)] {
-                        let h = proj.hom([x, y, z0 as f64], 0);
-                        if h[3] <= 0.0 {
-                            continue;
+                for axis in 0..3 {
+                    let planes = proj.face_planes(axis);
+                    for t in [0.0f32, 0.5, 1.2, -2.0, 3.0] {
+                        let over = planes.over_pixels(t).expect("not edge-on");
+                        for (p, q) in [(4.5, 3.5), (0.0, 0.0), (9.25, -1.5), (-3.0, 2.0), (4.0, 0.25)] {
+                            let mut point = [0.0; 3];
+                            point[axis] = t as f64;
+                            point[(axis + 1) % 3] = p;
+                            point[(axis + 2) % 3] = q;
+                            let h = proj.hom(point, 0);
+                            if h[3] <= 0.0 {
+                                continue;
+                            }
+                            let (sx, sy, want) = (h[0] / h[3], h[1] / h[3], h[2] / h[3]);
+                            let got = planes.depth(sx, sy, t as f64);
+                            let what = format!("{kind:?} {turn} {zoom} axis {axis} at {t}: ({p}, {q})");
+                            assert!((got - want).abs() < 1e-11, "{what}: {got} {want}");
+                            // The same through the pixel whose center is that point.
+                            let by_pixel = over[0] * (sx - 0.5) + (over[1] * (sy - 0.5) + over[2]);
+                            assert!((by_pixel - want).abs() < 1e-11, "{what}");
                         }
-                        let (sx, sy, want) = (h[0] / h[3], h[1] / h[3], h[2] / h[3]);
-                        let got = planes.depth(sx, sy, z0 as f64);
-                        assert!((got - want).abs() < 1e-12, "{kind:?} {turn} {zoom} ({x}, {y}, {z0}): {got} {want}");
-                        // The same through the pixel whose center is that point.
-                        let (px, py) = (sx - 0.5, sy - 0.5);
-                        let by_pixel = over[0] * px + (over[1] * py + over[2]);
-                        assert!((by_pixel - want).abs() < 1e-12, "{kind:?} {turn} {zoom} ({x}, {y}, {z0})");
                     }
                 }
             }
         }
-        // A plane at the eye's height is edge-on: no equation for it.
         let v = view();
+        // A level plane at the eye's height is edge-on: no equation for it.
         let per = Projector::new(&v, &cam(CameraView::Perspective, 0.0, 1.0));
         let Eye::Point(eye) = per.eye else { panic!("perspective has an eye point") };
         assert_eq!(per.level_planes().over_pixels(eye[2] as f32), None);
         assert!(per.level_planes().over_pixels(eye[2] as f32 + 0.5).is_some());
+        // Turned an eighth, the iso view looks along the sides that face y.
+        let iso = Projector::new(&v, &cam(CameraView::Iso, 45.0, 1.0));
+        assert_eq!(iso.face_planes(1).over_pixels(2.5), None);
+        assert!(iso.face_planes(0).over_pixels(2.5).is_some() && iso.face_planes(2).over_pixels(2.5).is_some());
     }
 
     #[test]

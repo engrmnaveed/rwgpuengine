@@ -34,7 +34,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use rwgpuengine_gpu::{Blend, CardDepth, FaceColor, IsoDepth, Options, Origin, Rank, Renderer, wgpu};
+use rwgpuengine_gpu::{Blend, CardDepth, Columns, FaceColor, IsoDepth, Options, Origin, Renderer, wgpu};
 use rwgpuengine_render::{Frame, Projected, RenderList, image::encode_png, project, render};
 
 use scenes::Scene;
@@ -291,6 +291,20 @@ fn town_times(gpu: &Gpu, options: Options, boxes: usize, iso: bool) -> Result<(f
     Ok((still, changed, n))
 }
 
+/// The town through an iso camera that turns a little every frame.
+fn iso_turning(gpu: &Gpu, boxes: usize) -> Result<f64, String> {
+    let mut list = scenes::town_list(boxes, true)?;
+    let mut renderer = Renderer::new(&gpu.device, Options::default());
+    timed(10, 1_000.0, || draw_and_wait(gpu, &mut renderer, &list));
+    let mut tick = 0u32;
+    let (ms, _) = timed(60, 3_000.0, || {
+        tick += 1;
+        list.camera.turn = (tick % 100) as f32 / 10.0;
+        draw_and_wait(gpu, &mut renderer, &list);
+    });
+    Ok(ms)
+}
+
 struct Row {
     name: String,
     differing: usize,
@@ -337,6 +351,11 @@ fn check(gpu: &Gpu, options: Options, scenes: &[Scene], a: &Args, loud: bool) ->
             }
             if !ok || a.pictures {
                 write_pictures(&a.out, &scene.name, &frame, &got, &outcome.mask)?;
+                if let Some(source) = &scene.source {
+                    let file: String =
+                        scene.name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+                    std::fs::write(a.out.join(format!("{file}.toml")), source).map_err(|e| e.to_string())?;
+                }
             }
         }
         rows.push(Row { name: scene.name.clone(), differing: outcome.differing, inside: outcome.inside, ok });
@@ -395,9 +414,13 @@ fn run() -> Result<bool, String> {
                 } else {
                     println!("       within the limit of {limit} ms");
                 }
-                // For comparison: in the iso view the sides write their depth per pixel too.
+                // For comparison: in the iso view the sides write their depth per pixel too,
+                // and a camera that moves has every instance's corner columns computed and sent again.
                 let (iso, _, _) = town_times(&gpu, Options::default(), boxes, true)?;
-                println!("       the same town through the iso view: {iso:.3} ms");
+                let turning = iso_turning(&gpu, boxes)?;
+                println!(
+                    "       the same town through the iso view: {iso:.3} ms; {turning:.3} ms while the camera turns"
+                );
             }
         }
     }
@@ -489,16 +512,14 @@ fn present_check(gpu: &Gpu, scenes: &[Scene]) -> Result<(), String> {
 /// apart over all scenes, and the frame time of the town.
 fn study(gpu: &Gpu, scenes: &[Scene], a: &Args) -> Result<(), String> {
     let chosen = Options::default();
-    let variants: [(&str, Options); 10] = [
+    let variants: [(&str, Options); 8] = [
         ("chosen", chosen),
         ("color: rounded in the shader", Options { color: FaceColor::Shader, ..chosen }),
         ("see-through: the GPU's blender", Options { blend: Blend::Hardware, ..chosen }),
-        ("rank: depth bias, 16 steps", Options { rank: Rank::Bias(16), ..chosen }),
-        ("rank: depth bias, 256 steps", Options { rank: Rank::Bias(256), ..chosen }),
-        ("rank: depth bias, 4096 steps", Options { rank: Rank::Bias(4096), ..chosen }),
         ("cards: the anchor's depth everywhere", Options { cards: CardDepth::Anchor, ..chosen }),
         ("corners: measured from the world's origin", Options { origin: Origin::World, ..chosen }),
         ("iso depth: a straight line to 1..0", Options { iso_depth: IsoDepth::Line, ..chosen }),
+        ("iso corner columns: projected by the GPU", Options { columns: Columns::Projected, ..chosen }),
         ("chosen, again", chosen),
     ];
     let boxes = if gpu.real() { 50_000 } else { 5_000 };
@@ -544,7 +565,7 @@ fn gaps(gpu: &Gpu, a: &Args) -> Result<(), String> {
             let outcome = compare(&seen, &frame, &got);
             println!(
                 "{:<78} {:>10} {:>10} {:>8} {:>10}",
-                format!("{name}, {}", scene.name),
+                format!("{name}, {}{}", scene.name, if scenes::upright_tie(&scene.list) { " (a tie)" } else { "" }),
                 red(&frame.rgba),
                 red(&got),
                 outcome.differing,

@@ -889,6 +889,42 @@ sprite = { shape = "diamond", color = "#ff00ff", size = [24, 24], offset = [0, 1
 }
 
 #[test]
+fn a_card_keeps_the_row_just_above_its_anchor() {
+    // Boxes 16.5 pixels high, less the last bit of that number, each with a
+    // sprite on top: the anchor is a hair above a pixel center. The row there
+    // is upright by less than a depth can hold. It must not fall behind the
+    // top the sprite stands on, wherever on the ground that is.
+    let mut scene = String::from("[ground]\nsize = [6, 6]\n");
+    for y in 0..6 {
+        for x in 0..6 {
+            scene.push_str(&format!(
+                "\n[[entity]]\nname = \"s{x}{y}\"\npos = [{x}, {y}]\nblock = {{ color = \"#808080\", height = 0.51562494 }}\nsprite = {{ shape = \"rect\", color = \"#ff0000\", size = [8, 14], offset = [0, 4] }}\n"
+            ));
+        }
+    }
+    let stage = setup(&scene);
+    let height = stage.world.entities[0].block.as_ref().map(|b| b.height.to_bits());
+    assert_eq!(height, Some((33.0f32 / 64.0).to_bits() - 1));
+    let (_, frame, _) = stage.render();
+    let mut checked = 0;
+    for y in 0..6 {
+        for x in 0..6 {
+            // The sprite's middle column, from its top row to the row above
+            // the box's top edge in front of it: all red, no gap at the anchor.
+            let [sx, sy] = stage.px(x as f32, y as f32, 0.515_625);
+            let rows = sy - 10..sy + 3;
+            if !(4..316).contains(&sx) || rows.start < 0 || rows.end > 240 {
+                continue;
+            }
+            let column: Vec<bool> = rows.map(|r| frame.pixel(sx as u32, r as u32).to_hex() == "#ff0000").collect();
+            assert!(column.iter().all(|red| *red), "the sprite at ({x}, {y}): {column:?}");
+            checked += 1;
+        }
+    }
+    assert!(checked >= 20, "{checked}");
+}
+
+#[test]
 fn a_sprite_keeps_its_last_row_at_any_size() {
     // Seen at another size than its own, a sprite's last row can fall just
     // below its anchor. The floor it stands on does not take that row.
