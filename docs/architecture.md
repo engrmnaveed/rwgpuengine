@@ -33,7 +33,8 @@ How rwgpuengine is built, as of v0.1.0 (first milestone). Decisions behind each 
                 │             colors, suggestions. Zero dependencies.            │
                 └──────────────────────────────────────────────────────────────┘
  rented         toml_edit (parsing) · png (encode/decode)
- dev tooling    xtask: ci, repo-check, dist, web, web-player, smoke, budgets, docs, wasm-check, export-check, pages, gpu
+ dev tooling    xtask: ci, repo-check, dist, web, web-player, smoke, budgets, docs, wasm-check, export-check, pages, gpu,
+                sim-bench
 ```
 
 Dependency rule: arrows only point down. `rwgpuengine_sim` knows nothing about rendering; `rwgpuengine_render` reads
@@ -75,7 +76,7 @@ web host ([ADR 0025](decisions/0025-rwgpu-export-web.md)).
 |---|---|---|
 | `rwgpuengine_core` | JSON, `Diagnostic`, the code registry, RNG, hashing, colors | depend on anything |
 | `rwgpuengine_data` | file formats: the schema registry, validation, typed definitions, `Vfs`, static checks | run anything |
-| `rwgpuengine_sim` | `World`, entities, built-in behaviors, signals, event log, state hash | render, read files, use wall-clock time |
+| `rwgpuengine_sim` | `World`, entities, the cell index, built-in behaviors, signals, event log, state hash | render, read files, use wall-clock time, look at every entity in a step |
 | `rwgpuengine_render` | the camera, the render list, the CPU reference renderer, frame report, picking, PNG | change the world |
 | `rwgpuengine_runtime` | sessions, scripted input, playtests, the `Game` trait | touch the filesystem (the CLI does) |
 | `rwgpuengine_cli` | commands, output envelope, docs generation, templates, dev server, the web players' lookup and `export web` | contain engine logic |
@@ -127,6 +128,44 @@ index in scene order — stable for a given file, usable in scripts and tests. E
 ids). The world also holds the ground (size, and a terrain per cell when the scene has a `map`) and the spawn
 templates (the prefabs `spawn` actions name, decoded at load time), so placement rules need no files at runtime
 (ADR 0013).
+
+`world.rs` is the world, how it is built and the order of a step. The rules are in `world/`, one module per
+responsibility ([ADR 0026](decisions/0026-cell-index-and-the-world-in-modules.md)):
+
+| module | holds |
+|---|---|
+| `entity.rs` | `Entity` and its components; `Entities`, the read-only list; `EntityMut`, what `World::get_mut` gives |
+| `wiring.rs` | `[[connect]]` with its names resolved, and the routes from a signal to the connections that listen |
+| `cells.rs`, `index.rs` | the cell index |
+| `scan.rs` | every question of the index answered by looking at everything: the definition, used by checks only |
+| `taps.rs`, `movement.rs`, `triggers.rs`, `signals.rs`, `actions.rs` | the parts of a step |
+| `placement.rs`, `payment.rs`, `counting.rs` | `spawn` and `can_place`, a spawn's cost, `counts` props |
+| `hashing.rs` | the state hash |
+
+### The cell index
+
+No rule looks at every entity. The world keeps, beside the entities:
+
+- **who is on each cell**: the ground's cells are an array of list heads, each list in id order; cells
+  outside the ground, and a world without one, are in a sorted map. An enabled entity is on every cell its
+  body covers;
+- **a fact per entity** (24 bytes: cell, footprint, and whether it is enabled, takes space, is solid, an
+  actor, pushable), so a question about space never reads the entity;
+- **who has each behavior**, in id order: whose turn it is in each part of the step;
+- **enabled copies per prefab**, for `counts`;
+- **routes**: for a signal and where it came from, the connections that listen.
+
+"What stops a move onto this cell?", "who stands on this plate?", "is there room for a house?" and "who
+listens to this signal?" are answered from these, with the answers the scans gave, in the same order: every
+list is in id order. One step with 50,000 actors takes 14.1 ms, of which 0.88 ms are the rules and the rest
+is the event log (it was 2,659 ms).
+
+All of it is **derived, never state**. It is not in the state hash and can be rebuilt from the entities at
+any time (`World::rebuild_index`). The rules tell it what they change: a move, a spawn, enable and disable.
+Anything else changes an entity through `World::get_mut`, whose result brings the index up to date when it is
+let go; `World::entities` itself cannot be written. Two checks hold it: a debug build compares the index with
+a rebuild at the end of every step, and `World::check_against_scans` answers every question both ways and
+panics where they differ.
 
 ### The step
 
@@ -324,10 +363,13 @@ paths in `cargo xtask gpu`; `cargo xtask pages` proves the folder the Pages work
 
 - **Rust game code**: implement `rwgpuengine_runtime::Game` (a `Systems` with `name`, `on_start`, `inspect`)
   and ship a binary that calls `rwgpuengine_cli::main_with(args, &|| Box::new(MyGame))`. It runs after the
-  built-ins each step and can read/write entities, props and emit signals. (Hot-patching is M4.)
+  built-ins each step and can read entities (`world.entities`), change them (`world.get_mut(id)`), and emit
+  signals. (Hot-patching is M4.)
 - **New component**: add a `Spec` + `Field` in `rwgpuengine_data::schema`, decode it in `defs.rs`, give
-  `Entity` a field, add behavior to `World::tick`, draw it in `draw::build` if visual, add it to
-  `dump::entity_json` and `state_hash`. Docs and schemas follow from the registry.
+  `Entity` a field (`world/entity.rs`), add its behavior in the module of `world/` it belongs to and to
+  `World::tick`, tell the index if it decides what blocks, takes space or holds a plate (`world/index.rs`),
+  draw it in `list::build` if visual, add it to `dump::entity_json` and `state_hash` (`world/hashing.rs`).
+  Docs and schemas follow from the registry.
 - **New diagnostic**: add it to `rwgpuengine_core::codes` (next free number in its range, never reuse).
 - **New command**: add a `Command` to `args::COMMANDS` and dispatch it in `lib.rs`.
 

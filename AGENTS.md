@@ -28,6 +28,7 @@ cargo xtask export-check             # every example exported (CPU player) and p
 cargo xtask pages                    # the folder the Pages workflow publishes: dist, Tiny Town with the WebGPU player, proved in a browser under /rwgpuengine/
 cargo xtask docs                     # regenerate docs/reference after changing commands/formats/codes
 cargo xtask budgets                  # measure size/time/dependency budgets
+cargo run --release -p xtask -- sim-bench   # one simulation step in generated worlds of 1,000 to 50,000 entities (--steps N: stop at a frame and compare state hashes)
 cargo xtask gpu                      # the players' gate: the wgpu renderer against the CPU reference, the native player and the web player (headless Chrome) against `rwgpu test`, every example exported and played from a static host, players' budgets
 cargo xtask gpu --fast               # only the picture check, built incrementally (the edit loop for players/)
 cargo xtask gpu --fast -- --random 3000   # random scenes: what the fixed ones miss
@@ -53,6 +54,13 @@ Where the browser loses the WebGPU device of a canvas (Chrome on SwiftShader, as
   state hashes or reference images, say so in the commit and update references only after looking at them.
 - **No proc macros in the runtime tree, few dependencies** ([ADR 0004](docs/decisions/0004-few-dependencies-no-proc-macros.md)).
   No serde/clap/rand: use `rwgpuengine_core::json`, `rwgpuengine_cli::args`, `rwgpuengine_core::rng`.
+- **No rule looks at every entity** ([ADR 0026](docs/decisions/0026-cell-index-and-the-world-in-modules.md)).
+  A step asks the cell index (`rwgpuengine_sim/src/world/index.rs`): what blocks a cell, who stands on a
+  plate, what takes a cell, how many copies, who listens. The scans in `world/scan.rs` are the definition and
+  run only in checks. The index is derived and not hashed; a rule that moves, spawns, enables or disables
+  tells it, and anything else changes an entity through `World::get_mut`. The first two numbers of each pin
+  in `rwgpuengine_sim/src/oracle.rs` are state hashes: never updated to make a test pass. The third pins the
+  event log; it changes only with a change to events that says so.
 - **Layers point down only**: core ← data ← sim ← render ← runtime ← cli/web. `rwgpuengine_sim` never renders;
   `rwgpuengine_render` never mutates the world; only `rwgpuengine_cli` touches the filesystem.
 - **Two halves, two workspaces** ([ADR 0021](docs/decisions/0021-wgpu-renderer-held-to-the-reference.md)).
@@ -78,7 +86,9 @@ Where the browser loses the WebGPU device of a canvas (Chrome on SwiftShader, as
 
 | change | touch |
 |---|---|
-| new component | `schema.rs` (Spec + Field) → `defs.rs` (decode) → `world.rs` (Entity field, behavior, state_hash) → `dump.rs` (JSON) → `list.rs` if visual (an instance or a card in the render list; `reference.rs` if it needs a new mesh) → tests → `cargo xtask docs` |
+| new component | `schema.rs` (Spec + Field) → `defs.rs` (decode) → `world/entity.rs` (Entity field, `make_entity`) → its behavior in the module of `world/` it belongs to, and `World::tick` in `world.rs` for a new part of the step → `world/hashing.rs` (state_hash) → `world/index.rs` (`Fact::of`) if it decides what blocks, takes space or holds a plate → `dump.rs` (JSON) → `list.rs` if visual (an instance or a card in the render list; `reference.rs` if it needs a new mesh) → tests → `cargo xtask docs` |
+| a rule that asks about space, or about all entities | never a loop over `world.entities` in a step: a question to `world/index.rs` → the same question as a scan in `world/scan.rs`, compared where `self.checking()` → `rwgpuengine_sim/src/equivalence.rs` asks it on random worlds → `cargo test -p rwgpuengine_sim`, then the large oracle worlds: `cargo test --release -p rwgpuengine_sim oracle -- --ignored` → `cargo run --release -p xtask -- sim-bench` before and after |
+| a rule that changes where an entity is, whether it is enabled, or what it is | tell the index in the same place: `put` (a move), `resync` (anything), `enter` (a new entity); debug builds compare the index with a rebuild after every step and panic if it was not told |
 | new diagnostic | `rwgpuengine_core/src/codes.rs` (next free number in range) → emit with `.at(src, span).hint(..)` → test asserts the code |
 | new command | `rwgpuengine_cli/src/args.rs` (Command entry with examples) → `lib.rs` dispatch → `commands.rs` → `cargo xtask docs` |
 | web player file | `web/` for the CPU player, `players/rwgpuengine_player/web/` for the WebGPU player (relative addresses only) → `CPU_PLAYER_FILES` or `WEB_PLAYER_FILES` in `rwgpuengine_cli/src/web.rs` (each player's files, where each comes from and the one lookup; `serve`, `export web` and xtask read them) → `cargo xtask export-check` (CPU) and `cargo xtask gpu` (WebGPU, in a browser) |

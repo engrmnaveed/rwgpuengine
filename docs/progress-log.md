@@ -7,6 +7,56 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-27 — The simulation at scale, piece 1: a cell index, and `world.rs` in modules
+
+- Step 5, piece 1 of 2 ([ADR 0026](decisions/0026-cell-index-and-the-world-in-modules.md)), on the branch
+  `sim-scale`. The step no longer grows with the square of the number of entities, and every state hash is
+  what it was.
+- **The oracle came first.** Before any change, 17 generated worlds were stepped on the engine as it was and
+  three numbers pinned for each: the state hash, a hash over every frame's state hash, a hash over every
+  event (`rwgpuengine_sim/src/oracle.rs`). They ask every question the rules ask, often: blocked moves,
+  pushes, plates and pads, spawns with costs and refusals, counts, taps, a signal loop, a world with no
+  ground, and Rust game code that changes entities between the rules. The new engine reaches all 51 numbers,
+  on aarch64 and x86-64 macOS and x86-64 Linux, with the oracle's file unchanged.
+- **Where the time went** (measured, per step, 20,000 entities): "what blocks this cell?" looked at every
+  entity for every move, 422 of 432 ms; "who stands on this plate?" for every plate, 355 ms; every
+  connection for every signal, 37 ms when each plate has its own; every entity for every count and every
+  cell of a spawn. Events were 2 % and hidden.
+- **The index.** Per cell, the entities on it in id order: the ground's cells as an array of list heads with
+  the lists chained through a pool of nodes, a sorted map outside the ground. Per entity, 24 bytes of what a
+  question needs. Lists of who has each behavior, copies per prefab, and routes from a signal to its
+  connections. Four other structures were timed in the engine, all passing the oracle: an array for the
+  ground is 8 to 10 times faster than a sorted map or set.
+- **Derived, and held to the scans.** The index is not in the state hash. The rules tell it what they change;
+  `World::entities` is read-only and `World::get_mut` gives a guard that updates the index when it is let go.
+  The scans are kept as the definition (`world/scan.rs`). 16,000 random steps on 400 random worlds compare
+  every answer with the scan's, and debug builds compare the index with a rebuild after every step.
+  Twelve faults planted in the index were each noticed; the first run missed one (the order of a signal's
+  entity and prefab connections), and a test was added for it.
+- **Numbers** (Apple M5 Pro, one step, median). The town of actors that each try one cell: 1.25 → 0.29 ms at
+  1,000, 26.5 → 1.14 at 5,000, 410 → 5.2 at 20,000, 2,659 → 15.8 at 50,000, the same state hash at the same
+  frame every time. The rules alone: 0.014, 0.075, 0.33 and 0.88 ms, 14 to 18 ns an actor; 20.2 ms at
+  500,000. The index holds 2.8 MB for 50,000 actors.
+- **Storage.** Entities as they are, with the index: 0.90 ms at 50,000, 20.5 at 500,000. Positions and timers
+  in arrays of their own (a prototype in the real engine): 0.63 and 8.1. So fat entities are enough for the
+  budget, and columns are 2.5 times faster at 500,000. Not built, as the proposal said.
+- **The 2 ms budget is met by the rules (0.88 ms) and not by the step (14.1 ms).** The difference is the event
+  log: 40,000 events a step at 0.33 µs each. The row is not in `budgets.toml`; piece 2 changes events at
+  scale and adds it.
+- **A cost.** The web module grew from 632,531 to 658,555 bytes (limit 800,000) and `rwgpu` from 2,133,296 to
+  2,183,600. It was 676,434 until the routes stopped being three kinds of sorted map and the check against
+  the scans left release builds.
+- **`world.rs`** was 1,418 lines; it is 274, with a module per responsibility in `world/`. The split is its
+  own commit and moved lines only.
+- **Found in `world.rs`.** A plate counts whoever *stands* on its cells, by their own cell and whether or not
+  they are in the world; a blocked cell counts whoever *covers* it. `footprint_cells` treats a footprint
+  below 1 as 1 and `Entity::covers` does not. The log keeps 100,000 events, which at 50,000 actors is the
+  last two steps. A world built its plates' occupancy and its counts with the same scans, so loading was
+  quadratic there too.
+- Not done: the loader (2.4 s for 50,000 actors), limits on work (a footprint or a ground of any size),
+  events at scale, the budget row. A world without a ground is ten times slower per move than one with a
+  ground. Column storage and reusable ids wait for a game that needs them.
+
 ## 2026-11-27 — Step 4 is on `main`, and Tiny Town is on the web
 
 - Step 4 (the web player on wgpu, the CPU fallback, `rwgpu export web`) was merged into `main` at `c84bb14`

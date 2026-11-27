@@ -20,6 +20,13 @@ usually proc-macro-heavy APIs.
 - Linear scans per move/trigger; fine at learning-game scale, measured by budgets if it becomes a problem.
 - Custom typed components are not supported yet; props cover game data for now.
 
+Changed 2026-11-27 ([ADR 0026](0026-cell-index-and-the-world-in-modules.md)): the linear scans are gone. The
+world keeps a cell index beside the entities, and no rule looks at every entity; one step with 50,000 actors
+went from 2,659 ms to 14.1 ms, and to 0.88 ms without the event log. The rest of this decision stands:
+entities are still one struct with props, and ids are still indices in scene order. `World::entities` is
+read-only now; Rust game code changes an entity through `World::get_mut`. Column storage was measured there
+and left for a game at city scale.
+
 ## Revisit when
 A reference game needs >10k entities, spawning/despawning at scale (ids would need generations), or typed
 custom components that props cannot express cleanly.

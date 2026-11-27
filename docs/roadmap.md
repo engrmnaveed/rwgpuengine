@@ -50,12 +50,19 @@ decision in [open-questions.md](open-questions.md).
      play every exported example from a plain static host at `/` and under `/rwgpuengine/`. The owner decided
      to publish the town with GitHub Pages from this repository; the manual-only workflow ran from `main` on
      2026-11-27.
-9. **Next: the simulation at scale** (step 5). Then, in the order the proposal gives (its section 7):
-   shapes as text and the town reference game; Rust game code; templates per kind of game. Then demos, the
-   MCP adapter and the desktop app.
-
-Not started and now in question: the audit's step 4 (splitting `load.rs` and `world.rs`). The 3D world model
-will reshape both files, so they are restructured as part of that work, not before it.
+9. **The simulation at scale** (step 5), in two pieces on the branch `sim-scale`:
+   - ~~the cell index and the world's storage~~: built on 2026-11-27
+     ([ADR 0026](decisions/0026-cell-index-and-the-world-in-modules.md)). No rule looks at every entity any
+     more. One step with 50,000 actors went from 2,659 ms to 14.1 ms, and is 0.88 ms without the event log;
+     every state hash is unchanged, and 17 generated worlds pin that. Entities stay as they are: columns were
+     measured and wait for a game at city scale. `world.rs` is split into modules (the audit's step 4, half
+     of it).
+   - **next: the loader, limits on work and events at scale.** `load.rs` takes 2.4 s for 50,000 actors and is
+     still one file; a footprint and a ground have no upper size; a `moved` event for every move is 94 % of
+     the step. The budget row "one step, 50,000 moving actors, 2 ms" is added there, when events no longer
+     keep the step above it.
+10. Then, in the order the proposal gives (its section 7): shapes as text and the town reference game; Rust
+    game code; templates per kind of game. Then demos, the MCP adapter and the desktop app.
 
 ## Before the direction update: pause, baseline, consolidate (owner's order, 2026-11-25)
 
