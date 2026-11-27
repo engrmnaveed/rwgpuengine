@@ -4,6 +4,7 @@
 //!
 //! - `town`: the 3D study's town (proposal 3.5), `n` actors on every other
 //!   cell that each try one step per frame. "Is this cell free?"
+//! - `bare`: the same town with no ground.
 //! - `plates`: `n / 2` plates and `n / 2` wanderers. "Who stands on me?",
 //!   and a signal for every answer that changed.
 //! - `wired`: the same plates, each with a name and a `[[connect]]` of its
@@ -29,7 +30,7 @@ use rwgpuengine_sim::{InputFrame, NoSystems, Tap, Watch, World};
 
 use crate::Result;
 
-const KINDS: [&str; 4] = ["town", "plates", "wired", "build"];
+const KINDS: [&str; 5] = ["town", "bare", "plates", "wired", "build"];
 const SIZES: [usize; 4] = [1_000, 5_000, 20_000, 50_000];
 /// Ground taps per frame in the `build` world.
 const TAPS: usize = 64;
@@ -70,6 +71,13 @@ pub fn town(n: usize) -> Result<(SceneDef, u64)> {
     let actor = scene.entities[0].clone();
     scene.entities = (0..n).map(|i| at(&actor, 2 * (i % (side / 2)), 2 * (i / (side / 2)))).collect();
     Ok((scene, 7))
+}
+
+/// The town of [`town`] with no ground: every cell is open, none is an edge.
+pub fn bare(n: usize) -> Result<(SceneDef, u64)> {
+    let (mut scene, seed) = town(n)?;
+    scene.ground = None;
+    Ok((scene, seed))
 }
 
 /// `n / 2` plates on every other cell, each with a wanderer beside it.
@@ -182,6 +190,7 @@ prop = "tries"
 fn scene(kind: &str, n: usize) -> Result<(SceneDef, u64)> {
     match kind {
         "town" => town(n),
+        "bare" => bare(n),
         "plates" => plates(n),
         "wired" => wired(n),
         "build" => build(n),

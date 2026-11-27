@@ -3,9 +3,10 @@
 //!
 //! Every cell has a list of entity ids, kept in id order. The ground's cells
 //! are an array, one number per cell, so finding a cell's list is one read.
-//! Cells outside the ground, and every cell of a world without a ground, are
-//! in a sorted map. The lists themselves are chains through one pool of
-//! nodes, so a move frees a node and takes it again and nothing is allocated.
+//! A world without a ground has the array over the cells its entities cover
+//! when it is built (ADR 0027). Every other cell is in a sorted map. The
+//! lists themselves are chains through one pool of nodes, so a move frees a
+//! node and takes it again and nothing is allocated.
 
 use std::collections::BTreeMap;
 
@@ -25,6 +26,8 @@ struct Node {
 
 #[derive(Clone, Debug)]
 pub(super) struct Cells {
+    /// The cell the array starts at: (0, 0) for a ground.
+    origin: [i32; 2],
     /// The size of the array part: the ground's, or [0, 0].
     size: [i32; 2],
     /// Per ground cell, row by row: its first node plus one; 0 is an empty cell.
@@ -39,10 +42,17 @@ pub(super) struct Cells {
 
 impl Cells {
     pub fn new(ground: Option<[i32; 2]>) -> Cells {
-        let [w, h] = ground.map_or([0, 0], |[w, h]| [w.max(0), h.max(0)]);
+        Cells::over([0, 0], ground.unwrap_or([0, 0]))
+    }
+
+    /// An array of `size` cells from `origin`, if it is not too large; every
+    /// cell outside it in the sorted map.
+    pub fn over(origin: [i32; 2], size: [i32; 2]) -> Cells {
+        let [w, h] = [size[0].max(0), size[1].max(0)];
         let dense = (w as usize).checked_mul(h as usize).filter(|n| *n <= DENSE_CELLS);
         let size = if dense.is_some() { [w, h] } else { [0, 0] };
         Cells {
+            origin,
             size,
             heads: vec![0; dense.unwrap_or(0)],
             outside: BTreeMap::new(),
@@ -53,8 +63,9 @@ impl Cells {
     }
 
     fn slot(&self, c: [i32; 2]) -> Option<usize> {
-        (c[0] >= 0 && c[1] >= 0 && c[0] < self.size[0] && c[1] < self.size[1])
-            .then(|| c[1] as usize * self.size[0] as usize + c[0] as usize)
+        let (x, y) = (i64::from(c[0]) - i64::from(self.origin[0]), i64::from(c[1]) - i64::from(self.origin[1]));
+        (x >= 0 && y >= 0 && x < i64::from(self.size[0]) && y < i64::from(self.size[1]))
+            .then(|| y as usize * self.size[0] as usize + x as usize)
     }
 
     fn head(&self, c: [i32; 2]) -> u32 {
@@ -133,14 +144,18 @@ impl Cells {
         At { nodes: &self.nodes, next: self.head(cell) }
     }
 
-    /// Every cell with someone on it and who is there: the ground's cells row
-    /// by row, then the others in the map's order. Two indexes hold the same
-    /// thing when these are equal, wherever their nodes are.
+    /// Every cell with someone on it and who is there, in cell order. Two
+    /// indexes hold the same thing when these are equal, wherever their
+    /// array lies and their nodes are.
     pub fn listing(&self) -> Vec<([i32; 2], Vec<EntityId>)> {
-        let ground = (0..self.heads.len())
-            .filter(|i| self.heads[*i] != 0)
-            .map(|i| [(i % self.size[0] as usize) as i32, (i / self.size[0] as usize) as i32]);
-        ground.chain(self.outside.keys().copied()).map(|c| (c, self.at(c).collect())).collect()
+        let [ox, oy] = self.origin;
+        let array = (0..self.heads.len()).filter(|i| self.heads[*i] != 0).map(|i| {
+            let (x, y) = (i % self.size[0] as usize, i / self.size[0] as usize);
+            [(i64::from(ox) + x as i64) as i32, (i64::from(oy) + y as i64) as i32]
+        });
+        let mut out: Vec<_> = array.chain(self.outside.keys().copied()).map(|c| (c, self.at(c).collect())).collect();
+        out.sort_unstable_by_key(|(c, _)| *c);
+        out
     }
 
     /// (cells of the array, entries, bytes held).
@@ -213,6 +228,35 @@ mod tests {
             // Nothing leaks: there are never more nodes than entries at the fullest.
             assert!(cells.nodes.len() <= 12 * 144, "{} nodes", cells.nodes.len());
         }
+    }
+
+    /// The array of a world without a ground: anywhere, cells inside it and
+    /// outside it hold the same lists as the map alone would.
+    #[test]
+    fn an_array_away_from_the_origin_holds_what_the_map_holds() {
+        let mut rng = Rng::new(9);
+        let mut array = Cells::over([-5, 40], [7, 3]);
+        let mut map = Cells::new(None);
+        for _ in 0..20_000 {
+            let c = [rng.range_i32(-8, 4), rng.range_i32(37, 46)];
+            let id = rng.below(9);
+            if rng.below(2) == 0 {
+                array.add(c, id);
+                map.add(c, id);
+            } else {
+                array.remove(c, id);
+                map.remove(c, id);
+            }
+            assert_eq!(array.at(c).collect::<Vec<_>>(), map.at(c).collect::<Vec<_>>(), "cell {c:?}");
+        }
+        assert_eq!(array.listing(), map.listing());
+        assert_eq!(array.stats().0, 21);
+        // Far away, and where an i32 would overflow.
+        let mut far = Cells::over([i32::MAX - 2, i32::MIN], [5, 5]);
+        far.add([i32::MAX, i32::MIN + 1], 4);
+        far.add([i32::MIN, i32::MAX], 2);
+        assert_eq!(far.at([i32::MAX, i32::MIN + 1]).collect::<Vec<_>>(), [4]);
+        assert_eq!(far.listing().len(), 2);
     }
 
     #[test]

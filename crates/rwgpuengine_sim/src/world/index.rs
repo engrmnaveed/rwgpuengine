@@ -156,8 +156,12 @@ impl Index {
     /// The index of these entities. `ground` is the ground's size, if the
     /// world has one: its cells are an array, all others a sorted map.
     pub fn build(entities: &[Entity], ground: Option<[i32; 2]>) -> Index {
+        let cells = match ground {
+            Some(size) => Cells::new(Some(size)),
+            None => Self::cells_without_ground(entities),
+        };
         let mut index = Index {
-            cells: Cells::new(ground),
+            cells,
             facts: Vec::with_capacity(entities.len()),
             with: Default::default(),
             prefabs: BTreeMap::new(),
@@ -167,6 +171,31 @@ impl Index {
             index.enter(e);
         }
         index
+    }
+
+    /// The cells of a world without a ground: an array over the cells its
+    /// entities stand on and cover now, so that a world of many actors and no
+    /// ground is not ten times slower per move (ADR 0027). Cells outside it,
+    /// where they walk to or are spawned, are in the sorted map.
+    fn cells_without_ground(entities: &[Entity]) -> Cells {
+        let mut lo = [i64::MAX; 2];
+        let mut hi = [i64::MIN; 2];
+        for e in entities {
+            let c = e.cell();
+            for axis in 0..2 {
+                let start = i64::from(c[axis]);
+                lo[axis] = lo[axis].min(start);
+                hi[axis] = hi[axis].max(start + i64::from(e.footprint[axis].max(1)));
+            }
+        }
+        // Only where the entities are dense enough to fill it: an array of
+        // 4 bytes a cell for at most 16 cells an entity (the town of 50,000
+        // has 4). A few entities far apart stay in the map.
+        let cells = (hi[0] - lo[0]).saturating_mul(hi[1] - lo[1]);
+        if entities.is_empty() || cells > 16 * entities.len() as i64 + 4_096 {
+            return Cells::new(None);
+        }
+        Cells::over([lo[0] as i32, lo[1] as i32], [(hi[0] - lo[0]) as i32, (hi[1] - lo[1]) as i32])
     }
 
     /// A new entity, the next id.
