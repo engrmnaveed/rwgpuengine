@@ -2425,44 +2425,77 @@ const LOADER_CODES: &[&str] = &[
     "E0206", "E0207", "E0208", "E0209", "W0201", "W0202", "W0203", "W0204", "W0205", "W0206", "W0207",
 ];
 
+/// A case's record, and the codes of its check and of each playtest loaded
+/// by path.
+struct Recorded {
+    name: String,
+    record: String,
+    codes: Vec<Vec<&'static str>>,
+}
+
+/// Every case recorded once, on several threads (some cases are as large as
+/// the limits). Each record depends on its case alone.
+fn recorded() -> &'static [Recorded] {
+    static RECORDED: std::sync::OnceLock<Vec<Recorded>> = std::sync::OnceLock::new();
+    RECORDED.get_or_init(|| {
+        let cases = cases();
+        let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+        let mut out: Vec<Option<Recorded>> = (0..cases.len()).map(|_| None).collect();
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = (0..threads)
+                .map(|t| {
+                    let cases = &cases;
+                    scope.spawn(move || {
+                        (t..cases.len()).step_by(threads).map(|i| (i, record_one(&cases[i]))).collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            for w in workers {
+                for (i, r) in w.join().expect("a case panicked") {
+                    out[i] = Some(r);
+                }
+            }
+        });
+        out.into_iter().map(|r| r.expect("every case is recorded")).collect()
+    })
+}
+
+fn record_one(c: &Case) -> Recorded {
+    let mut codes = vec![check_project(&c.vfs).diagnostics.iter().map(|d| d.code).collect()];
+    for p in &c.extra_playtests {
+        codes.push(load_playtest(&c.vfs, p).1.iter().map(|d| d.code).collect());
+    }
+    Recorded { name: c.name.clone(), record: record(c), codes }
+}
+
 #[test]
 fn every_pin_holds() {
-    let cases = cases();
-    let names: BTreeSet<&str> = cases.iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(names.len(), cases.len(), "two cases have the same name");
+    let all = recorded();
+    let names: BTreeSet<&str> = all.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names.len(), all.len(), "two cases have the same name");
     let pinned: BTreeSet<&str> = PINS.iter().map(|(n, _)| *n).collect();
     assert_eq!(pinned.len(), PINS.len(), "a case is pinned twice");
     let mut wrong = Vec::new();
-    for c in &cases {
-        let rec = record(c);
-        let got = record_hash(&rec);
+    for c in all {
+        let got = record_hash(&c.record);
         match PINS.iter().find(|(n, _)| *n == c.name) {
             Some((_, want)) if *want == got => {}
-            Some((_, want)) => wrong.push(format!("{}: pinned {want}, got {got}\n{rec}", c.name)),
+            Some((_, want)) => wrong.push(format!("{}: pinned {want}, got {got}\n{}", c.name, c.record)),
             None => wrong.push(format!("{}: no pin (got {got})", c.name)),
         }
     }
     for name in &pinned {
         assert!(names.contains(name), "pin `{name}` names no case");
     }
-    assert!(wrong.is_empty(), "{} of {} cases differ:\n{}", wrong.len(), cases.len(), wrong.join("\n"));
-}
-
-/// The codes of a check's diagnostics, and of every playtest loaded by path.
-fn codes_of(c: &Case) -> Vec<Vec<&'static str>> {
-    let mut v = vec![check_project(&c.vfs).diagnostics.iter().map(|d| d.code).collect()];
-    for p in &c.extra_playtests {
-        v.push(load_playtest(&c.vfs, p).1.iter().map(|d| d.code).collect());
-    }
-    v
+    assert!(wrong.is_empty(), "{} of {} cases differ:\n{}", wrong.len(), all.len(), wrong.join("\n"));
 }
 
 #[test]
 fn every_code_the_loader_reports_is_reached_alone_and_with_others() {
     let mut alone = BTreeSet::new();
     let mut with_others = BTreeSet::new();
-    for c in cases() {
-        for codes in codes_of(&c) {
+    for c in recorded() {
+        for codes in &c.codes {
             let distinct: BTreeSet<&str> = codes.iter().copied().collect();
             if distinct.len() == 1 {
                 alone.extend(distinct.iter().copied());
@@ -2494,10 +2527,9 @@ fn the_base_project_checks_clean() {
 #[ignore]
 fn print() {
     let mut all = String::new();
-    for c in cases() {
-        let rec = record(&c);
-        println!("    ({:?}, {:?}),", c.name, record_hash(&rec));
-        let _ = writeln!(all, "== {}\n{rec}", c.name);
+    for c in recorded() {
+        println!("    ({:?}, {:?}),", c.name, record_hash(&c.record));
+        let _ = writeln!(all, "== {}\n{}", c.name, c.record);
     }
     if let Some(path) = std::env::var_os("CORPUS_OUT") {
         std::fs::write(&path, all).expect("CORPUS_OUT is writable");
