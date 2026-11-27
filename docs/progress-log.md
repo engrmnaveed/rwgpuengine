@@ -7,6 +7,33 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-28 — Step 5 is on `main`; the spec of reference game 2, River Town, is approved
+
+- Step 5 (the simulation at scale) was merged into `main` at `9b9aa0d` after pull request 15 was green on
+  every check: `ci` and `gpu` on Linux, Windows and macOS. Its three pieces were pull requests 12 (the cell
+  index, [ADR 0026](decisions/0026-cell-index-and-the-world-in-modules.md)), 13 (events at scale and limits
+  on work, [ADR 0027](decisions/0027-events-at-scale-and-limits-on-work.md)) and 14 (the loader,
+  [ADR 0028](decisions/0028-loader-as-a-pipeline-linear-and-limits-on-sizes.md)), each reviewed and run
+  through both gates on its last commit before it was merged into `sim-scale`.
+- The step's "done when" holds on an Apple M5 Pro: one step with 50,000 actors 2,659 ms → 1.06 ms (budget
+  2), loading and checking them 1,635 ms → 79 ms (budget 250), all ten example playtests at their state and
+  image hashes, and the examples' events and diagnostics the same byte for byte.
+- What the step cost: the web module 632,531 → 704,851 bytes (limit 800,000; 88 % used), `rwgpu` 2,133,296
+  → 2,334,496 (limit 3,000,000), the players' web download 771,917 → 825,103 (limit 1,500,000). No limit was
+  raised. Step 6 will add shapes to the web module: its first piece reports what they cost before anything
+  comes near the limit.
+- Decided not to build in this step: a render-side piece at 50,000 (the GPU frame is 1.0 ms of 4; a reference
+  frame of that town takes 17 to 42 ms, which is a picture for an agent, not a frame loop), and column
+  storage (measured, not needed for the budget).
+- Left for step 6, which touches the same code: a diagnostic for a ground of more than 255 terrains, the
+  overflow of a position near the largest integer with a footprint, and the hints of `from`. Open for the
+  owner: a cap on "did you mean" hints for a file with thousands of unknown names (ADR 0028).
+- **The owner approved the spec of reference game 2, [River Town](games/river-town.md)**, with its four
+  choices as recommended: a planning builder for ages 10 and up in three stages; buildings turn in quarter
+  turns; people and carts come in step 7, in Rust, in the same town; the name is a working title. Step 6
+  builds it in five pieces; the first (shapes and turning) runs on the larger model and waits for the
+  owner's yes.
+
 ## 2026-11-28 — The simulation at scale, piece 3: the loader as a pipeline, linear, and limits on sizes
 
 - Step 5, piece 3 ([ADR 0028](decisions/0028-loader-as-a-pipeline-linear-and-limits-on-sizes.md)), on the

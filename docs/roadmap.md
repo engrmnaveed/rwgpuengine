@@ -50,7 +50,7 @@ decision in [open-questions.md](open-questions.md).
      play every exported example from a plain static host at `/` and under `/rwgpuengine/`. The owner decided
      to publish the town with GitHub Pages from this repository; the manual-only workflow ran from `main` on
      2026-11-27.
-9. **The simulation at scale** (step 5), in three pieces on the branch `sim-scale`:
+9. ~~The simulation at scale~~ (step 5): done and on `main` on 2026-11-28, in three pieces:
    - ~~the cell index and the world's storage~~: built on 2026-11-27
      ([ADR 0026](decisions/0026-cell-index-and-the-world-in-modules.md)). No rule looks at every entity any
      more. One step with 50,000 actors went from 2,659 ms to 14.1 ms, and is 0.88 ms without the event log;
@@ -72,8 +72,13 @@ decision in [open-questions.md](open-questions.md).
      474 cases pin it (the audit's step 4, the other half).
    - Step 5's "done when" holds: with 50,000 actors one step takes 1.06 ms (budget 2) and loading and checking
      79 ms (budget 250), and every state hash is unchanged.
-10. Then, in the order the proposal gives (its section 7): shapes as text and the town reference game; Rust
-    game code; templates per kind of game. Then demos, the MCP adapter and the desktop app.
+10. **Next: shapes as text and the town reference game** (step 6), on the branch `river-town`. The game is
+    River Town ([spec](games/river-town.md), approved by the owner on 2026-11-28): a planning builder on a
+    river valley, in three stages. It pulls five shapes (box, roof, wedge, cylinder, cone), quarter turns,
+    placement by neighbours and terrain, and a camera that stays over the ground and works by touch. Done
+    when the town, its playtests and a cold-agent run pass.
+11. Then, in the order the proposal gives (its section 7): Rust game code, with people and carts in River
+    Town as its test; templates per kind of game. Then demos, the MCP adapter and the desktop app.
 
 ## Before the direction update: pause, baseline, consolidate (owner's order, 2026-11-25)
 

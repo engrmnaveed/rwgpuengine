@@ -5,18 +5,20 @@ checks, runs, renders and inspects them, deterministically, without a screen, wi
 diagnostics in the style of the Rust compiler. It is built for coding agents first, and for the people who
 direct them. The name is **R**ust + **wgpu** + engine; the command is `rwgpu`.
 
-> **Status: early.** What works today (v0.1.0) is the half of the engine an agent works with: text formats
-> with a schema, the command line, a deterministic simulation, and a world drawn in 3D by a deterministic
-> CPU reference renderer, with a camera that turns, zooms and switches between an isometric and a
-> perspective view, visual checks, and a web player. It runs natively and in the browser with identical
-> results. There is **no GPU renderer yet**: boxes, flat tiles and camera-facing sprites are all it draws.
+> **Status: early.** What works today (v0.1.0): text formats with a schema, the command line, a deterministic
+> simulation (one step with 50,000 moving actors takes about 1 ms on a recent laptop), and a world drawn in
+> 3D two ways. A deterministic CPU reference renderer draws it for checks, reports and pictures, with no
+> GPU. A **wgpu renderer** draws the same picture for players, in a native window (`rwgpu play`) and in the
+> browser on WebGPU, and a test holds it to the reference. `rwgpu export web` turns a game into a folder any
+> static host serves: [Tiny Town, live](https://engrmnaveed.github.io/rwgpuengine/). Boxes, flat tiles and
+> camera-facing sprites are all it draws so far.
 >
 > **Where it is going:** a **3D engine on the GPU through wgpu, native and web**, for strategy games, city
 > builders, car-building and simulation games, and children's games, with art made of simple shapes written
 > as text. The agent's loop stays free of the GPU. Read the
 > [direction](docs/vision.md#direction-update--2026-11-25-owner) and the
 > [3D architecture proposal](docs/proposals/3d-architecture.md), which has the measurements behind it; its
-> next step is the wgpu players.
+> next step is shapes as text and the second reference game, [River Town](docs/games/river-town.md).
 >
 > Until 2026-11-25 the engine had the working codename "slate"; older records still use it
 > ([ADR 0019](docs/decisions/0019-name-rwgpuengine.md)). Nothing is published on crates.io yet.
