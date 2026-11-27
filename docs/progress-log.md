@@ -7,6 +7,38 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-28 — The simulation at scale, piece 3: the loader as a pipeline, linear, and limits on sizes
+
+- Step 5, piece 3 ([ADR 0028](decisions/0028-loader-as-a-pipeline-linear-and-limits-on-sizes.md)), on the
+  branch `sim-scale`. Loading and checking no longer grow with the square of a project, `load.rs` is a
+  pipeline, and a project's sizes have limits. Nothing an agent sees for a file that loads or fails changed.
+- **The oracle came first.** Before any change, 453 file sets were recorded four ways (`rwgpu check`,
+  the project, one loader per scene as a session loads it, each playtest): every diagnostic's code, place,
+  width, message, hint, notes and source line, in order, and a hash of everything that loads
+  (`rwgpuengine_data/src/corpus.rs`). Every code the loader can report is reached alone and with others.
+  Faults planted in the old loader: 14 of 15 noticed; the 15th changes nothing anyone can see. After the
+  restructure, the old and the new loader gave records identical byte for byte.
+- **Where the time went** (50,000, measured): "does an actor start inside a solid?" scanned every entity per
+  actor, 1,484 of the town's 1,643 ms; names were looked up by scanning, per `from`, `to`, payer, `when` and
+  [[expect]]: 12.8 s for a world that names everything; "does this source spawn?" searched every spawning
+  connection. Every missing key's default was parsed again with toml_edit, half of what an entity cost.
+- **The pipeline.** Parse, resolve, check, build, one stage or rule family per file. Each problem carries its
+  place in the file, and the stages' lists are merged, so the order a session shows is what it was.
+- **Linear.** One index of names per scene, a map of cells for walls, sets for signals, defaults read
+  without the parser, and "did you mean" comparing only as far as a candidate could win (10 to 14 times
+  faster, the same answers). `rwgpu check` of 50,000 actors: 1,635 ms → 79, 1.4 to 1.6 µs an actor from
+  5,000 to 50,000. Budget row `time.load_check_ms = 250`.
+- **Limits** (E0209), each measured: 64 MiB a file, 1,000,000 entities a scene, 4096 × 4096 cells a ground,
+  2048 × 2048 cells covered, 128 MiB of prefabs copied, 128 characters a name or a key, 100,000 tables a
+  playtest. A town of 500,000 actors checks in 1.0 s. Nothing in the repository reaches one.
+- **Found and left as it is:** for the same misspelled name, `from` suggests by sorted names and the rest by
+  file order; a ground of more than 255 terrains is dropped without a word; a position near `i32::MAX` with a
+  footprint overflows in a debug build; memory at check is about 95 bytes per byte of a scene. Hints for
+  thousands of unknown names are still a pair per name and name (a question for the owner in the ADR).
+- The web module 680,792 → 704,851 bytes on the step branch (this piece: 24,059); `rwgpu` 2,234,912 →
+  2,334,496. A sort, a cache and a map of `char` were measured and replaced by smaller ways to the same
+  result.
+
 ## 2026-11-27 — The simulation at scale, piece 2: events at scale, and limits on the work of a step
 
 - Step 5, piece 2 of 3 ([ADR 0027](decisions/0027-events-at-scale-and-limits-on-work.md)), on the branch

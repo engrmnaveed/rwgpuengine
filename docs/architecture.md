@@ -25,8 +25,8 @@ How rwgpuengine is built, as of v0.1.0 (first milestone). Decisions behind each 
                 └──────┬──────┘        └───────┬───────┘            │
                        │                       │                    │
                 ┌──────▼───────────────────────▼────────────────────▼──────────┐
- text + schema  │ rwgpuengine_data  TOML → span tree → schema check → typed defs;     │
-                │             Vfs, loaders, static checks (`rwgpu check`)        │
+ text + schema  │ rwgpuengine_data  TOML → span tree → schema → resolve → check →     │
+                │             typed defs; Vfs, `rwgpu check`, limits on sizes    │
                 └──────────────────────────────┬───────────────────────────────┘
                 ┌──────────────────────────────▼───────────────────────────────┐
  foundation     │ rwgpuengine_core  JSON, diagnostics + code registry, PCG32, FNV,    │
@@ -34,7 +34,7 @@ How rwgpuengine is built, as of v0.1.0 (first milestone). Decisions behind each 
                 └──────────────────────────────────────────────────────────────┘
  rented         toml_edit (parsing) · png (encode/decode)
  dev tooling    xtask: ci, repo-check, dist, web, web-player, smoke, budgets, docs, wasm-check, export-check, pages, gpu,
-                sim-bench
+                sim-bench, load-bench
 ```
 
 Dependency rule: arrows only point down. `rwgpuengine_sim` knows nothing about rendering; `rwgpuengine_render` reads
@@ -115,6 +115,16 @@ Parsing pipeline (ADR 0003): `toml_edit` parses → converted at once into an ow
 byte spans for every key and value → `Checker` validates against the **schema registry**
 (`rwgpuengine_data::schema`) → `Fields` decodes with defaults taken from the same registry. The registry also
 generates JSON Schemas, the reference docs and `rwgpu explain <component>`; one table, four uses.
+
+The loader is a pipeline (`rwgpuengine_data/src/load/`, ADR 0028): **parse** (text to nodes, the schema),
+**resolve** (the ground; entities merged onto their prefabs; names; what each `[[connect]]` refers to; what
+cannot be found), **check** (each rule on its own: `load/check/`), **build** (the definitions). Each stage
+runs over the whole scene; every problem carries its place in the file (`load/order.rs`), and the stages'
+lists are merged into the order agents read them in. Loading and checking grow with the project: names are
+looked up in one index per scene, cells in maps, never by scanning every entity. A project's sizes have
+limits (`rwgpuengine_core::limits`: bytes in a file, entities, a ground's cells, cells covered, prefab bytes
+copied, a name's length, a playtest's tables), each reported as E0209 where it is gone over, before the work
+it would cause. An oracle pins everything the loader says (`rwgpuengine_data/src/corpus.rs`, 474 cases).
 
 ## The world
 

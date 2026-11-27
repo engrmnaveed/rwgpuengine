@@ -64,8 +64,14 @@ decision in [open-questions.md](open-questions.md).
      playtests print the same events, byte for byte. Five limits bound what a game file can make one step do
      (signals, actions, count changes, entities, taps), each with a code. A world without a ground is no
      longer ten times slower.
-   - **next: the loader and limits at load.** `load.rs` takes 2.2 s for 50,000 actors and is still one file; a
-     footprint and a ground have no upper size.
+   - ~~the loader~~: built on 2026-11-28
+     ([ADR 0028](decisions/0028-loader-as-a-pipeline-linear-and-limits-on-sizes.md)). `load.rs` is a pipeline
+     (parse, resolve, check, build) and grows with the project: `rwgpu check` of 50,000 actors went from
+     1,635 ms to 79 (budget `time.load_check_ms`, 250). A project's sizes have limits, E0209 (a town of
+     500,000 actors is allowed). Everything an agent sees for a file that loads or fails is unchanged, and
+     474 cases pin it (the audit's step 4, the other half).
+   - Step 5's "done when" holds: with 50,000 actors one step takes 1.06 ms (budget 2) and loading and checking
+     79 ms (budget 250), and every state hash is unchanged.
 10. Then, in the order the proposal gives (its section 7): shapes as text and the town reference game; Rust
     game code; templates per kind of game. Then demos, the MCP adapter and the desktop app.
 
