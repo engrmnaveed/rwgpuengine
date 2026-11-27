@@ -3,13 +3,13 @@
 use rwgpuengine_core::json::Json;
 use rwgpuengine_data::PropValue;
 
-use super::{Entity, EntityId, World};
+use super::{Entity, EntityId, World, scan};
 use crate::events::EventKind;
 
 impl World {
     /// Store a count (the prop exists: loading declares every `counts` prop).
     pub(super) fn set_count(&mut self, id: EntityId, prop: &str, n: i64) {
-        if let Some(v) = self.entities[id as usize].props.get_mut(prop) {
+        if let Some(v) = self.entities.0[id as usize].props.get_mut(prop) {
             *v = PropValue::Int(n);
         }
     }
@@ -20,7 +20,11 @@ impl World {
         for &id in &self.counters {
             let e = &self.entities[id as usize];
             for (prop, prefab) in &e.counts {
-                let n = self.entities.iter().filter(|x| x.enabled && x.prefab.as_deref() == Some(prefab)).count();
+                let n = self.index.copies(prefab);
+                if self.checking() {
+                    let scanned = scan::copies(&self.entities, prefab);
+                    assert_eq!(n, scanned, "the index and the scan disagree on the enabled copies of '{prefab}'");
+                }
                 let before = match e.props.get(prop) {
                     Some(PropValue::Int(v)) => Some(*v),
                     _ => None,

@@ -25,7 +25,7 @@ impl World {
 
     /// Take `cost` from the payer. Returns the prop before and after.
     pub(super) fn pay(&mut self, k: &Cost) -> Option<(PropValue, PropValue)> {
-        let current = self.entities.get_mut(k.entity as usize)?.props.get_mut(&k.prop)?;
+        let current = self.entities.0.get_mut(k.entity as usize)?.props.get_mut(&k.prop)?;
         let before = current.clone();
         let after = match (&before, &k.amount) {
             (PropValue::Int(a), PropValue::Int(b)) => PropValue::Int(a.saturating_sub(*b)),

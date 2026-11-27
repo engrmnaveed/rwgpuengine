@@ -1117,7 +1117,7 @@ fn count_props_follow_spawns_and_enabling() {
     w.tick(&tap_flower(), &mut NoSystems);
     assert_eq!(prop(&w, "job", "flowers"), PropValue::Int(1));
     assert!(last(&w, EventKind::Counted).contains("#2 (flower) was disabled"), "{}", last(&w, EventKind::Counted));
-    w.entities[flower as usize].enabled = true; // as Rust game code might
+    w.get_mut(flower).unwrap().enabled = true; // as Rust game code might
     w.tick(&InputFrame::default(), &mut NoSystems);
     assert_eq!(prop(&w, "job", "flowers"), PropValue::Int(2), "changes made outside connections are counted too");
 }

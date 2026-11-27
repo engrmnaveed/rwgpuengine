@@ -96,7 +96,7 @@ impl World {
                 None => return true,
             },
             ConnectAction::Enable | ConnectAction::Disable | ConnectAction::Toggle => {
-                let Some(e) = self.entities.get_mut(to as usize) else { return true };
+                let Some(e) = self.entities.0.get_mut(to as usize) else { return true };
                 let before = e.enabled;
                 e.enabled = match a.action {
                     ConnectAction::Enable => true,
@@ -105,6 +105,8 @@ impl World {
                 };
                 let after = e.enabled;
                 enabled_changed = before != after;
+                // On or off its cells, in or out of the copies counted.
+                self.resync(to);
                 data = data.with("before", before).with("after", after).with("changed", before != after);
                 let state = |b: bool| if b { "enabled" } else { "disabled" };
                 let change = if before == after {
@@ -137,7 +139,7 @@ impl World {
     fn change_prop(&mut self, c: &Act, to: EntityId) -> Option<(String, PropValue, PropValue, PropValue)> {
         let prop = c.prop.as_deref()?;
         let value = c.value.clone().unwrap_or(PropValue::Int(1));
-        let current = self.entities.get_mut(to as usize)?.props.get_mut(prop)?;
+        let current = self.entities.0.get_mut(to as usize)?.props.get_mut(prop)?;
         let before = current.clone();
         let after = match (c.action, &before) {
             (ConnectAction::Add, PropValue::Int(a)) => match value {

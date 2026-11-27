@@ -5,7 +5,8 @@ use rwgpuengine_core::json::Json;
 use rwgpuengine_data::{Action, PatrolMode};
 
 use super::entity::Patrol;
-use super::{Entity, EntityId, World, fmt_cell};
+use super::index::Kind;
+use super::{Entity, EntityId, World, fmt_cell, scan};
 use crate::events::EventKind;
 use crate::input::InputFrame;
 
@@ -13,24 +14,31 @@ impl World {
     /// The entity that stops something entering `cell`, if any. Pushables
     /// count as solid here (only movers can push them, see `try_move`).
     pub fn blocker_at(&self, cell: [i32; 2], except: EntityId) -> Option<(EntityId, &'static str)> {
-        self.blockers_at(cell, except).into_iter().next()
+        self.blockers(cell, except).0
     }
 
-    /// Every entity that stops something entering `cell`, in id order.
-    fn blockers_at(&self, cell: [i32; 2], except: EntityId) -> Vec<(EntityId, &'static str)> {
-        self.entities
-            .iter()
-            .filter(|e| e.id != except && e.enabled && e.in_world() && e.covers(cell))
-            .filter_map(|e| {
-                if e.solid || e.pushable {
-                    Some((e.id, "solid"))
-                } else if e.is_actor() {
-                    Some((e.id, "actor"))
-                } else {
-                    None
-                }
-            })
-            .collect()
+    /// The first entity, in id order, that stops something entering `cell`,
+    /// and whether a second one does too.
+    fn blockers(&self, cell: [i32; 2], except: EntityId) -> (Option<(EntityId, &'static str)>, bool) {
+        let found = self.index.blockers(cell, except);
+        if self.checking() {
+            let scanned = scan::blockers_at(&self.entities, cell, except);
+            assert_eq!(
+                found,
+                (scanned.first().copied(), scanned.len() > 1),
+                "the index and the scan disagree on what blocks {cell:?} for #{except}: the scan found {scanned:?}"
+            );
+        }
+        found
+    }
+
+    /// Stand an entity on a cell; its height stays.
+    fn put(&mut self, id: EntityId, cell: [i32; 2]) {
+        let e = &mut self.entities.0[id as usize];
+        e.pos[0] = cell[0] as f32;
+        e.pos[1] = cell[1] as f32;
+        let now = e.cell();
+        self.index.moved(id, now);
     }
 
     fn outside(&self, cell: [i32; 2]) -> Option<[i32; 2]> {
@@ -57,12 +65,12 @@ impl World {
             self.log(EventKind::Blocked, Some(id), None, msg, base.with("reason", "edge"));
             return false;
         }
-        let blockers = self.blockers_at(to, id);
-        if let [(crate_id, _)] = blockers.as_slice()
+        let (blocker, more) = self.blockers(to, id);
+        if let Some((crate_id, _)) = blocker
+            && !more
             && can_push
-            && self.entities[*crate_id as usize].pushable
+            && self.entities[crate_id as usize].pushable
         {
-            let crate_id = *crate_id;
             let beyond = [to[0] + dx, to[1] + dy];
             let what = self.describe(crate_id);
             let stuck = match self.outside(beyond) {
@@ -87,13 +95,11 @@ impl World {
                 self.log(EventKind::Blocked, Some(id), Some(crate_id), msg, data);
                 return false;
             }
-            let c = &mut self.entities[crate_id as usize];
-            c.pos[0] = beyond[0] as f32;
-            c.pos[1] = beyond[1] as f32;
+            self.put(crate_id, beyond);
             let msg = format!("{what} was pushed {cause} from {} to {} by {who}", fmt_cell(to), fmt_cell(beyond));
             let data = Json::object().with("cause", "pushed").with("from", to).with("to", beyond).with("by", id);
             self.log(EventKind::Moved, Some(crate_id), Some(id), msg, data);
-        } else if let Some(&(blocker, reason)) = blockers.first() {
+        } else if let Some((blocker, reason)) = blocker {
             let pushable = self.entities[blocker as usize].pushable;
             let what = if pushable { "pushable" } else { reason };
             let note = if pushable && !can_push { " (only entities with a mover push)" } else { "" };
@@ -106,17 +112,15 @@ impl World {
             self.log(EventKind::Blocked, Some(id), Some(blocker), msg, base.with("reason", reason));
             return false;
         }
-        let e = &mut self.entities[id as usize];
-        e.pos[0] = to[0] as f32;
-        e.pos[1] = to[1] as f32;
+        self.put(id, to);
         let msg = format!("{who} moved {cause} from {} to {}", fmt_cell(from), fmt_cell(to));
         self.log(EventKind::Moved, Some(id), None, msg, base);
         true
     }
 
     pub(super) fn run_movers(&mut self, input: &InputFrame) {
-        for id in self.ids_with(|e| e.enabled && e.mover.is_some()) {
-            let mover = self.entities[id as usize].mover.as_mut().expect("mover");
+        for id in self.enabled_with(Kind::Mover) {
+            let mover = self.entities.0[id as usize].mover.as_mut().expect("mover");
             mover.cooldown = mover.cooldown.saturating_sub(1);
             let (cooldown, step) = (mover.cooldown, mover.step_frames);
             let Some(dir) = Action::DIRECTIONS.into_iter().find(|a| input.down.contains(*a)) else {
@@ -125,7 +129,7 @@ impl World {
             if cooldown == 0 {
                 let (dx, dy) = dir.delta().expect("direction");
                 self.try_move(id, dx, dy, dir.name());
-                if let Some(m) = self.entities[id as usize].mover.as_mut() {
+                if let Some(m) = self.entities.0[id as usize].mover.as_mut() {
                     m.cooldown = step;
                 }
             } else if input.pressed.contains(dir) {
@@ -142,9 +146,9 @@ impl World {
     }
 
     pub(super) fn run_patrols(&mut self) {
-        for id in self.ids_with(|e| e.enabled && e.patrol.is_some()) {
+        for id in self.enabled_with(Kind::Patrol) {
             let cell = self.entities[id as usize].cell();
-            let patrol = self.entities[id as usize].patrol.as_mut().expect("patrol");
+            let patrol = self.entities.0[id as usize].patrol.as_mut().expect("patrol");
             patrol.timer += 1;
             if patrol.timer < patrol.def.step_frames {
                 continue;
@@ -160,7 +164,7 @@ impl World {
             let (dx, dy) = step_toward(cell, target);
             if (dx, dy) != (0, 0) && self.try_move(id, dx, dy, "patrol") {
                 let new_cell = self.entities[id as usize].cell();
-                let patrol = self.entities[id as usize].patrol.as_mut().expect("patrol");
+                let patrol = self.entities.0[id as usize].patrol.as_mut().expect("patrol");
                 if new_cell == target {
                     advance(patrol);
                 }
@@ -169,8 +173,8 @@ impl World {
     }
 
     pub(super) fn run_wanders(&mut self) {
-        for id in self.ids_with(|e| e.enabled && e.wander.is_some()) {
-            let wander = self.entities[id as usize].wander.as_mut().expect("wander");
+        for id in self.enabled_with(Kind::Wander) {
+            let wander = self.entities.0[id as usize].wander.as_mut().expect("wander");
             wander.timer += 1;
             if wander.timer < wander.def.step_frames {
                 continue;

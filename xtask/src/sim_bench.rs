@@ -194,6 +194,8 @@ struct Row {
     fastest_ms: f64,
     events_per_step: f64,
     hash: u64,
+    /// Bytes the world's index holds at the end.
+    index_bytes: usize,
 }
 
 /// Step a world `steps` times (or, without a number, for about two seconds
@@ -246,6 +248,7 @@ fn measure(kind: &str, n: usize, steps: Option<u32>) -> Result<Row> {
         fastest_ms: times[0],
         events_per_step: events as f64 / steps.max(1) as f64,
         hash: world.state_hash(),
+        index_bytes: world.index_stats().bytes,
     })
 }
 
@@ -280,14 +283,14 @@ pub fn run(args: &[String]) -> Result {
     }
     println!("an entity is {} bytes", std::mem::size_of::<rwgpuengine_sim::Entity>());
     println!(
-        "{:<7} {:>8} {:>9} {:>6} {:>12} {:>12} {:>10} {:>12}  state hash at the last frame",
-        "world", "n", "entities", "steps", "median ms", "fastest ms", "ns per n", "events/step"
+        "{:<7} {:>8} {:>9} {:>6} {:>12} {:>12} {:>10} {:>12} {:>10}  state hash at the last frame",
+        "world", "n", "entities", "steps", "median ms", "fastest ms", "ns per n", "events/step", "index KB"
     );
     for kind in &kinds {
         for &n in &sizes {
             let r = measure(kind, n, steps)?;
             println!(
-                "{:<7} {:>8} {:>9} {:>6} {:>12.4} {:>12.4} {:>10.1} {:>12.0}  {}",
+                "{:<7} {:>8} {:>9} {:>6} {:>12.4} {:>12.4} {:>10.1} {:>12.0} {:>10.0}  {}",
                 r.kind,
                 r.n,
                 r.entities,
@@ -296,6 +299,7 @@ pub fn run(args: &[String]) -> Result {
                 r.fastest_ms,
                 r.median_ms * 1e6 / r.n as f64,
                 r.events_per_step,
+                r.index_bytes as f64 / 1024.0,
                 hash::hex(r.hash)
             );
         }

@@ -25,6 +25,8 @@ pub use world::{Condition, Connection, Entity, EntityId, NoSystems, Systems, Wor
 pub const REBUILD_PROBE: Option<&str> = option_env!("RWGPU_REBUILD_PROBE");
 
 #[cfg(test)]
+mod equivalence;
+#[cfg(test)]
 mod oracle;
 #[cfg(test)]
 mod tests;

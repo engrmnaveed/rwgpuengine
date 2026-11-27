@@ -6,7 +6,7 @@ use rwgpuengine_data::{EntityDef, footprint_cells};
 use super::entity::make_entity;
 use super::signals::Pending;
 use super::wiring::Cost;
-use super::{Entity, EntityId, World, fmt_cell};
+use super::{Entity, EntityId, World, fmt_cell, scan};
 use crate::dump::prop_json;
 use crate::events::EventKind;
 
@@ -36,6 +36,16 @@ impl World {
         g.terrain_at(cell).map(|t| t.name.clone())
     }
 
+    /// The first entity, in id order, that takes up `cell` for placement.
+    fn taking(&self, cell: [i32; 2]) -> Option<EntityId> {
+        let found = self.index.taking(cell);
+        if self.checking() {
+            let scanned = scan::taking(&self.entities, cell);
+            assert_eq!(found, scanned, "the index and the scan disagree on what takes up {cell:?}");
+        }
+        found
+    }
+
     /// Can `prefab` be placed with its back corner on `at` right now? Returns
     /// the cells it would cover, or why not. Every covered cell must be inside
     /// the ground, on buildable terrain, and not covered by an enabled entity.
@@ -63,7 +73,7 @@ impl World {
                 }
                 None => {}
             }
-            if let Some(e) = self.entities.iter().find(|e| e.takes_space() && e.covers(c)) {
+            if let Some(e) = self.taking(c).map(|by| &self.entities[by as usize]) {
                 let why = format!("cell {} is taken by {}", fmt_cell(c), e.describe());
                 return Err(Refusal { reason: "occupied", cell: c, by: Some(e.id), terrain: None, why });
             }
@@ -131,7 +141,8 @@ impl World {
                 let id = self.entities.len() as EntityId;
                 let mut def = template;
                 def.pos = [at[0] as f32, at[1] as f32, def.pos[2]];
-                self.entities.push(make_entity(id, &def));
+                self.entities.0.push(make_entity(id, &def));
+                self.index.enter(&self.entities[id as usize]);
                 let who = self.describe(id);
                 let cells_json: Vec<Json> = cells.iter().map(|c| Json::from(*c)).collect();
                 let mut data = Json::object().with("prefab", prefab).with("cell", at).with("cells", cells_json);

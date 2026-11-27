@@ -6,7 +6,7 @@ use rwgpuengine_data::CondTest;
 
 use super::actions::ActCtx;
 use super::wiring::{Condition, Connection};
-use super::{Entity, EntityId, SIGNAL_LIMIT, World, fmt_cell};
+use super::{Entity, EntityId, SIGNAL_LIMIT, World, fmt_cell, scan};
 use crate::events::EventKind;
 
 /// A queued signal: who emitted it (`None` = the ground) and the cell it
@@ -29,7 +29,25 @@ impl World {
 
     /// Is any connection listening to `signal` from `emitter` (`None` = the ground)?
     pub fn is_listened(&self, emitter: Option<EntityId>, signal: &str) -> bool {
-        self.connections.iter().any(|c| c.listens(self, emitter, signal))
+        let prefab = emitter.and_then(|e| self.get(e)).and_then(|e| e.prefab.as_deref());
+        let found = self.routes.any(emitter, prefab, signal);
+        if self.checking() {
+            let scanned = !scan::listeners(&self.connections, &self.entities, emitter, signal).is_empty();
+            assert_eq!(found, scanned, "the routes and the scan disagree on whether '{signal}' is listened to");
+        }
+        found
+    }
+
+    /// The connections that listen to `signal` from `emitter` (`None` = the
+    /// ground), by their place in the file, in file order.
+    fn listeners(&self, emitter: Option<EntityId>, signal: &str) -> Vec<u32> {
+        let prefab = emitter.and_then(|e| self.get(e)).and_then(|e| e.prefab.as_deref());
+        let found = self.routes.listeners(emitter, prefab, signal);
+        if self.checking() {
+            let scanned = scan::listeners(&self.connections, &self.entities, emitter, signal);
+            assert_eq!(found, scanned, "the routes and the scan disagree on who listens to '{signal}'");
+        }
+        found
     }
 
     /// Evaluate a condition now: whether it holds, and what was seen.
@@ -100,7 +118,7 @@ impl World {
                 break;
             }
             let targets: Vec<Connection> =
-                self.connections.iter().filter(|c| c.listens(self, emitter, &signal)).cloned().collect();
+                self.listeners(emitter, &signal).iter().map(|i| self.connections[*i as usize].clone()).collect();
             let source = self.source_name(emitter);
             let msg = if targets.is_empty() {
                 let hint = match emitter.and_then(|id| self.get(id)) {

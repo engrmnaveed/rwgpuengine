@@ -11,7 +11,7 @@ use rwgpuengine_data::{
     footprint_cells, parse_label, round_cell,
 };
 
-use super::EntityId;
+use super::{EntityId, World};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mover {
@@ -160,6 +160,67 @@ impl Entity {
                 None => format!("#{}", self.id),
             },
         }
+    }
+}
+
+/// Every entity, in id order: `entities[id]` is entity `id`. It reads like a
+/// slice (`len`, `iter`, `entities[i]`, `for e in &world.entities`).
+///
+/// It cannot be changed from outside the world, because the world keeps an
+/// index of where its entities are (ADR 0026): change an entity through
+/// [`World::get_mut`], and the index follows.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Entities(pub(super) Vec<Entity>);
+
+impl std::ops::Deref for Entities {
+    type Target = [Entity];
+
+    fn deref(&self) -> &[Entity] {
+        &self.0
+    }
+}
+
+impl<'a> IntoIterator for &'a Entities {
+    type Item = &'a Entity;
+    type IntoIter = std::slice::Iter<'a, Entity>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+/// An entity being changed by something other than the rules: Rust game
+/// code, a test ([`World::get_mut`]). Use it like `&mut Entity`. When it is
+/// let go, the world brings its index up to date with whatever changed:
+/// where the entity is, whether it is enabled, what it is.
+pub struct EntityMut<'a> {
+    pub(super) world: &'a mut World,
+    pub(super) id: EntityId,
+}
+
+impl std::ops::Deref for EntityMut<'_> {
+    type Target = Entity;
+
+    fn deref(&self) -> &Entity {
+        &self.world.entities.0[self.id as usize]
+    }
+}
+
+impl std::ops::DerefMut for EntityMut<'_> {
+    fn deref_mut(&mut self) -> &mut Entity {
+        &mut self.world.entities.0[self.id as usize]
+    }
+}
+
+impl Drop for EntityMut<'_> {
+    fn drop(&mut self) {
+        self.world.resync(self.id);
+    }
+}
+
+impl std::fmt::Debug for EntityMut<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        (**self).fmt(f)
     }
 }
 

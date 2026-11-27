@@ -3,6 +3,14 @@
 //!
 //! The rules live in the modules below, one per responsibility; this file
 //! holds the world itself, how it is built and the order of a step.
+//!
+//! No rule looks at every entity. Questions about space ("what stops a
+//! move onto this cell?", "who stands on this plate?", "is there room?")
+//! are answered from the cell index (`index.rs`, ADR 0026), which the world
+//! keeps up to date as entities move, spawn and are switched on and off.
+//! The index is derived: it can be rebuilt from the entities at any time and
+//! is not part of the state hash. `scan.rs` holds the same questions
+//! answered by looking at everything, as the definition the index is held to.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -14,23 +22,29 @@ use crate::events::{Event, EventKind, EventLog};
 use crate::input::InputFrame;
 
 mod actions;
+mod cells;
 mod counting;
 mod entity;
 mod hashing;
+mod index;
 mod movement;
 mod payment;
 mod placement;
+mod scan;
 mod signals;
 mod taps;
 mod triggers;
 mod wiring;
 
-pub use entity::{Entity, Mover, Patrol, Trigger, Wander};
+pub use entity::{Entities, Entity, EntityMut, Mover, Patrol, Trigger, Wander};
+pub use index::IndexStats;
 pub use placement::Refusal;
 pub use wiring::{Act, Condition, Connection, Cost, Source, Target};
 
 use entity::make_entity;
+use index::{Index, Kind};
 use signals::Pending;
+use wiring::Routes;
 
 /// Entities are numbered in scene order, starting at 0. Ids are stable for a
 /// given scene file, so they can be used in scripts and tests.
@@ -56,12 +70,15 @@ pub struct World {
     pub frame: u64,
     pub seed: u64,
     pub rng: Rng,
-    pub entities: Vec<Entity>,
+    /// Every entity, in id order. Read it like a slice; change an entity
+    /// through [`World::get_mut`], so that the index follows.
+    pub entities: Entities,
     /// Ground size: movement is limited to 0..size on each axis.
     pub bounds: Option<[i32; 2]>,
     /// The ground with its terrain (placement rules read it).
     pub ground: Option<GroundDef>,
-    pub connections: Vec<Connection>,
+    /// The scene's `[[connect]]` tables, in file order ([`World::connections`]).
+    connections: Vec<Connection>,
     pub events: EventLog,
     /// Prefabs that `spawn` actions place (their `prefab` is the name).
     pub templates: Vec<EntityDef>,
@@ -69,6 +86,12 @@ pub struct World {
     names: BTreeMap<String, EntityId>,
     /// Entities with `counts` props (derived; not hashed).
     counters: Vec<EntityId>,
+    /// Where the entities are and what they are, for the rules (derived; not hashed).
+    index: Index,
+    /// Which connections listen to which signal (derived; not hashed).
+    routes: Routes,
+    /// Compare every answer of the index with a scan ([`World::check_against_scans`]).
+    check: bool,
 }
 
 impl World {
@@ -85,12 +108,15 @@ impl World {
         }
         let connections = wiring::resolve(scene, &names);
         let templates = scene.templates.clone();
+        let bounds = scene.ground.as_ref().map(|g| g.size);
         let mut world = World {
             frame: 0,
             seed,
             rng: Rng::new(seed),
-            entities,
-            bounds: scene.ground.as_ref().map(|g| g.size),
+            index: Index::build(&entities, bounds),
+            routes: Routes::build(&connections),
+            entities: Entities(entities),
+            bounds,
             ground: scene.ground.clone(),
             connections,
             events: EventLog::default(),
@@ -98,17 +124,18 @@ impl World {
             pending: VecDeque::new(),
             names,
             counters: Vec::new(),
+            check: false,
         };
-        world.counters = world.ids_with(|e| !e.counts.is_empty());
+        world.counters = scan::ids_with(&world.entities, |e| !e.counts.is_empty());
         // Count props start at the scene's numbers, without events.
         for (id, prop, _, _, n) in world.count_changes() {
             world.set_count(id, &prop, n);
         }
         // Initial trigger occupancy, without emitting: a plate that starts
         // occupied does not fire at frame 0.
-        for id in world.ids_with(|e| e.trigger.is_some()) {
+        for id in world.index.all_with(Kind::Trigger).to_vec() {
             let occ = world.occupants_of(id);
-            if let Some(t) = world.entities[id as usize].trigger.as_mut() {
+            if let Some(t) = world.entities.0[id as usize].trigger.as_mut() {
                 t.occupants = occ;
             }
         }
@@ -123,16 +150,87 @@ impl World {
         self.entities.get(id as usize)
     }
 
-    pub fn get_mut(&mut self, id: EntityId) -> Option<&mut Entity> {
-        self.entities.get_mut(id as usize)
+    /// An entity to change, for Rust game code and tests: use the result
+    /// like `&mut Entity`. The world's index is brought up to date when the
+    /// result is let go, at the end of the statement in
+    /// `world.get_mut(id)?.enabled = false`.
+    pub fn get_mut(&mut self, id: EntityId) -> Option<EntityMut<'_>> {
+        ((id as usize) < self.entities.len()).then(|| EntityMut { world: self, id })
     }
 
     pub fn by_name(&self, name: &str) -> Option<&Entity> {
         self.find(name).and_then(|id| self.get(id))
     }
 
-    fn ids_with(&self, f: impl Fn(&Entity) -> bool) -> Vec<EntityId> {
-        self.entities.iter().filter(|e| f(e)).map(|e| e.id).collect()
+    /// The scene's `[[connect]]` tables with their names resolved, in file order.
+    pub fn connections(&self) -> &[Connection] {
+        &self.connections
+    }
+
+    /// Tell the index that entity `id` changed in any way.
+    fn resync(&mut self, id: EntityId) {
+        if let Some(e) = self.entities.0.get(id as usize) {
+            self.index.resync(id, e);
+        }
+    }
+
+    /// The enabled entities with a behavior, in id order: who takes a turn
+    /// in that part of the step.
+    fn enabled_with(&self, kind: Kind) -> Vec<EntityId> {
+        let ids = self.index.enabled_with(kind);
+        if self.checking() {
+            let scanned = scan::ids_with(&self.entities, |e| {
+                e.enabled
+                    && match kind {
+                        Kind::Mover => e.mover.is_some(),
+                        Kind::Patrol => e.patrol.is_some(),
+                        Kind::Wander => e.wander.is_some(),
+                        Kind::Trigger => e.trigger.is_some(),
+                    }
+            });
+            assert_eq!(ids, scanned, "the index and the scan disagree on the enabled entities with a {kind:?}");
+        }
+        ids
+    }
+
+    /// Hold the index to the scans. While on, every answer the index gives
+    /// (what blocks a cell, who stands on a plate, what takes a cell, how
+    /// many copies, who listens, whose turn it is) is also worked out by
+    /// looking at every entity, and the world panics where the two differ.
+    /// As slow as the engine was before the index; for tests, and for
+    /// finding a fault.
+    ///
+    /// Returns whether the check is on now. A release build leaves the
+    /// check out (it would be 8 KB of the web module) and answers `false`.
+    pub fn check_against_scans(&mut self, on: bool) -> bool {
+        self.check = on;
+        self.checking()
+    }
+
+    /// Is every answer of the index to be compared with a scan? Never in a
+    /// release build: the comparisons are then not compiled.
+    fn checking(&self) -> bool {
+        cfg!(any(test, debug_assertions)) && self.check
+    }
+
+    /// Is the index what a rebuild from the entities gives? `Err` says where
+    /// it is not. Debug builds ask this at the end of every step.
+    pub fn verify_index(&self) -> Result<(), String> {
+        match self.index.differs_from(&Index::build(&self.entities, self.bounds)) {
+            Some(why) => Err(why),
+            None => Ok(()),
+        }
+    }
+
+    /// Throw the index away and build it again from the entities. A world
+    /// answers the same before and after.
+    pub fn rebuild_index(&mut self) {
+        self.index = Index::build(&self.entities, self.bounds);
+    }
+
+    /// How large the index is.
+    pub fn index_stats(&self) -> IndexStats {
+        self.index.stats()
     }
 
     fn describe(&self, id: EntityId) -> String {
@@ -163,6 +261,10 @@ impl World {
         systems.tick(self, input);
         self.run_triggers();
         self.dispatch_signals();
+        #[cfg(debug_assertions)]
+        if let Err(why) = self.verify_index() {
+            panic!("the cell index is not what the entities say after step {}: {why}", self.frame);
+        }
         self.frame += 1;
     }
 }

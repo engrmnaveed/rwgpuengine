@@ -591,7 +591,7 @@ fn the_painter_overwrites_whatever_the_buffer_held() {
     // a moved entity or a moved camera makes them differ.
     assert_eq!(list, build(&stage.world, &stage.view, &stage.camera, false));
     let mut moved = stage.world.clone();
-    moved.entities[2].pos[0] += 1.0;
+    moved.get_mut(2).unwrap().pos[0] += 1.0;
     assert_ne!(list, build(&moved, &stage.view, &stage.camera, false));
     let turned = setup(EVERYTHING).with(CameraView::Iso, 1.0, 1.0);
     assert_ne!(list, build(&turned.world, &turned.view, &turned.camera, false));
