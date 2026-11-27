@@ -22,6 +22,9 @@ use super::resolve::Resolved;
 use super::vfs::Vfs;
 
 pub(crate) fn scene(vfs: &Vfs, parsed: &Parsed, r: &Resolved, out: &mut Diags) {
+    if r.over_limit {
+        return;
+    }
     let src = &parsed.src;
     for t in &r.tables {
         let Some(i) = t.checked else { continue };

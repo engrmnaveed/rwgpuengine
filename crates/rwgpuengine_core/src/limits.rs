@@ -1,4 +1,4 @@
-//! The engine's limits, in one table (ADR 0027).
+//! The engine's limits, in one table (ADR 0027, ADR 0028).
 //!
 //! A game file must not be able to make one step take unbounded work or
 //! the world grow without end. Each limit here bounds one way it could:
@@ -6,6 +6,13 @@
 //! diagnostic of the limit's code and an `error` event that says what was
 //! cut off. The event log's own bounds are here too; reaching them is not an
 //! error, and what they leave out is counted.
+//!
+//! Nor must a file make loading, or the first step, take unbounded work by
+//! its sizes alone. The limits checked at `load` bound a project's sizes
+//! (ADR 0028): a project over one is refused where it goes over, with E0209,
+//! before the work it would cause. Each is far above what the example games
+//! and the benchmarks' generated worlds need; a town of 500,000 actors is
+//! allowed.
 //!
 //! `rwgpu explain limits`, the generated reference and the AGENTS.md of a new
 //! project print this table.
@@ -132,8 +139,94 @@ pub const EVENT_LOG: Limit = Limit {
           for an earlier frame (`--frame`, `--since`) to see them.",
 };
 
-/// Every limit, in the order tables show them.
+// The limits checked at load. Measured on an Apple M5 Pro (ADR 0028): `rwgpu
+// check` reads a town of 500,000 actors (29 MB) in 1.0 s and of 1,000,000
+// (59 MB) in 2.0 s, with about 95 bytes of memory per byte of the scene at
+// its peak. The town checks in 0.8 s and steps first in 139 ms; at
+// 1,000,000, 1.7 s and 275 ms. Covering 4,194,304 cells (one footprint, or
+// 4 x 4 houses) checks in 0.9 to 1.2 s and builds the world in 0.5 s; four
+// times as many take 4 to 5 s and 7 GB. 50,000 copies of a 4 KB prefab
+// (215 MB copied) check in 0.38 s and take 2.7 GB. A playtest of 100,000
+// inputs checks in 75 ms. The example games' longest name or key has 15
+// characters and their longest playtest 37 tables.
+
+/// Bytes in one file: a larger one is not parsed.
+pub const FILE_BYTES: Limit = Limit {
+    name: "bytes in a file",
+    value: 64 << 20,
+    applies: Applies::Load,
+    code: Some(&codes::TOO_LARGE),
+    doc: "Bytes in one file of a project (64 MiB). A larger file is not read.",
+};
+
+/// Entities in one scene, each cell of a `cells` list counted: no more than
+/// a world may hold (`ENTITIES`).
+pub const SCENE_ENTITIES: Limit = Limit {
+    name: "entities in a scene",
+    value: ENTITIES.value,
+    applies: Applies::Load,
+    code: Some(&codes::TOO_LARGE),
+    doc: "Entities in one scene; each cell of a `cells` list is one. The scene is read up to the [[entity]] table \
+          that goes over.",
+};
+
+/// Cells of a ground: a ground is a byte per cell.
+pub const GROUND_CELLS: Limit = Limit {
+    name: "cells of a ground",
+    value: 4096 * 4096,
+    applies: Applies::Load,
+    code: Some(&codes::TOO_LARGE),
+    doc: "Cells of a ground, `size` x by y or the map's (4096 x 4096). A larger ground is not made.",
+};
+
+/// Cells the entities of one scene cover, every footprint counted in full.
+pub const COVERED_CELLS: Limit = Limit {
+    name: "cells covered in a scene",
+    value: 2048 * 2048,
+    applies: Applies::Load,
+    code: Some(&codes::TOO_LARGE),
+    doc: "Cells the entities of one scene cover, each `footprint` counted in full (2048 x 2048). The scene is read \
+          up to the [[entity]] table that goes over.",
+};
+
+/// Bytes of prefab files copied into the entities of one scene.
+pub const PREFAB_BYTES_COPIED: Limit = Limit {
+    name: "prefab bytes copied in a scene",
+    value: 128 << 20,
+    applies: Applies::Load,
+    code: Some(&codes::TOO_LARGE),
+    doc: "Bytes of prefab files copied into the entities of one scene: each prefab's size, once for every entity \
+          made from it (128 MiB). The scene is read up to the [[entity]] table that goes over.",
+};
+
+/// Characters in a name or a key.
+pub const NAME_CHARS: Limit = Limit {
+    name: "characters in a name",
+    value: 128,
+    applies: Applies::Load,
+    code: Some(&codes::TOO_LARGE),
+    doc: "Characters in a name or in a key. A file with a longer one is not read past its schema check.",
+};
+
+/// [[input]], [[expect]] and [[shot]] tables in one playtest.
+pub const PLAYTEST_TABLES: Limit = Limit {
+    name: "tables in a playtest",
+    value: 100_000,
+    applies: Applies::Load,
+    code: Some(&codes::TOO_LARGE),
+    doc: "`[[input]]`, `[[expect]]` and `[[shot]]` tables in one playtest. A longer playtest is not run.",
+};
+
+/// Every limit, in the order tables show them: at load, in a step, and the
+/// event log's.
 pub const ALL: &[&Limit] = &[
+    &FILE_BYTES,
+    &SCENE_ENTITIES,
+    &GROUND_CELLS,
+    &COVERED_CELLS,
+    &PREFAB_BYTES_COPIED,
+    &NAME_CHARS,
+    &PLAYTEST_TABLES,
     &SIGNALS_PER_STEP,
     &ACTIONS_PER_STEP,
     &COUNT_CHANGES_PER_STEP,

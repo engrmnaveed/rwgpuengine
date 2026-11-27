@@ -27,6 +27,7 @@ Codes are stable: never renumbered or reused. `E` codes are errors (the command 
 | [E0206](#e0206) | `unknown-prop` | Unknown prop |
 | [E0207](#e0207) | `prop-type` | Value does not fit the prop's type |
 | [E0208](#e0208) | `unknown-terrain` | Map uses an undeclared terrain character |
+| [E0209](#e0209) | `too-large` | Larger than the engine allows |
 | [W0201](#w0201) | `solid-overlap` | Two solid entities share a cell |
 | [W0202](#w0202) | `outside-ground` | Entity is outside the ground |
 | [W0203](#w0203) | `signal-never-emitted` | Connected signal is never emitted |
@@ -300,6 +301,32 @@ with `char`, so rwgpu does not know what that cell is.
 Fix: add a `[[terrain]]` table with `char = "..."` for it (with a `name`,
 `color` and `build`), or change the character to a declared one. Every cell
 needs a terrain: write plain ground as a declared character too.
+
+## E0209
+
+**Larger than the engine allows** (`too-large`, error)
+
+A file, a scene or a playtest is larger than this version of rwgpu allows.
+The message says which limit and by how much:
+
+- a file of more than 67108864 bytes (64 MiB);
+- a scene of more than 1000000 entities (each cell of `cells` is one);
+- a ground of more than 16777216 cells (4096 x 4096);
+- a scene whose entities cover more than 4194304 cells (2048 x 2048), every
+  `footprint` counted in full;
+- a scene that copies more than 134217728 bytes (128 MiB) of prefab files into
+  its entities: each prefab's size, once for every entity made from it;
+- a name or a key of more than 128 characters;
+- a playtest of more than 100000 `[[input]]`, `[[expect]]` and `[[shot]]`
+  tables.
+
+The limits keep `rwgpu check`, loading and the first step of a game short
+whatever a file says. A project over one is refused where it goes over,
+before the work it would cause, and nothing after that point in the file is
+read. Each is far above what the example games need; a town of 500,000
+actors is allowed. `rwgpu explain limits` lists every limit.
+
+Fix: make the named part smaller. This version cannot load a larger one.
 
 ## W0201
 

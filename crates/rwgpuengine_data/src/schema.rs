@@ -9,6 +9,7 @@ use rwgpuengine_core::codes;
 use rwgpuengine_core::color::Rgba;
 use rwgpuengine_core::diag::{Diagnostic, SourceFile, Span};
 use rwgpuengine_core::json::Json;
+use rwgpuengine_core::limits;
 use rwgpuengine_core::text::did_you_mean;
 
 use crate::node::{Node, NodeKind, Table, parse_toml};
@@ -1017,11 +1018,37 @@ impl Checker<'_> {
         self.diags.push(d);
     }
 
+    /// A key or a name no longer than the limit (E0209 otherwise).
+    fn short(&mut self, text: &str, span: Span, what: &str) -> bool {
+        let max = limits::NAME_CHARS.value;
+        if text.len() as u64 <= max {
+            return true;
+        }
+        let n = text.chars().count();
+        if n as u64 <= max {
+            return true;
+        }
+        let start: String = text.chars().take(24).collect();
+        self.error(
+            Diagnostic::new(
+                &codes::TOO_LARGE,
+                format!("{what} `{start}...` is {n} characters long, more than a name or a key can have ({max})"),
+            )
+            .at(self.src, span)
+            .hint("use a shorter one"),
+        );
+        false
+    }
+
     /// Check every key of `t` against `spec`. Returns false if any error was
     /// reported. `span` locates the table itself (for missing keys).
     pub fn table(&mut self, t: &Table, spec: &Spec, span: Span) -> bool {
         let mut ok = true;
         for e in &t.entries {
+            if !self.short(&e.key, e.key_span, "the key") {
+                ok = false;
+                continue;
+            }
             match spec.field(&e.key) {
                 None => {
                     ok = false;
@@ -1090,6 +1117,7 @@ impl Checker<'_> {
             Ty::Str => node.as_str().is_some() || wrong_type(self),
             Ty::Name => match node.as_str() {
                 None => wrong_type(self),
+                Some(s) if !self.short(s, node.span, "the name") => false,
                 Some(s) if s.is_empty() || !s.chars().all(|c| c.is_ascii_alphanumeric() || "_-/".contains(c)) => {
                     invalid(self, format!("`{label}` must be {}, found {s:?}", ty.describe()), None)
                 }
@@ -1193,6 +1221,10 @@ impl Checker<'_> {
                 Some(t) => {
                     let mut ok = true;
                     for e in &t.entries {
+                        if !self.short(&e.key, e.key_span, "the key") {
+                            ok = false;
+                            continue;
+                        }
                         ok &= self.value(&e.value, &Ty::Name, &format!("{label}.{}", e.key));
                     }
                     ok
@@ -1203,6 +1235,10 @@ impl Checker<'_> {
                 Some(t) => {
                     let mut ok = true;
                     for e in &t.entries {
+                        if !self.short(&e.key, e.key_span, "the key") {
+                            ok = false;
+                            continue;
+                        }
                         if matches!(e.value.kind, NodeKind::Array(_) | NodeKind::Table(_)) {
                             ok = false;
                             self.error(

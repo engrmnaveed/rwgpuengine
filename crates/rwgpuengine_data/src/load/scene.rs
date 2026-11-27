@@ -51,6 +51,11 @@ impl<'a> SceneLoader<'a> {
         prefab_exists(self.vfs, name)
     }
 
+    /// The size of a prefab's file, 0 if there is none.
+    pub(crate) fn prefab_bytes(&self, name: &str) -> u64 {
+        self.vfs.get(&format!("prefabs/{name}.toml")).map_or(0, |t| t.len() as u64)
+    }
+
     /// Load a scene. Returns `None` if the file is missing or has errors;
     /// diagnostics accumulate in `self.diags`.
     ///

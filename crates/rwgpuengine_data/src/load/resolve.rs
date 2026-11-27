@@ -6,12 +6,15 @@
 //! places and who pays for it. What cannot be found is reported here: an
 //! unknown prefab (E0201) or entity (E0202), a name given twice (E0203), a
 //! name with `cells` (E0205), and a prefab file's own problems, where the
-//! prefab is first used. Everything else is checked in stage 3.
+//! prefab is first used. So are the scene's sizes (E0209): an [[entity]]
+//! table that would take the scene over a limit is not decoded, and nothing
+//! after it is resolved or checked. Everything else is checked in stage 3.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use rwgpuengine_core::codes;
 use rwgpuengine_core::diag::{Diagnostic, SourceFile, Span};
+use rwgpuengine_core::limits::{self, Limit};
 use rwgpuengine_core::text::did_you_mean;
 
 use super::ground;
@@ -36,6 +39,9 @@ pub(crate) struct Resolved<'p> {
     pub signals: Signals,
     /// Prefabs that `spawn` places, decoded at [0, 0, 0], in first-use order.
     pub templates: Vec<EntityDef>,
+    /// An [[entity]] table would have taken the scene over a limit: the
+    /// entities stop before it, and nothing more is resolved or checked.
+    pub over_limit: bool,
 }
 
 /// An [[entity]] table that gave entities.
@@ -217,7 +223,7 @@ impl Signals {
 pub(crate) fn scene<'p>(loader: &mut SceneLoader, parsed: &'p Parsed, out: &mut Diags) -> Resolved<'p> {
     let (src, root) = (&parsed.src, &parsed.root);
     let ground = ground::ground(root, src, &mut out.at(At::Ground));
-    let (entities, tables, names) = entities(loader, parsed, out);
+    let (entities, tables, names, over_limit) = entities(loader, parsed, out);
     let mut index: BTreeMap<String, usize> = BTreeMap::new();
     for (i, e) in entities.iter().enumerate() {
         if let Some(n) = &e.name {
@@ -231,7 +237,8 @@ pub(crate) fn scene<'p>(loader: &mut SceneLoader, parsed: &'p Parsed, out: &mut 
         .enumerate()
         .filter_map(|(i, n)| Some((i, n, n.as_table()?)))
         .collect();
-    let decoded: Vec<ConnectDef> = connect_nodes.iter().map(|(_, _, t)| defs::decode_connect(t)).collect();
+    let decoded: Vec<ConnectDef> =
+        if over_limit { Vec::new() } else { connect_nodes.iter().map(|(_, _, t)| defs::decode_connect(t)).collect() };
     let signals = Signals::of(&decoded, &entities);
     let mut templates = Templates::default();
     let mut connections = Vec::new();
@@ -240,21 +247,73 @@ pub(crate) fn scene<'p>(loader: &mut SceneLoader, parsed: &'p Parsed, out: &mut 
         connection(loader, &mut c, &entities, &index, &names, src, out, &mut templates);
         connections.push(c);
     }
-    Resolved { ground, entities, tables, index, connections, signals, templates: templates.defs }
+    Resolved { ground, entities, tables, index, connections, signals, templates: templates.defs, over_limit }
+}
+
+/// What a scene has taken so far of the limits on its size.
+#[derive(Default)]
+struct Sizes {
+    entities: u64,
+    covered: u64,
+    copied: u64,
+}
+
+impl Sizes {
+    /// Adds `count` entities that each cover `area` cells and copy a prefab
+    /// of `prefab` bytes. The first limit that is then gone over, and the
+    /// new total.
+    fn add(&mut self, count: u64, area: u64, prefab: u64) -> Option<(&'static Limit, u64)> {
+        self.entities = self.entities.saturating_add(count);
+        self.covered = self.covered.saturating_add(count.saturating_mul(area));
+        self.copied = self.copied.saturating_add(count.saturating_mul(prefab));
+        [
+            (&limits::SCENE_ENTITIES, self.entities),
+            (&limits::COVERED_CELLS, self.covered),
+            (&limits::PREFAB_BYTES_COPIED, self.copied),
+        ]
+        .into_iter()
+        .find(|(l, n)| *n > l.value)
+    }
+}
+
+/// E0209 for the [[entity]] table that takes the scene over `limit`.
+fn too_large(limit: &Limit, total: u64, t: &Table, src: &SourceFile, span: Span) -> Diagnostic {
+    let max = limit.value;
+    let (what, hint) = if *limit == limits::SCENE_ENTITIES {
+        ("entities".to_string(), "each cell of `cells` is one entity".to_string())
+    } else if *limit == limits::COVERED_CELLS {
+        (
+            "cells covered by its entities".to_string(),
+            "a `footprint` covers its width times its height in cells".to_string(),
+        )
+    } else {
+        let p = t.str("prefab").unwrap_or_default();
+        (
+            "bytes of prefabs copied into its entities".to_string(),
+            format!("every entity made from `{p}` copies all of prefabs/{p}.toml: give large prefabs to few entities"),
+        )
+    };
+    Diagnostic::new(
+        &codes::TOO_LARGE,
+        format!("this [[entity]] brings the scene to {total} {what}, more than a scene can have ({max})"),
+    )
+    .at(src, span)
+    .hint(hint)
 }
 
 /// Every [[entity]] merged onto its prefab and decoded, the tables that gave
-/// them, and the names they give.
+/// them, the names they give, and whether one took the scene over a limit.
 fn entities<'p>(
     loader: &mut SceneLoader,
     parsed: &'p Parsed,
     out: &mut Diags,
-) -> (Vec<EntityDef>, Vec<EntityTable<'p>>, BTreeMap<String, usize>) {
+) -> (Vec<EntityDef>, Vec<EntityTable<'p>>, BTreeMap<String, usize>, bool) {
     let (src, root) = (&parsed.src, &parsed.root);
     let path = src.path.as_str();
     let mut entities = Vec::new();
     let mut tables = Vec::new();
     let mut names: BTreeMap<String, usize> = BTreeMap::new();
+    let mut sizes = Sizes::default();
     for (item, node) in root.array("entity").unwrap_or(&[]).iter().enumerate() {
         let Some(t) = node.as_table() else { continue };
         let at = |step| At::Entity(item, step);
@@ -278,8 +337,8 @@ fn entities<'p>(
         };
         let origin = Origin { file: path.to_string(), line: src.locate(node.span.start).0, span: node.span };
         let z = t.get("pos").and_then(schema::node_pos).map_or(0.0, |p| p[2]);
-        if let Some(cells_node) = t.get("cells") {
-            if let Some(name) = t.str("name") {
+        let cells = match t.get("cells") {
+            Some(_) if let Some(name) = t.str("name") => {
                 out.at(at(EntityStep::Cells)).push(
                     Diagnostic::new(&codes::NAME_WITH_CELLS, format!("entity `{name}` has both `name` and `cells`"))
                         .at(src, t.key_span("name", node.span))
@@ -287,7 +346,18 @@ fn entities<'p>(
                 );
                 continue;
             }
-            let cells = defs::cells_of(cells_node);
+            Some(cells_node) => Some((cells_node, defs::cells_of(cells_node))),
+            None => None,
+        };
+        let count = cells.as_ref().map_or(1, |(_, c)| c.len() as u64);
+        let [w, h] = Fields::new(&merged, &schema::ENTITY).cell("footprint");
+        let area = w.max(1) as u64 * h.max(1) as u64;
+        let prefab = t.str("prefab").map_or(0, |p| loader.prefab_bytes(p));
+        if let Some((limit, total)) = sizes.add(count, area, prefab) {
+            out.at(at(EntityStep::Size)).push(too_large(limit, total, t, src, node.span));
+            return (entities, tables, names, true);
+        }
+        if let Some((cells_node, cells)) = cells {
             let checked = (!cells.is_empty()).then_some(entities.len());
             for (i, c) in cells.into_iter().enumerate() {
                 let span = cells_node.as_array().and_then(|a| a.get(i)).map_or(cells_node.span, |n| n.span);
@@ -314,7 +384,7 @@ fn entities<'p>(
             entities.push(def);
         }
     }
-    (entities, tables, names)
+    (entities, tables, names, false)
 }
 
 /// `action`, or a non-empty `actions` with no key of an action beside it.

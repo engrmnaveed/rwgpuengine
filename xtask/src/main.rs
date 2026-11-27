@@ -26,8 +26,8 @@
 //!                       window.
 //! ```
 //!
-//! `render-bench` and `sim-step` are internal: `budgets` runs them as release
-//! builds.
+//! `render-bench`, `sim-step` and `load-check` are internal: `budgets` runs
+//! them as release builds.
 //! `sim-bench` times one simulation step in generated worlds of 1,000 to
 //! 50,000 entities; run it as a release build
 //! (`cargo run --release -p xtask -- sim-bench`). `load-bench` times loading
@@ -75,13 +75,14 @@ fn main() -> ExitCode {
         "sim-bench" => sim_bench::run(rest),
         "sim-step" => sim_bench::budget_step_us().map(|us| println!("{us}")),
         "load-bench" => load_bench::run(rest, &root()),
+        "load-check" => load_bench::budget_check_ms(&root()).map(|ms| println!("{ms}")),
         "gpu" => gpu(rest),
         _ => {
             eprintln!(
                 "usage: cargo xtask <ci | repo-check | dist [--agent] | web | web-player | smoke | budgets | \
                  docs [--check] | wasm-check | export-check | pages [--out DIR] [--base /PATH/] | \
                  gpu [--fast | --study | --window] [-- <options of players/gpu_check>] | \
-                 sim-bench [town | plates | wired | build ...] [N ...] [--steps S] [--all] | \
+                 sim-bench [town | plates | wired | build ...] [N ...] [--steps S] [--all] [--loader] | \
                  load-bench [town | plates | wired | build | linked | crowded ...] [N ...]>"
             );
             return ExitCode::from(2);
@@ -724,6 +725,22 @@ fn budgets() -> Result {
     let text = String::from_utf8_lossy(&out.stdout);
     let sim_us: i64 = text.trim().parse().map_err(|_| format!("sim-step: expected a number, got `{}`", text.trim()))?;
     r.add("time.sim_step_us", sim_us, b.time("sim_step_us"));
+
+    step("load and check (release, native)");
+    let out = dist::release_command(
+        &machine,
+        &root(),
+        &["run", "--release", "--quiet", "--package", "xtask", "--", "load-check"],
+    )
+    .output()
+    .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(format!("load-check failed: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let check_ms: i64 =
+        text.trim().parse().map_err(|_| format!("load-check: expected a number, got `{}`", text.trim()))?;
+    r.add("time.load_check_ms", check_ms, b.time("load_check_ms"));
 
     let smoke_ms = smoke()?;
     r.add("time.smoke_chain_ms", smoke_ms as i64, b.time("smoke_chain_ms"));

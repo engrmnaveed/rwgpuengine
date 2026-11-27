@@ -13,8 +13,9 @@
 //!   every frame that each try to place a hut. "Is there room?" and "how
 //!   many are there?"
 //!
-//! The worlds are built from definitions, not from scene text: the loader's
-//! checks do not scale yet, and this measures the step.
+//! The worlds are built from definitions. With `--loader` they are made from
+//! their scene text instead, through the loader (`load-bench` writes the same
+//! scenes): the state hash printed is then the same (ADR 0028).
 //!
 //! Events are written as a game runs by default (ADR 0027): the first 256 of
 //! each per-actor kind in a step, the rest counted. `--all` writes every
@@ -215,8 +216,8 @@ struct Row {
 
 /// Step a world `steps` times (or, without a number, for about two seconds
 /// and at least five steps) and time each step.
-fn measure(kind: &str, n: usize, steps: Option<u32>, all: bool) -> Result<Row> {
-    let (def, seed) = scene(kind, n)?;
+fn measure(kind: &str, n: usize, steps: Option<u32>, all: bool, loader: bool) -> Result<Row> {
+    let (def, seed) = if loader { through_the_loader(kind, n)? } else { scene(kind, n)? };
     let size = def.ground.as_ref().map(|g| g.size).unwrap_or([1, 1]);
     let mut world = World::new(&def, seed);
     if all {
@@ -316,12 +317,24 @@ pub fn budget_step_us() -> Result<i64> {
     Ok(times[times.len() / 2] as i64)
 }
 
-/// `cargo xtask sim-bench [town|plates|wired|build ...] [N ...] [--steps S] [--all]`,
+/// The world `kind` of `n` from its scene text, through the loader.
+fn through_the_loader(kind: &str, n: usize) -> Result<(SceneDef, u64)> {
+    let project = crate::load_bench::project(kind, n)?;
+    let vfs = project.vfs();
+    let mut loader = SceneLoader::new(&vfs);
+    let def = loader
+        .load_scene("scenes/main.toml")
+        .ok_or_else(|| format!("{kind} {n} does not load: {:?}", loader.diags.first()))?;
+    Ok((def, project.seed))
+}
+
+/// `cargo xtask sim-bench [town|plates|wired|build ...] [N ...] [--steps S] [--all] [--loader]`,
 /// or `sim-bench town N --write DIR` to write that town as a project.
 /// Without names it measures all four worlds; without numbers, at 1,000,
 /// 5,000, 20,000 and 50,000. `--steps` fixes the number of steps, so that
 /// two engines can be compared at the same frame: the state hash printed
-/// must then be equal.
+/// must then be equal. `--loader` makes each world from its scene text,
+/// through the loader; the state hash is the same as without it.
 pub fn run(args: &[String]) -> Result {
     if cfg!(debug_assertions) {
         eprintln!("sim-bench: this is a debug build; run `cargo run --release -p xtask -- sim-bench` for times");
@@ -330,6 +343,7 @@ pub fn run(args: &[String]) -> Result {
     let mut sizes: Vec<usize> = Vec::new();
     let mut steps = None;
     let mut all = false;
+    let mut loader = false;
     let mut write = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -337,6 +351,8 @@ pub fn run(args: &[String]) -> Result {
             write = Some(it.next().ok_or("--write needs a folder")?);
         } else if a == "--all" {
             all = true;
+        } else if a == "--loader" {
+            loader = true;
         } else if a == "--steps" {
             let v = it.next().ok_or("--steps needs a number")?;
             steps = Some(v.parse::<u32>().map_err(|e| format!("--steps {v}: {e}"))?);
@@ -376,7 +392,7 @@ pub fn run(args: &[String]) -> Result {
     );
     for kind in &kinds {
         for &n in &sizes {
-            let r = measure(kind, n, steps, all)?;
+            let r = measure(kind, n, steps, all, loader)?;
             println!(
                 "{:<7} {:>8} {:>9} {:>6} {:>12.4} {:>12.4} {:>10.1} {:>12.0} {:>13.0} {:>10.0}  {}",
                 r.kind,

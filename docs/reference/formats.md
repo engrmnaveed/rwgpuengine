@@ -420,12 +420,21 @@ emit `tapped`; a tap that hits no entity but lands on a ground cell makes the gr
 `[[connect]] from = "ground"` listens), movers, patrols, wanderers, Rust game systems, triggers, then signal
 dispatch through `[[connect]]` tables.
 
-**Limits on work.** A step that reaches one of these stops there: the signals still queued are dropped, an
-`error` event says what was cut off, and `rwgpu run`, `inspect`, `shot` and `test` report the code as an
-error. Every other step runs as before.
+**Limits.** A project over a limit checked at `load` is refused where it goes over (E0209), before the work
+it would cause, and nothing after that point in the file is read. A step that reaches one of the others
+stops there: the signals still queued are dropped, an `error` event says what was cut off, and `rwgpu run`,
+`inspect`, `shot` and `test` report the code as an error. Every other step runs as before. The ranges of
+single values are in the tables above.
 
 | limit | number | checked | code | what happens |
 |---|---|---|---|---|
+| bytes in a file | 67108864 | load | E0209 | Bytes in one file of a project (64 MiB). A larger file is not read. |
+| entities in a scene | 1000000 | load | E0209 | Entities in one scene; each cell of a `cells` list is one. The scene is read up to the [[entity]] table that goes over. |
+| cells of a ground | 16777216 | load | E0209 | Cells of a ground, `size` x by y or the map's (4096 x 4096). A larger ground is not made. |
+| cells covered in a scene | 4194304 | load | E0209 | Cells the entities of one scene cover, each `footprint` counted in full (2048 x 2048). The scene is read up to the [[entity]] table that goes over. |
+| prefab bytes copied in a scene | 134217728 | load | E0209 | Bytes of prefab files copied into the entities of one scene: each prefab's size, once for every entity made from it (128 MiB). The scene is read up to the [[entity]] table that goes over. |
+| characters in a name | 128 | load | E0209 | Characters in a name or in a key. A file with a longer one is not read past its schema check. |
+| tables in a playtest | 100000 | load | E0209 | `[[input]]`, `[[expect]]` and `[[shot]]` tables in one playtest. A longer playtest is not run. |
 | signals per step | 1000 | step | E0301 | Signals dispatched in one step. The rest of the step's signals are dropped: usually a loop of connections. |
 | actions per step | 10000 | step | E0302 | `[[connect]]` actions run or skipped in one step. The step stops at the next one and drops the signals still queued: one signal can reach many connections with many actions each. |
 | count changes per step | 10000 | step | E0303 | `counts` props changed in one step. The step stops there and drops the signals still queued; the next step brings the remaining counts up to date. |

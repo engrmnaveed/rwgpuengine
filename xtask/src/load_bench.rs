@@ -19,6 +19,17 @@
 //! - `crowded`: `n` actors that each start inside a wall, and `n`
 //!   [[connect]]s that each name an entity that does not exist: the paths of
 //!   warnings and errors.
+//!
+//! And the sizes the engine's limits are about (`rwgpuengine_core::limits`):
+//!
+//! - `ground`: a plain ground of `n` cells and one wanderer;
+//! - `footprint`: one solid that covers `n` cells, and one wanderer;
+//! - `houses`: solids of 4 x 4 cells that cover `n` cells in all;
+//! - `copies`: `n` entities made from a prefab of 4 KB;
+//! - `inputs`: a playtest of `n` [[input]] tables.
+//!
+//! `step` is the first step of the world built from the scene. A project
+//! over a limit is refused (E0209): its row says so, and has no world.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -27,11 +38,12 @@ use rwgpuengine_core::diag::{Diagnostic, SourceFile, Span};
 use rwgpuengine_data::node::parse_toml;
 use rwgpuengine_data::schema::{self, Checker};
 use rwgpuengine_data::{SceneLoader, Vfs, check_project};
-use rwgpuengine_sim::World;
+use rwgpuengine_sim::{InputFrame, NoSystems, World};
 
 use crate::Result;
 
-pub const KINDS: [&str; 6] = ["town", "plates", "wired", "build", "linked", "crowded"];
+pub const KINDS: [&str; 11] =
+    ["town", "plates", "wired", "build", "linked", "crowded", "ground", "footprint", "houses", "copies", "inputs"];
 const SIZES: [usize; 4] = [1_000, 5_000, 20_000, 50_000];
 
 /// The smallest even side whose every other cell holds `n` things.
@@ -65,7 +77,6 @@ impl Project {
     }
 
     /// The files as a file set, without writing them.
-    #[allow(dead_code)]
     pub fn vfs(&self) -> Vfs {
         let mut vfs = Vfs::new();
         for (path, text) in &self.files {
@@ -179,6 +190,71 @@ fn crowded(n: usize) -> Project {
     Project::new(s, &[("wall", "block = {}\nsolid = true\n")], 3)
 }
 
+/// The smallest side whose square holds `n` cells.
+fn square(n: usize) -> usize {
+    let mut side = 1;
+    while side * side < n {
+        side += 1;
+    }
+    side
+}
+
+fn ground(n: usize) -> Project {
+    let side = square(n);
+    Project::new(format!("[ground]\nsize = [{side}, {side}]\n\n[[entity]]\npos = [0, 0]\nwander = {{}}\n"), &[], 1)
+}
+
+fn footprint(n: usize) -> Project {
+    let side = square(n);
+    Project::new(
+        format!(
+            "[[entity]]\npos = [0, 0]\nfootprint = [{side}, {side}]\nblock = {{}}\nsolid = true\n\n[[entity]]\npos = [-1, -1]\nwander = {{}}\n"
+        ),
+        &[],
+        1,
+    )
+}
+
+fn houses(n: usize) -> Project {
+    let count = n.div_ceil(16);
+    let per_row = square(count);
+    let side = per_row * 4;
+    let mut s = format!("[ground]\nsize = [{side}, {side}]\n");
+    for i in 0..count {
+        s.push_str(&format!(
+            "\n[[entity]]\nprefab = \"house\"\npos = [{}, {}]\n",
+            4 * (i % per_row),
+            4 * (i / per_row)
+        ));
+    }
+    Project::new(s, &[("house", "footprint = [4, 4]\nblock = {}\nsolid = true\n")], 1)
+}
+
+fn copies(n: usize) -> Project {
+    let side = side_for(n);
+    let mut prefab = String::from("tile = {}\nprops = { ");
+    for i in 0..200 {
+        prefab.push_str(&format!("prop_{i:03} = {i}, "));
+    }
+    prefab.push_str("last = 0 }\n");
+    let mut s = format!("[ground]\nsize = [{side}, {side}]\n");
+    for i in 0..n {
+        let (x, y) = spot(i, side);
+        s.push_str(&format!("\n[[entity]]\nprefab = \"big\"\npos = [{x}, {y}]\n"));
+    }
+    Project::new(s, &[("big", &prefab)], 1)
+}
+
+fn inputs(n: usize) -> Project {
+    let mut test = "[test]\nframes = 1000000\n".to_string();
+    for i in 0..n {
+        test.push_str(&format!("\n[[input]]\nframe = {}\npress = \"up\"\n", i % 1_000_000));
+    }
+    let mut p = Project::new("[ground]\nsize = [4, 4]\n\n[[entity]]\nmover = {}\n".to_string(), &[], 1);
+    p.files.push(("tests/long.toml".to_string(), test));
+    p
+}
+
 pub fn project(kind: &str, n: usize) -> Result<Project> {
     Ok(match kind {
         "town" => town(n),
@@ -187,6 +263,11 @@ pub fn project(kind: &str, n: usize) -> Result<Project> {
         "build" => build(n),
         "linked" => linked(n),
         "crowded" => crowded(n),
+        "ground" => ground(n),
+        "footprint" => footprint(n),
+        "houses" => houses(n),
+        "copies" => copies(n),
+        "inputs" => inputs(n),
         other => return Err(format!("unknown world `{other}` (one of: {})", KINDS.join(", "))),
     })
 }
@@ -234,6 +315,10 @@ pub struct Row {
     pub load: f64,
     pub check: f64,
     pub build: f64,
+    /// The first step of the built world.
+    pub step: f64,
+    /// Over a limit (E0209).
+    pub refused: bool,
 }
 
 pub fn measure(kind: &str, n: usize, dir: &Path) -> Result<Row> {
@@ -259,13 +344,17 @@ pub fn measure(kind: &str, n: usize, dir: &Path) -> Result<Row> {
         (loader.load_scene("scenes/main.toml"), loader.diags.len())
     });
     let (check, report) = time(|| check_project(&vfs));
-    // `crowded` is made of mistakes: it does not load, and has no world.
-    let (build, entities) = match scene.0 {
+    // `crowded` is made of mistakes: it does not load, and has no world;
+    // neither has a project over a limit.
+    let refused = report.diagnostics.iter().any(|d| d.code == "E0209");
+    let (build, step, entities) = match scene.0 {
         Some(scene) if report.ok() => {
-            let (ms, world) = time(|| World::new(&scene, p.seed));
-            (ms, world.entities.len())
+            let (ms, mut world) = time(|| World::new(&scene, p.seed));
+            let start = Instant::now();
+            world.tick(&InputFrame::default(), &mut NoSystems);
+            (ms, start.elapsed().as_secs_f64() * 1e3, world.entities.len())
         }
-        _ if kind == "crowded" => (0.0, 0),
+        _ if kind == "crowded" || refused => (0.0, 0.0, 0),
         _ => return Err(format!("{kind} {n}: {:?}", report.diagnostics.iter().take(3).collect::<Vec<_>>())),
     };
     Ok(Row {
@@ -279,7 +368,28 @@ pub fn measure(kind: &str, n: usize, dir: &Path) -> Result<Row> {
         load,
         check,
         build,
+        step,
+        refused,
     })
+}
+
+/// The budget's measurement (`time.load_check_ms` in budgets.toml): the
+/// study's town of 50,000 actors written as files and checked as
+/// `rwgpu check` checks it, the median of seven runs, in milliseconds.
+pub fn budget_check_ms(root: &Path) -> Result<u64> {
+    let dir = root.join("target/load-bench/budget-town-50000");
+    write(&town(50_000), &dir)?;
+    let vfs = Vfs::from_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut times: Vec<f64> = (0..7)
+        .map(|_| {
+            let start = Instant::now();
+            let report = std::hint::black_box(check_project(&vfs));
+            assert!(report.ok(), "the town does not check: {:?}", report.diagnostics.first());
+            start.elapsed().as_secs_f64() * 1e3
+        })
+        .collect();
+    times.sort_by(|a, b| a.total_cmp(b));
+    Ok(times[3].round() as u64)
 }
 
 /// `cargo xtask load-bench [town | plates | wired | build | linked | crowded ...] [N ...]`.
@@ -303,7 +413,7 @@ pub fn run(args: &[String], root: &Path) -> Result {
         sizes = SIZES.to_vec();
     }
     println!(
-        "{:<8} {:>8} {:>9} {:>11} {:>6} {:>9} {:>9} {:>9} {:>9} {:>9} {:>11}",
+        "{:<9} {:>8} {:>9} {:>11} {:>6} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>11}",
         "world",
         "n",
         "entities",
@@ -314,6 +424,7 @@ pub fn run(args: &[String], root: &Path) -> Result {
         "load ms",
         "check ms",
         "build ms",
+        "step ms",
         "check us/n"
     );
     let base: PathBuf = root.join("target/load-bench");
@@ -321,7 +432,7 @@ pub fn run(args: &[String], root: &Path) -> Result {
         for &n in &sizes {
             let r = measure(kind, n, &base.join(format!("{kind}-{n}")))?;
             println!(
-                "{:<8} {:>8} {:>9} {:>11} {:>6} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>11.2}",
+                "{:<9} {:>8} {:>9} {:>11} {:>6} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>11.2}",
                 r.kind,
                 r.n,
                 r.entities,
@@ -332,8 +443,12 @@ pub fn run(args: &[String], root: &Path) -> Result {
                 r.load,
                 r.check,
                 r.build,
+                r.step,
                 r.check * 1e3 / r.n as f64
             );
+            if r.refused {
+                println!("          (refused: over a limit, E0209)");
+            }
         }
     }
     Ok(())

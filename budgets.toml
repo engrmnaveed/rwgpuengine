@@ -68,6 +68,12 @@ reference_town_frame_us = 20_000
 # Measured 1.0 to 1.1 ms on an Apple M5 Pro; with every event written, as
 # before ADR 0027, it was 14 ms.
 sim_step_us = 2_000
+# Load and check the 3D study's town of 50,000 wanderers on every other cell
+# of a 448 x 448 ground, written as files, as `rwgpu check` does (ADR 0028;
+# `cargo xtask load-bench town` writes the town): the median of 7 runs.
+# Measured 76 to 82 ms on an Apple M5 Pro; before ADR 0028 the loader took
+# 1,635 ms, growing with the square of the town. The limit leaves 3x.
+load_check_ms = 250
 
 [tablet]
 # Cold start of the web player on a mid-range tablet. Needs a device to

@@ -3,12 +3,13 @@
 //! Part of stage 2. A map's cells are its terrains' characters, so the
 //! ground is decoded and checked in one pass, in the order of its parts:
 //! the terrains, then `size` or the rows of `map`, then the keys that do not
-//! go with a map.
+//! go with a map. A ground of more cells than the limit is not made (E0209).
 
 use std::collections::BTreeMap;
 
 use rwgpuengine_core::codes;
 use rwgpuengine_core::diag::{Diagnostic, SourceFile, Span};
+use rwgpuengine_core::limits;
 
 use super::order::Sink;
 use crate::defs::{self, GroundDef};
@@ -65,6 +66,10 @@ pub(crate) fn ground(root: &Table, src: &SourceFile, out: &mut Sink) -> Option<G
             );
             return None;
         }
+        let [x, y] = Fields::new(g, &schema::GROUND).cell("size");
+        if !within_limit(x, y, src, g.value_span("size", gspan), out) {
+            return None;
+        }
         return Some(defs::decode_plain_ground(g));
     };
     let rows: Vec<(String, Span)> =
@@ -73,6 +78,9 @@ pub(crate) fn ground(root: &Table, src: &SourceFile, out: &mut Sink) -> Option<G
     let mut ok = width > 0;
     if width == 0 {
         out.push(Diagnostic::new(&codes::INVALID_VALUE, "`map` rows must not be empty").at(src, map_node.span));
+    }
+    if !within_limit(width as i32, rows.len() as i32, src, map_node.span, out) {
+        return None;
     }
     // The note of an unknown character: the same for every row, made once.
     let mut declared: Option<String> = None;
@@ -158,4 +166,22 @@ pub(crate) fn ground(root: &Table, src: &SourceFile, out: &mut Sink) -> Option<G
         return None;
     }
     Some(GroundDef { size, terrains, cells, has_map: true })
+}
+
+/// A ground of `x` by `y` cells is within the limit (E0209 otherwise).
+fn within_limit(x: i32, y: i32, src: &SourceFile, at: Span, out: &mut Sink) -> bool {
+    let cells = x.max(0) as u64 * y.max(0) as u64;
+    let max = limits::GROUND_CELLS.value;
+    if cells <= max {
+        return true;
+    }
+    out.push(
+        Diagnostic::new(
+            &codes::TOO_LARGE,
+            format!("the ground is {x} x {y} = {cells} cells, more than a ground can have ({max})"),
+        )
+        .at(src, at)
+        .hint("a ground can be up to 4096 x 4096 cells"),
+    );
+    false
 }

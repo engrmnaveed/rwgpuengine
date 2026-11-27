@@ -21,7 +21,9 @@
 //! The corpus: the three example games, every input of the loader tests in
 //! `tests.rs`, inputs made to reach every place the loader reports a problem
 //! (alone, several in one file, and spread over the files of one project),
-//! and generated worlds of a thousand entities.
+//! and generated worlds of a thousand entities. The cases under `limits/`
+//! are sizes over the limits of `rwgpuengine_core::limits` (E0209); they are
+//! new with the limits, and the only cases whose records the limits changed.
 //!
 //! `cargo test -p rwgpuengine_data corpus::print -- --ignored --nocapture`
 //! prints the lines of [`PINS`]. With `CORPUS_OUT=<file>` it also writes every
@@ -1792,6 +1794,120 @@ pub(crate) fn cases() -> Vec<Case> {
     v.push(case("everything", everything()));
     v.extend(test_inputs());
     v.extend(generated());
+    v.extend(limit_cases());
+    v
+}
+// ---------------------------------------------------------------------------
+// Sizes over the limits (E0209)
+
+/// `n` entities made from `prefab`, each on a cell of their own.
+fn copies_of(prefab: &str, n: usize) -> String {
+    (0..n).map(|i| format!("[[entity]]\nprefab = \"{prefab}\"\npos = [{}, {}]\n\n", i % 64, i / 64)).collect()
+}
+
+/// A prefab of one mebibyte (most of it a comment).
+fn mebibyte_prefab() -> String {
+    let body = "tile = {}\n";
+    format!("{body}#{}\n", "x".repeat((1 << 20) - body.len() - 2))
+}
+
+/// A playtest of `n` [[expect]] tables.
+fn expects(n: usize) -> String {
+    (0..n).map(|_| "[[expect]]\nevent = \"moved\"\n").collect()
+}
+
+fn limit_cases() -> Vec<Case> {
+    let long = "k".repeat(129);
+    let exactly = "k".repeat(128);
+    let max_file = rwgpuengine_core::limits::FILE_BYTES.value as usize;
+    let mut v = vec![
+        case("limits/file", with(&[("scenes/main.toml", &format!("#{}\n", "x".repeat(max_file - 1)))])),
+        case("limits/file-exactly", with(&[("tests/t.toml", &format!("#{}\n", "x".repeat(max_file - 2)))])),
+        case("limits/key", scene_with(&format!("[[entity]]\nname = \"e\"\n{long} = 1\n"))),
+        case("limits/key-exactly", scene_with(&format!("[[entity]]\nname = \"e\"\nprops = {{ {exactly} = 1 }}\n"))),
+        case("limits/prop-key", scene_with(&format!("[[entity]]\nname = \"e\"\nprops = {{ {long} = 1, b = 2 }}\n"))),
+        case("limits/counts-key", scene_with(&format!("[[entity]]\nname = \"e\"\ncounts = {{ {long} = \"hut\" }}\n"))),
+        case(
+            "limits/name",
+            scene_with(&format!(
+                "[[entity]]\nname = \"{long}\"\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\nto = \"{long}x\"\naction = \"enable\"\n"
+            )),
+        ),
+        case("limits/name-exactly", scene_with(&format!("[[entity]]\nname = \"{exactly}\"\n"))),
+        case("limits/ground", bare_scene("[ground]\nsize = [4097, 4096]\n\n[[entity]]\nprefab = \"nope\"\n")),
+        case("limits/ground-exactly", bare_scene("[ground]\nsize = [4096, 4096]\n")),
+        case("limits/ground-huge", bare_scene("[ground]\nsize = [2147483647, 2147483647]\n")),
+        case(
+            "limits/map",
+            bare_scene(&format!("[ground]\nmap = [\"{}\"]\n\n[[terrain]]\nchar = \"g\"\n", "g".repeat(16_777_217))),
+        ),
+        case(
+            "limits/covered",
+            scene_with(
+                "[[entity]]\nname = \"field\"\npos = [0, 9]\nfootprint = [2048, 2049]\ntile = {}\n\n[[entity]]\nprefab = \"nope\"\n",
+            ),
+        ),
+        case(
+            "limits/covered-adds-up",
+            scene_with(
+                "[[entity]]\npos = [0, 9]\nfootprint = [2048, 1024]\ntile = {}\n\n[[entity]]\ncells = [[0, 2000], [1, 2000]]\nfootprint = [1024, 1024]\ntile = {}\n",
+            ),
+        ),
+        case(
+            "limits/footprint-huge",
+            scene_with("[[entity]]\npos = [0, 9]\nfootprint = [2147483647, 2147483647]\nblock = {}\nsolid = true\n"),
+        ),
+        case(
+            "limits/prefab-copies",
+            with(&[
+                ("prefabs/big.toml", &mebibyte_prefab()),
+                (
+                    "scenes/main.toml",
+                    &format!("{}\n[[entity]]\nprefab = \"wal\"\n\n{}", base_scene(), copies_of("big", 129)),
+                ),
+            ]),
+        ),
+        case(
+            "limits/prefab-copies-exactly",
+            bare(&[
+                ("rwgpu.toml", PROJECT),
+                ("prefabs/big.toml", &mebibyte_prefab()),
+                ("scenes/main.toml", &copies_of("big", 128)),
+            ]),
+        ),
+        case("limits/playtest", with(&[("tests/t.toml", &expects(100_001))])),
+        case(
+            "limits/playtest-exactly",
+            with(&[("tests/t.toml", &format!("[test]\nscene = \"scenes/main.toml\"\n{}", expects(100_000)))]),
+        ),
+    ];
+    // Every cell of `cells` is an entity.
+    let cells: Vec<String> = (0..1_000_001).map(|i| format!("[{}, {}]", i % 1000, i / 1000)).collect();
+    v.push(case(
+        "limits/entities",
+        bare_scene(&format!(
+            "[[entity]]\nprefab = \"nope\"\n\n[[entity]]\ncells = [{}]\ntile = {{}}\n",
+            cells.join(", ")
+        )),
+    ));
+    // Several limits, and other problems, in the files of one project.
+    v.push(case(
+        "limits/everything",
+        with(&[
+            ("rwgpu.toml", &format!("[project]\nname = \"all\"\nengine = \"0.0\"\n{long} = 1\n")),
+            ("prefabs/big.toml", &mebibyte_prefab()),
+            ("prefabs/odd.toml", &format!("{long} = 1\n")),
+            ("scenes/a.toml", "[ground]\nsize = [5000, 5000]\n\n[[entity]]\nprefab = \"odd\"\n"),
+            ("scenes/b.toml", &format!("[[entity]]\nprefab = \"wal\"\n\n{}", copies_of("big", 130))),
+            (
+                "scenes/c.toml",
+                "[[entity]]\nfootprint = [3000, 3000]\nblock = {}\n\n[[entity]]\nname = \"x\"\nsprit = {}\n",
+            ),
+            ("scenes/d.toml", &format!("[[entity]]\nname = \"{long}\"\n")),
+            ("tests/t.toml", &format!("[test]\nscene = \"scenes/c.toml\"\n{}", expects(100_001))),
+            ("tests/u.toml", "[[expect]]\nentity = \"zeppelin\"\npos = [0, 0]\n"),
+        ]),
+    ));
     v
 }
 
@@ -1824,7 +1940,8 @@ fn everything() -> Vfs {
 // ---------------------------------------------------------------------------
 // Pins
 
-/// The hash of each case's record, recorded from the loader before ADR 0028.
+/// The hash of each case's record, recorded from the loader before ADR 0028
+/// (the cases under `limits/`: with the limits, which they are made to reach).
 const PINS: &[(&str, &str)] = &[
     ("examples/coin_vault", "b7e48e8a696ae553"),
     ("examples/iso_garden", "c84862e5a560d2ec"),
@@ -2279,12 +2396,33 @@ const PINS: &[(&str, &str)] = &[
     ("generated/linked-1000", "451002d1099de0e4"),
     ("generated/build-1000", "dd5798c858091d22"),
     ("generated/crowded-300", "ed32465a227fb264"),
+    ("limits/file", "3ffc4affb7df64a9"),
+    ("limits/file-exactly", "0f69c91d687e73a4"),
+    ("limits/key", "78397ee80fe45f26"),
+    ("limits/key-exactly", "43b524fb7ab50752"),
+    ("limits/prop-key", "e79ecfa1e9802530"),
+    ("limits/counts-key", "c4aba6400c38bd10"),
+    ("limits/name", "e3056cfa66ca25d8"),
+    ("limits/name-exactly", "b828e9537418445e"),
+    ("limits/ground", "b059eb8a5e5ce718"),
+    ("limits/ground-exactly", "edcc2f98c620ec0a"),
+    ("limits/ground-huge", "a2f5ebd052602889"),
+    ("limits/map", "ef60709c614d90d1"),
+    ("limits/covered", "7370d2d35c3d6f63"),
+    ("limits/covered-adds-up", "6c04e38a1b5bed45"),
+    ("limits/footprint-huge", "cac00b83c03b5b53"),
+    ("limits/prefab-copies", "c47652eeff5fc160"),
+    ("limits/prefab-copies-exactly", "82fa76c7155ce3ad"),
+    ("limits/playtest", "28ff385dadef05ee"),
+    ("limits/playtest-exactly", "91f4214313f9d5f4"),
+    ("limits/entities", "5b251d46318bdd4c"),
+    ("limits/everything", "17f91b2536fcec79"),
 ];
 
 /// Every code the loader can report.
 const LOADER_CODES: &[&str] = &[
     "E0001", "E0002", "E0101", "E0102", "E0103", "E0104", "E0105", "E0201", "E0202", "E0203", "E0204", "E0205",
-    "E0206", "E0207", "E0208", "W0201", "W0202", "W0203", "W0204", "W0205", "W0206", "W0207",
+    "E0206", "E0207", "E0208", "E0209", "W0201", "W0202", "W0203", "W0204", "W0205", "W0206", "W0207",
 ];
 
 #[test]

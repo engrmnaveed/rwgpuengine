@@ -225,6 +225,29 @@ Fix: add a `[[terrain]]` table with `char = \"...\"` for it (with a `name`,
 `color` and `build`), or change the character to a declared one. Every cell
 needs a terrain: write plain ground as a declared character too.";
 
+    TOO_LARGE = "E0209", "too-large", Error, "Larger than the engine allows",
+"A file, a scene or a playtest is larger than this version of rwgpu allows.
+The message says which limit and by how much:
+
+- a file of more than 67108864 bytes (64 MiB);
+- a scene of more than 1000000 entities (each cell of `cells` is one);
+- a ground of more than 16777216 cells (4096 x 4096);
+- a scene whose entities cover more than 4194304 cells (2048 x 2048), every
+  `footprint` counted in full;
+- a scene that copies more than 134217728 bytes (128 MiB) of prefab files into
+  its entities: each prefab's size, once for every entity made from it;
+- a name or a key of more than 128 characters;
+- a playtest of more than 100000 `[[input]]`, `[[expect]]` and `[[shot]]`
+  tables.
+
+The limits keep `rwgpu check`, loading and the first step of a game short
+whatever a file says. A project over one is refused where it goes over,
+before the work it would cause, and nothing after that point in the file is
+read. Each is far above what the example games need; a town of 500,000
+actors is allowed. `rwgpu explain limits` lists every limit.
+
+Fix: make the named part smaller. This version cannot load a larger one.";
+
     SOLID_OVERLAP = "W0201", "solid-overlap", Warning, "Two solid entities share a cell",
 "Two enabled solid entities start on the same grid cell (for an entity with a
 `footprint`, any cell it covers). This is usually a copy-paste mistake and makes

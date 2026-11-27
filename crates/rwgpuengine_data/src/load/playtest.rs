@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use rwgpuengine_core::codes;
 use rwgpuengine_core::diag::{Diagnostic, Span};
+use rwgpuengine_core::limits;
 use rwgpuengine_core::text::did_you_mean;
 
 use super::check::unknown_prop;
@@ -34,6 +35,21 @@ pub(crate) fn load_playtest_lenient(vfs: &Vfs, path: &str) -> (Option<PlaytestDe
         }
         return (None, diags);
     };
+    // A command runs through every table of a playtest at every frame.
+    let tables = ["input", "expect", "shot"].into_iter().flat_map(|k| root.array(k).unwrap_or(&[]));
+    let max = limits::PLAYTEST_TABLES.value;
+    if let Some(past) = tables.clone().nth(max as usize) {
+        let n = tables.count();
+        diags.push(
+            Diagnostic::new(
+                &codes::TOO_LARGE,
+                format!("the playtest has {n} [[input]], [[expect]] and [[shot]] tables, more than a playtest can have ({max})"),
+            )
+            .at(&src, past.span)
+            .hint("split it into several playtests"),
+        );
+        return (None, diags);
+    }
     let empty = Table::default();
     let test_t = root.table("test").unwrap_or(&empty);
     let test = Fields::new(test_t, &schema::TEST);

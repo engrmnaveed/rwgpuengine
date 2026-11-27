@@ -40,6 +40,8 @@ pub(crate) enum EntityStep {
     Prefab,
     /// `name` with `cells`.
     Cells,
+    /// The scene's sizes, with this table's entities.
+    Size,
     /// The rules on its merged definition (`check::entity::rules`).
     Rules,
     /// Its `counts`.

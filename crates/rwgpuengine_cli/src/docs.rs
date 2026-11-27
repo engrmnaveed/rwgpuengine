@@ -1,5 +1,5 @@
 //! Generated documentation. Everything here is built from the registries
-//! the engine itself runs on (commands, schemas, codes), so the docs always
+//! the engine itself runs on (commands, schemas, codes, limits), so the docs always
 //! match the installed version. `rwgpu docs` prints them; `rwgpu new`
 //! writes the project AGENTS.md; the repo's docs/reference/ is checked
 //! against them by a test.
@@ -140,9 +140,11 @@ emit `tapped`; a tap that hits no entity but lands on a ground cell makes the gr
 `[[connect]] from = "ground"` listens), movers, patrols, wanderers, Rust game systems, triggers, then signal
 dispatch through `[[connect]]` tables.
 
-**Limits on work.** A step that reaches one of these stops there: the signals still queued are dropped, an
-`error` event says what was cut off, and `rwgpu run`, `inspect`, `shot` and `test` report the code as an
-error. Every other step runs as before.
+**Limits.** A project over a limit checked at `load` is refused where it goes over (E0209), before the work
+it would cause, and nothing after that point in the file is read. A step that reaches one of the others
+stops there: the signals still queued are dropped, an `error` event says what was cut off, and `rwgpu run`,
+`inspect`, `shot` and `test` report the code as an error. Every other step runs as before. The ranges of
+single values are in the tables above.
 
 {limits_table}
 
@@ -689,13 +691,16 @@ Behaviours worth knowing:
 - A `counts` prop counts enabled copies anywhere, including ones on the screen (`screen_pos`); a disabled copy
   does not count.
 - A tap on bare ground is a miss (`tap_miss`, with the `cell`) unless a `[[connect]] from = "ground"` listens.
+- Sizes have limits: a file, a scene's entities, a ground, the cells footprints cover, prefabs copied into
+  entities, names and keys, a playtest's tables (E0209; the table below).
 "##;
 
 /// [`LIMITS_MD`] and the numbers the engine holds a running game to
 /// (`rwgpuengine_core::limits`): what AGENTS.md and `rwgpu explain limits` print.
 pub fn limits_md() -> String {
     format!(
-        "{LIMITS_MD}\nNumbers a running game is held to. A step that reaches one stops there with a diagnostic of \
+        "{LIMITS_MD}\nNumbers a project and a running game are held to. A project over one checked at `load` is \
+         refused where it goes over (E0209). A step that reaches one of the others stops there with a diagnostic of \
          its code and an `error` event that says what was cut off; `rwgpu run` and `rwgpu test` fail with it. The \
          event log's two numbers are not errors: what they leave out is counted.\n\n{}",
         rwgpuengine_core::limits::markdown()
