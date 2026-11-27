@@ -34,9 +34,9 @@ function found() {
     linux: [],
   }[process.platform] || [];
   const named = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'microsoft-edge'].map(onPath);
-  // On Linux, only programs that say their version within 10 s, each once: the image's /usr/bin/chromium is
-  // a stand-in that never answered (web-probe run 45890709459), and google-chrome-stable is google-chrome.
-  // (Chrome on Windows prints no version, so the fixed paths there are taken as they are.)
+  // On Linux, only programs that say their version within 10 s, and each real program once
+  // (google-chrome-stable is google-chrome). Chrome on Windows prints no version, so the fixed paths there
+  // are taken as they are.
   const seen = new Set();
   return [...new Set([...fixed.filter((p) => existsSync(p)), ...named.filter(Boolean)])].filter((p) => {
     if (process.platform !== 'linux') return true;
@@ -128,6 +128,15 @@ const rows = ['| browser | flags | navigator.gpu | default adapter | fallback ad
 for (const browser of found()) {
   for (const [name, flags] of Object.entries(FLAGS)) {
     const r = await run(browser, flags);
+    // A browser that does not answer at all will not answer under other flags either: on the Linux image,
+    // /usr/bin/chromium and /usr/bin/microsoft-edge took 60 s per set until the job ran out of time
+    // (web-probe run 45893522789). One row says so, and the probe goes on to the next browser.
+    if (r.error && r.error.startsWith('no answer')) {
+      const row = `| ${browser} | ${name} | ${r.error}; the other flag sets skipped ${r.stderr ? JSON.stringify(r.stderr) : ''} | | | | ${r.ms} ms |`;
+      console.log(row);
+      rows.push(row);
+      break;
+    }
     const row = r.error
       ? `| ${browser} | ${name} | ${r.error} ${r.stderr ? JSON.stringify(r.stderr) : ''} | | | | ${r.ms} ms |`
       : `| ${r.product} | ${name} | ${r.gpu ? 'yes' : 'no'} | ${adapter(r.default)} | ${adapter(r.forced)} | ${shown(r.canvas)} | ${r.ms} ms |`;
