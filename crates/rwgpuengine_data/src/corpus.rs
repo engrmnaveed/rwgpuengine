@@ -1942,10 +1942,13 @@ fn everything() -> Vfs {
 
 /// The hash of each case's record, recorded from the loader before ADR 0028
 /// (the cases under `limits/`: with the limits, which they are made to reach).
+/// `examples/tiny_town` was recorded again when the example got a fifth
+/// playtest (ADR 0030): its record differs from the one before only by the
+/// lines that list and decode that file, and every other case's is the same.
 const PINS: &[(&str, &str)] = &[
     ("examples/coin_vault", "b7e48e8a696ae553"),
     ("examples/iso_garden", "c84862e5a560d2ec"),
-    ("examples/tiny_town", "2945bd9d9edc1fbd"),
+    ("examples/tiny_town", "bd8547dbcbc2557a"),
     ("base", "156b1dceb27c7367"),
     ("project/syntax", "2e77e8d7e6435ae3"),
     ("project/empty", "4658d7bd83cf6967"),

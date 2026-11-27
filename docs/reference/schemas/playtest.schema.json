@@ -94,7 +94,7 @@
                 },
                 "minItems": 2,
                 "maxItems": 2,
-                "description": "Move the camera's center by this many cells [x, y]. Default: [0, 0]."
+                "description": "Move the camera's center by this many cells [x, y]. It stops at the edge of the ground's cells (with no ground, of what the world holds at the start): `rwgpu inspect` shows where, as the camera's `bound`. Default: [0, 0]."
               }
             },
             "additionalProperties": false

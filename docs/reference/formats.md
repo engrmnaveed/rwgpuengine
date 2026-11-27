@@ -87,7 +87,7 @@ Scene metadata.
 
 ### `[camera]`
 
-Where the picture is taken from when the scene starts. The camera looks at `center` on the ground; it can turn about the vertical line through that point and zoom. A playtest's `[[input]] camera` moves it while the game runs. With no keys set, the view is the isometric one of `[iso]`.
+Where the picture is taken from when the scene starts. The camera looks at `center` on the ground; it can turn about the vertical line through that point and zoom. A playtest's `[[input]] camera` moves it while the game runs, and however it moves, its center stays over the ground. With no keys set, the view is the isometric one of `[iso]`.
 
 | key | type | default | meaning |
 |---|---|---|---|
@@ -353,7 +353,7 @@ One move of the camera, as a player would make it. The parts given are applied t
 | `view` | iso \| perspective | — | Switch to this view (`iso` or `perspective`). |
 | `turn` | number -360–360 | `0` | Turn by this many degrees about the vertical line through the camera's center. |
 | `zoom` | number 0.1–10 | `1.0` | Multiply the zoom by this (it stays within 0.125–16). |
-| `pan` | [x, y] | `[0, 0]` | Move the camera's center by this many cells [x, y]. |
+| `pan` | [x, y] | `[0, 0]` | Move the camera's center by this many cells [x, y]. It stops at the edge of the ground's cells (with no ground, of what the world holds at the start): `rwgpu inspect` shows where, as the camera's `bound`. |
 
 ### `[[expect]]`
 

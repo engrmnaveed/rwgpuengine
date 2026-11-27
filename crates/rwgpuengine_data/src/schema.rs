@@ -229,7 +229,8 @@ pub static CAMERA: Spec = Spec {
     title: "[camera]",
     doc: "Where the picture is taken from when the scene starts. The camera looks at `center` on the ground; it \
           can turn about the vertical line through that point and zoom. A playtest's `[[input]] camera` moves it \
-          while the game runs. With no keys set, the view is the isometric one of `[iso]`.",
+          while the game runs, and however it moves, its center stays over the ground. With no keys set, the view \
+          is the isometric one of `[iso]`.",
     fields: &[
         opt(
             "center",
@@ -792,7 +793,13 @@ pub static INPUT_CAMERA: Spec = Spec {
             Some("1.0"),
             "Multiply the zoom by this (it stays within 0.125–16).",
         ),
-        opt("pan", Ty::Vec2, Some("[0, 0]"), "Move the camera's center by this many cells [x, y]."),
+        opt(
+            "pan",
+            Ty::Vec2,
+            Some("[0, 0]"),
+            "Move the camera's center by this many cells [x, y]. It stops at the edge of the ground's cells (with no \
+             ground, of what the world holds at the start): `rwgpu inspect` shows where, as the camera's `bound`.",
+        ),
     ],
 };
 

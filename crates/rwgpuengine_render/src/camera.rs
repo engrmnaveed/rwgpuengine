@@ -18,6 +18,7 @@
 
 use rwgpuengine_core::math::{COS_30, SIN_30, SQRT_2, TAN_22_5, sin_cos_deg64};
 use rwgpuengine_data::{CameraMove, CameraView, SceneDef};
+use rwgpuengine_sim::World;
 
 use crate::view::{View, start_center};
 
@@ -61,6 +62,66 @@ impl Camera {
         self.turn = wrap_degrees(self.turn + m.turn);
         self.zoom = clamp_zoom(self.zoom * m.zoom);
         self.center = [self.center[0] + m.pan[0], self.center[1] + m.pan[1]];
+    }
+
+    /// Apply one move, then keep the center inside `bound`: a pan that would
+    /// take it past the edge stops at the edge (ADR 0030).
+    pub fn apply_within(&mut self, m: &CameraMove, bound: &Bound) {
+        self.apply(m);
+        self.center = bound.clamp(self.center);
+    }
+}
+
+/// Where the camera's center may go: a rectangle on the ground, fixed when a
+/// session starts (ADR 0030). However a move arrives (a playtest's
+/// `[[input]] camera`, a player's gesture), the center stays inside it, so
+/// the middle of the frame always shows the scene and what a tap hits after
+/// a pan replays the same everywhere.
+///
+/// - With a ground: its cells, edge to edge, from (−0.5, −0.5) to
+///   (size_x − 0.5, size_y − 0.5).
+/// - Without one: the cells of the world entities that take up space
+///   ([`Entity::takes_space`](rwgpuengine_sim::Entity::takes_space)) when the
+///   session starts.
+/// - Either way it holds the point the scene's camera starts at, so the
+///   scene's own camera, and the way back to it, are always inside.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Bound {
+    pub min: [f32; 2],
+    pub max: [f32; 2],
+}
+
+impl Bound {
+    /// The bound of `world` as it is now, for a camera that starts at `start`.
+    pub fn new(world: &World, start: [f32; 2]) -> Bound {
+        let mut b = Bound { min: start, max: start };
+        let mut take = |lo: [f32; 2], hi: [f32; 2]| {
+            for i in 0..2 {
+                b.min[i] = b.min[i].min(lo[i]);
+                b.max[i] = b.max[i].max(hi[i]);
+            }
+        };
+        match world.bounds {
+            Some([w, h]) if w > 0 && h > 0 => take([-0.5, -0.5], [w as f32 - 0.5, h as f32 - 0.5]),
+            _ => {
+                for e in world.entities.iter().filter(|e| e.takes_space()) {
+                    let ([x, y], [fw, fh]) = (e.cell(), e.footprint);
+                    let lo = [x as f32 - 0.5, y as f32 - 0.5];
+                    take(lo, [lo[0] + fw.max(1) as f32, lo[1] + fh.max(1) as f32]);
+                }
+            }
+        }
+        b
+    }
+
+    /// The point of the bound nearest `p` (`p` itself when it is inside). A
+    /// coordinate that is not a number goes to the low edge.
+    pub fn clamp(&self, p: [f32; 2]) -> [f32; 2] {
+        [0, 1].map(|i| p[i].max(self.min[i]).min(self.max[i]))
+    }
+
+    pub fn contains(&self, p: [f32; 2]) -> bool {
+        (0..2).all(|i| p[i] >= self.min[i] && p[i] <= self.max[i])
     }
 }
 
@@ -581,5 +642,17 @@ mod tests {
         assert_eq!((c.view, c.turn, c.zoom), (CameraView::Perspective, 340.0, ZOOM_MAX));
         c.apply(&CameraMove { view: None, turn: 0.0, zoom: 0.0001, pan: [0.0, 0.0] });
         assert_eq!(c.zoom, ZOOM_MIN);
+    }
+
+    #[test]
+    fn a_bound_keeps_the_center_and_lets_through_what_is_inside() {
+        let b = Bound { min: [-0.5, -0.5], max: [9.5, 7.5] };
+        assert_eq!(b.clamp([4.5, 3.5]), [4.5, 3.5]);
+        assert_eq!(b.clamp([30.0, -2.0]), [9.5, -0.5]);
+        assert_eq!(b.clamp([f32::NAN, f32::INFINITY]), [-0.5, 7.5]);
+        assert!(b.contains([9.5, -0.5]) && !b.contains([9.6, 0.0]));
+        let mut c = cam(CameraView::Iso, 0.0, 1.0);
+        c.apply_within(&CameraMove { view: None, turn: 90.0, zoom: 2.0, pan: [20.0, 1.0] }, &b);
+        assert_eq!((c.turn, c.zoom, c.center), (90.0, 2.0, [9.5, 4.5]));
     }
 }

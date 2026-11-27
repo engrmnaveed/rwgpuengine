@@ -11,6 +11,7 @@ use rwgpuengine_core::text::did_you_mean;
 use rwgpuengine_data::{
     CameraMove, InputDef, InputKind, PlaytestDef, ProjectDef, SceneDef, SceneLoader, Vfs, load_playtest, load_project,
 };
+use rwgpuengine_render::camera::Bound;
 use rwgpuengine_render::{
     Camera, Frame, FrameReport, Painter, Projected, Projector, RenderList, View, build_report, list, pick, project,
     render,
@@ -110,6 +111,9 @@ pub struct Session {
     /// depends on the camera. It is not part of the world, so not of the
     /// state hash either; `inspect` and `run` report it next to that.
     pub camera: Camera,
+    /// Where the camera's center may go, fixed when the session starts: the
+    /// ground's cells (ADR 0030). Every move keeps the center inside it.
+    pub camera_bound: Bound,
     /// Warnings found while loading (the session still runs).
     pub warnings: Vec<Diagnostic>,
     script: Script,
@@ -177,8 +181,9 @@ impl Session {
         game.on_start(&mut world);
         let view = View::new(&project, &scene);
         let camera = Camera::new(&scene);
+        let camera_bound = Bound::new(&world, camera.center);
         let script = Script::new(playtest.as_ref().map(|p| p.inputs.clone()).unwrap_or_default());
-        Ok(Session { project, scene, playtest, world, view, camera, warnings: diags, script, game })
+        Ok(Session { project, scene, playtest, world, view, camera, camera_bound, warnings: diags, script, game })
     }
 
     pub fn frame(&self) -> u64 {
@@ -302,9 +307,11 @@ impl Session {
     }
 
     /// Move the camera, as a player's gesture would. Taps from now on are
-    /// resolved against the new picture.
+    /// resolved against the new picture. The center stays inside
+    /// [`Session::camera_bound`]: a pan past the edge of the ground stops at
+    /// the edge.
     pub fn move_camera(&mut self, m: &CameraMove) {
-        self.camera.apply(m);
+        self.camera.apply_within(m, &self.camera_bound);
     }
 
     /// The screen pixel a world point is drawn at now, or `None` if it is
@@ -407,14 +414,17 @@ impl Session {
             .with("game", self.game.name())
     }
 
-    /// The camera as it is now: `{ view, center, turn, zoom }`.
+    /// The camera as it is now: `{ view, center, turn, zoom, bound }`, where
+    /// `bound` is `[min_x, min_y, max_x, max_y]`, the rectangle the center
+    /// stays in.
     pub fn camera_json(&self) -> Json {
-        let c = &self.camera;
+        let (c, b) = (&self.camera, &self.camera_bound);
         Json::object()
             .with("view", c.view.name())
             .with("center", c.center)
             .with("turn", c.turn as f64)
             .with("zoom", c.zoom as f64)
+            .with("bound", [b.min[0], b.min[1], b.max[0], b.max[1]])
     }
 
     pub fn hash_hex(&self) -> String {

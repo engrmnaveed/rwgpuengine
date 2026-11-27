@@ -1,0 +1,75 @@
+[test]
+doc = "The camera's center stays over the island (ADR 0030): pan past its edge and the camera stops at the edge, so a tap at what the stopped picture shows builds there. Without the bound the first pan would leave the island 7 cells behind and the taps would hit the sea. Tap points from `rwgpu inspect --input tests/past_the_edge.toml --frame N --place <prefab>@x,y`."
+frames = 60
+
+# Twelve cells east: the center stops at the island's east edge, x = 9.5.
+[[input]]
+frame = 0
+camera = { pan = [12, 0] }
+
+[[input]]
+frame = 2
+tap = [255, 442]          # Tree button
+
+[[input]]
+frame = 4
+tap = [320, 192]          # ground (8, 2), seen from the edge
+
+# A quarter turn, closer, and far past the south-west corner: the center
+# stops at (-0.5, 7.5).
+[[input]]
+frame = 10
+camera = { turn = 90, zoom = 1.5, pan = [-30, 30] }
+
+[[input]]
+frame = 12
+tap = [100, 442]          # House button
+
+[[input]]
+frame = 14
+tap = [368, 384]          # ground (2, 4)
+
+# In perspective, a little further away, and past the north-east corner: the
+# center stops at (9.5, -0.5).
+[[input]]
+frame = 30
+camera = { view = "perspective", zoom = 0.8, pan = [40, -40] }
+
+[[input]]
+frame = 32
+tap = [405, 442]          # Well button
+
+[[input]]
+frame = 34
+tap = [379, 166]          # ground (6, 1)
+
+[[expect]]
+frame = 6
+prefab = "tree"
+pos = [8, 2]
+
+[[expect]]
+frame = 16
+prefab = "house"
+pos = [2, 4]
+
+[[expect]]
+prefab = "well"
+pos = [6, 1]
+
+[[expect]]
+entity = "town"
+props = { coins = 6 }
+text = "Coins: 6\nTool: well"
+
+[[expect]]
+event = "spawned"
+at_least = 3
+at_most = 3
+
+[[expect]]
+event = "blocked"
+at_most = 0
+
+[[shot]]
+reference = "tests/refs/past_the_edge.png"

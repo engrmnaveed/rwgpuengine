@@ -186,8 +186,8 @@ fn a_presenter_shows_the_reference_pixels_and_repaints_only_on_change() {
             assert!(presenter.present(&session) && presenter.pixels() == once);
         }
     }
-    // 10 playtests, 1,660 frames; a frame in ten changes the picture.
-    assert_eq!(frames, 1660);
+    // 11 playtests, 1,721 frames; a frame in ten changes the picture.
+    assert_eq!(frames, 1721);
     assert!(repaints >= 9 && repaints * 8 < frames, "{repaints} repaints in {frames} frames");
 }
 
@@ -306,6 +306,63 @@ fn a_scene_can_start_turned_zoomed_and_in_perspective() {
     vfs.insert("tests/t.toml", "[test]\nframes = 5\n\n[[input]]\nframe = 1\ncamera = { turn = 90 }\ntap = [1, 1]\n");
     let d = rwgpuengine_data::check_project(&vfs).diagnostics;
     assert!(d.len() == 1 && d[0].message.contains("exactly one of `press`, `hold`, `tap` or `camera`"), "{d:#?}");
+}
+
+/// However a pan arrives, the camera's center stays over the ground (ADR
+/// 0030): a gesture's move and a playtest's `[[input]] camera` stop at the
+/// edge of its cells, and a tap after it hits what the clamped picture shows.
+#[test]
+fn a_pan_past_the_edge_stops_at_the_edge_of_the_ground() {
+    let mut s = Session::load(&builder("[test]\nframes = 5\n"), &SessionConfig::default(), Box::new(DataOnly)).unwrap();
+    let b = s.camera_bound;
+    assert_eq!((b.min, b.max, s.camera.center), ([-0.5, -0.5], [5.5, 5.5], [2.5, 2.5]));
+    s.move_camera(&CameraMove { view: None, turn: 0.0, zoom: 1.0, pan: [100.0, -100.0] });
+    assert_eq!(s.camera.center, [5.5, -0.5]);
+    // Along one axis it stops; along the other it still goes.
+    s.move_camera(&CameraMove { view: None, turn: 90.0, zoom: 1.0, pan: [3.0, 2.0] });
+    assert_eq!(s.camera.center, [5.5, 1.5]);
+    s.move_camera(&CameraMove { view: None, turn: 0.0, zoom: 1.0, pan: [-7.25, 0.0] });
+    assert_eq!(s.camera.center, [-0.5, 1.5]);
+    let json = s.camera_json().to_compact();
+    assert!(json.contains("\"center\":[-0.5,1.5]") && json.contains("\"bound\":[-0.5,-0.5,5.5,5.5]"), "{json}");
+
+    // A playtest replays the same: the pan of 40 cells ends at the edge, so the
+    // tap at the pixel where cell (5, 2) is drawn there builds on that cell.
+    let mut edge =
+        Session::load(&builder("[test]\nframes = 5\n"), &SessionConfig::default(), Box::new(DataOnly)).unwrap();
+    edge.move_camera(&CameraMove { view: None, turn: 0.0, zoom: 1.0, pan: [3.0, 0.0] });
+    let [x, y] = edge.screen_point([5.0, 2.0, 0.0]).unwrap();
+    let script = format!(
+        "[test]\nframes = 3\n\n[[input]]\nframe = 1\ncamera = {{ pan = [40, 0] }}\n\n[[input]]\nframe = 1\ntap = [{x}, {y}]\n"
+    );
+    let cfg = SessionConfig { script: Some("tests/t.toml".into()), ..SessionConfig::default() };
+    let mut s = Session::load(&builder(&script), &cfg, Box::new(DataOnly)).unwrap();
+    s.run_to(3);
+    assert_eq!((s.camera.center, posts(&s)), ([5.5, 2.5], vec![[5, 2]]));
+}
+
+/// A scene with no ground bounds the center by the cells of what is in the
+/// world when it starts; a scene's own camera may start outside the ground,
+/// and the bound then reaches to it, so the way back is never cut off.
+#[test]
+fn without_a_ground_the_bound_is_what_the_world_holds_and_it_holds_the_start() {
+    let scene = "[[entity]]\npos = [2, 3]\nfootprint = [2, 2]\nblock = { height = 1 }\n\n[[entity]]\npos = [-4, 1]\nsprite = {}\n\n\
+                 [[entity]]\nname = \"hud\"\nscreen_pos = [0, 0]\nsprite = {}\n\n[[entity]]\nname = \"data\"\npos = [50, 50]\nprops = { n = 1 }\n";
+    let vfs = project(scene, &[]);
+    let s = Session::load(&vfs, &SessionConfig::default(), Box::new(DataOnly)).unwrap();
+    // The block covers x 1.5..3.5, y 2.5..4.5; the sprite x -4.5..-3.5, y 0.5..1.5; the start is (0, 0).
+    // The HUD and the entity with only props take up no cell.
+    assert_eq!((s.camera_bound.min, s.camera_bound.max), ([-4.5, 0.0], [3.5, 4.5]));
+
+    let mut vfs = builder("[test]\nframes = 5\n");
+    let ground = vfs.get("scenes/main.toml").unwrap().to_string();
+    vfs.insert("scenes/main.toml", format!("[camera]\ncenter = [20, 1]\n\n{ground}"));
+    let mut s = Session::load(&vfs, &SessionConfig::default(), Box::new(DataOnly)).unwrap();
+    assert_eq!((s.camera.center, s.camera_bound.min, s.camera_bound.max), ([20.0, 1.0], [-0.5, -0.5], [20.0, 5.5]));
+    s.move_camera(&CameraMove { view: None, turn: 0.0, zoom: 1.0, pan: [-30.0, 0.0] });
+    assert_eq!(s.camera.center, [-0.5, 1.0]);
+    s.move_camera(&CameraMove { view: None, turn: 0.0, zoom: 1.0, pan: [20.5, 0.0] });
+    assert_eq!(s.camera.center, [20.0, 1.0]);
 }
 
 /// A project in memory: rwgpu.toml, one scene, prefabs and playtests.
