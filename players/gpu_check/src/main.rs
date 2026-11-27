@@ -289,7 +289,12 @@ fn draw_and_wait(gpu: &Gpu, renderer: &mut Renderer, list: &RenderList) {
 /// Frame times of the generated town: (nothing uploaded, every instance
 /// uploaded again), in milliseconds.
 fn town_times(gpu: &Gpu, options: Options, boxes: usize, iso: bool) -> Result<(f64, f64, usize), String> {
-    let list = scenes::town_list(boxes, iso)?;
+    list_times(gpu, options, scenes::town_list(boxes, iso)?)
+}
+
+/// Frame times of a list: (nothing uploaded, every instance uploaded
+/// again), in milliseconds, and the frames the first took.
+fn list_times(gpu: &Gpu, options: Options, list: RenderList) -> Result<(f64, f64, usize), String> {
     let mut renderer = Renderer::new(&gpu.device, options);
     timed(10, 1_000.0, || draw_and_wait(gpu, &mut renderer, &list));
     let (still, n) = timed(60, 3_000.0, || draw_and_wait(gpu, &mut renderer, &list));
@@ -448,6 +453,23 @@ fn run() -> Result<bool, String> {
                     "       the same town through the iso view: {iso:.3} ms; {turning:.3} ms while the camera turns"
                 );
             }
+        }
+    }
+    if a.timing && a.only.is_none() && a.random == 0 {
+        // A town of shapes (ADR 0029): one mesh for each of its 24 models, an instance a building.
+        // Printed, not a budget; a software adapter draws the smaller town only.
+        println!("\nframe time, generated town of shapes at 1280 x 720 (median; the GPU has finished the frame)");
+        for buildings in [5_000, 50_000] {
+            if buildings > 5_000 && !gpu.real() {
+                continue;
+            }
+            let (still, changed, n) =
+                list_times(&gpu, Options::default(), scenes::shaped_town_list(buildings, false)?)?;
+            let (iso, _, _) = list_times(&gpu, Options::default(), scenes::shaped_town_list(buildings, true)?)?;
+            println!(
+                "{buildings:>6} buildings: {still:>8.3} ms with nothing uploaded, {changed:>8.3} ms with every instance \
+                 packed and uploaded again, {iso:.3} ms through the iso view ({n} frames)"
+            );
         }
     }
     if a.only.is_none() && a.random == 0 {

@@ -69,6 +69,17 @@ fn town_seen(boxes: usize, cam: Option<Cam>) -> Result<RenderList, String> {
     Ok(s.render_list(false))
 }
 
+/// The generated town of shapes (`xtask/src/town.rs`): `buildings` copies of
+/// six prefabs of 2 to 9 shapes, at the four turns, as its scene's camera
+/// sees it (in perspective), or through the iso view.
+pub fn shaped_town_list(buildings: usize, iso: bool) -> Result<RenderList, String> {
+    let mut s = session(&crate::town::shaped_town(buildings), None)?;
+    if iso {
+        s.move_camera(&CameraMove { view: Some(ISO), turn: 0.0, zoom: 1.0, pan: [0.0, 0.0] });
+    }
+    Ok(s.render_list(false))
+}
+
 /// How many random scenes the gate draws after the fixed ones.
 pub const RANDOM_SCENES: u64 = 200;
 /// And how many random scenes of shapes after those.

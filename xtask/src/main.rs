@@ -45,6 +45,7 @@ use std::time::Instant;
 mod dist;
 mod load_bench;
 mod repo;
+mod shape_bench;
 mod sim_bench;
 mod town;
 mod web;
@@ -76,6 +77,7 @@ fn main() -> ExitCode {
         "sim-step" => sim_bench::budget_step_us().map(|us| println!("{us}")),
         "load-bench" => load_bench::run(rest, &root()),
         "load-check" => load_bench::budget_check_ms(&root()).map(|ms| println!("{ms}")),
+        "shape-bench" => shape_bench::run(rest),
         "gpu" => gpu(rest),
         _ => {
             eprintln!(
@@ -83,7 +85,7 @@ fn main() -> ExitCode {
                  docs [--check] | wasm-check | export-check | pages [--out DIR] [--base /PATH/] | \
                  gpu [--fast | --study | --window] [-- <options of players/gpu_check>] | \
                  sim-bench [town | plates | wired | build ...] [N ...] [--steps S] [--all] [--loader] | \
-                 load-bench [town | plates | wired | build | linked | crowded ...] [N ...]>"
+                 load-bench [town | plates | wired | build | linked | crowded ...] [N ...] | shape-bench [N ...]>"
             );
             return ExitCode::from(2);
         }
