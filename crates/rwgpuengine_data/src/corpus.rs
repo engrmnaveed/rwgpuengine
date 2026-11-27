@@ -645,6 +645,14 @@ const CONNECT_SNIPS: &[(&str, &str)] = &[
         "[[connect]]\nfrom = \"hint\"\nsignal = \"tapped\"\nto = \"self\"\naction = \"set\"\nprop = \"msg\"\nvalue = \"x\"\n\n[[connect]]\nfrom = \"hint\"\nsignal = \"changed\"\nto = \"door\"\naction = \"enable\"\n",
     ),
     (
+        "signal-and-form",
+        "[[connect]]\nfrom = \"plate\"\nsignal = \"zzz\"\nto = \"door\"\naction = \"enable\"\nactions = [{ action = \"disable\", to = \"door\" }]\n",
+    ),
+    (
+        "spawn-to-and-prefab",
+        "[[connect]]\nfrom = \"ground\"\nsignal = \"tapped\"\naction = \"spawn\"\nto = \"town\"\n\n[[connect]]\nfrom = \"ground\"\nsignal = \"tapped\"\naction = \"spawn\"\nto = \"town\"\nprefab = \"hutt\"\n",
+    ),
+    (
         "action-both",
         "[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\nto = \"door\"\naction = \"enable\"\nactions = [{ action = \"disable\", to = \"door\" }]\n",
     ),
@@ -1041,6 +1049,13 @@ fn file_cases() -> Vec<Case> {
         "files/spawn-screen-prefab",
         scene_with_files(
             "[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"badge\"\n",
+            &[("prefabs/badge.toml", "screen_pos = [0, 0]\nlabel = { text = \"x\" }\n")],
+        ),
+    ));
+    v.push(case(
+        "files/spawn-screen-prefab-cost",
+        scene_with_files(
+            "[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"badge\"\ncost = { entity = \"town\", prop = \"coins\", amount = 0 }\n",
             &[("prefabs/badge.toml", "screen_pos = [0, 0]\nlabel = { text = \"x\" }\n")],
         ),
     ));
@@ -1942,6 +1957,8 @@ const PINS: &[(&str, &str)] = &[
     ("connect/signal-counts-changed", "af87cc027e1491d1"),
     ("connect/signal-cost-payer-changed", "71a12fb23f3e9a1c"),
     ("connect/signal-self-changed", "476dae6f9bd9fee7"),
+    ("connect/signal-and-form", "37c34e5f121d5a08"),
+    ("connect/spawn-to-and-prefab", "2ea0df2a23930e37"),
     ("connect/action-both", "96ea76bfe2120c09"),
     ("connect/action-neither", "4ab8904c3bef707d"),
     ("connect/actions-top-keys", "74facaef5c162042"),
@@ -1991,7 +2008,7 @@ const PINS: &[(&str, &str)] = &[
     ("connect/action-unknown", "f4b821bd5dc0b131"),
     ("connect/signal-missing", "31f2fa70ed44f705"),
     ("connect/connect-unknown-key", "be63ad4836ef5936"),
-    ("connect/all", "74ce9b2694c8f789"),
+    ("connect/all", "b2415b43f8c82e27"),
     ("when/reason-with-others", "204201bf83b40864"),
     ("when/reason-unknown", "5d38bd74f81d9c97"),
     ("when/no-entity", "66c75fd4924a7ee1"),
@@ -2109,6 +2126,7 @@ const PINS: &[(&str, &str)] = &[
     ("files/prefab-subfolder", "aa6caac048b0e61d"),
     ("files/prefab-invalid-from-prefab", "d49c4b1de5ced697"),
     ("files/spawn-screen-prefab", "ab4f0b7d6dd7dea0"),
+    ("files/spawn-screen-prefab-cost", "4254e5348cfa14fa"),
     ("files/spawn-prefab-checks", "afb27f5e3917cf60"),
     ("files/self-prefab-label", "cab2a3f023eb5278"),
     ("files/main-scene-elsewhere", "f76d96d244042e06"),
@@ -2131,7 +2149,7 @@ const PINS: &[(&str, &str)] = &[
     ("files/camera-bad", "888a9213d3b229d2"),
     ("files/terrains-255", "48a2e42d10397921"),
     ("files/terrains-256", "6dbe71d9849c8d1c"),
-    ("everything", "18952b1ee512db3a"),
+    ("everything", "798adad819556c2b"),
     ("tests/a-valid-project", "ee60916e978d9580"),
     ("tests/missing-prefab", "63bab07b03a580ed"),
     ("tests/reference-errors", "828b83965df45d91"),
