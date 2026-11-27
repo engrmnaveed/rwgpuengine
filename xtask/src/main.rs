@@ -14,6 +14,10 @@
 //! cargo xtask budgets   measure and enforce budgets.toml
 //! cargo xtask docs      regenerate docs/reference (`--check` to verify only)
 //! cargo xtask wasm-check  the wasm module against the native command (needs Node)
+//! cargo xtask export-check  `rwgpu export web` for every example, played from a
+//!                       static server (needs Node)
+//! cargo xtask pages     the folder the GitHub Pages workflow publishes: Tiny
+//!                       Town exported and proved under /rwgpuengine/ (needs Node)
 //! cargo xtask gpu       the players' half: the wgpu renderer against the CPU
 //!                       reference, the native player against `rwgpu test`,
 //!                       the web player in a headless browser, and the
@@ -57,12 +61,15 @@ fn main() -> ExitCode {
         "budgets" => budgets(),
         "docs" => docs(rest.iter().any(|a| a == "--check")),
         "wasm-check" => wasm_check(),
+        "export-check" => export_check(),
+        "pages" => pages(rest),
         "render-bench" => render_bench(),
         "gpu" => gpu(rest),
         _ => {
             eprintln!(
                 "usage: cargo xtask <ci | repo-check | dist [--agent] | web | web-player | smoke | budgets | \
-                 docs [--check] | wasm-check | gpu [--fast | --study | --window] [-- <options of players/gpu_check>]>"
+                 docs [--check] | wasm-check | export-check | pages [--out DIR] [--base /PATH/] | \
+                 gpu [--fast | --study | --window] [-- <options of players/gpu_check>]>"
             );
             return ExitCode::from(2);
         }
@@ -125,6 +132,7 @@ fn ci() -> Result {
     step("budgets (builds web + release, runs smoke)");
     budgets()?;
     wasm_check()?;
+    export_check()?;
     eprintln!("\nci: all green");
     Ok(())
 }
@@ -137,12 +145,7 @@ const EXAMPLES: [&str; 3] = ["examples/iso_garden", "examples/coin_vault", "exam
 /// skipped on a developer's machine and fails in CI, which always has it.
 fn wasm_check() -> Result {
     step("native equals web (the wasm module under Node)");
-    let has_node = Command::new("node").arg("--version").output().is_ok_and(|o| o.status.success());
-    if !has_node {
-        if std::env::var_os("CI").is_some() {
-            return Err("`node` was not found; CI must run the wasm check".into());
-        }
-        eprintln!("skipped: `node` was not found. Install Node.js to run this check; CI always runs it.");
+    if !node("the wasm check")? {
         return Ok(());
     }
     let wasm = web()?.to_string_lossy().into_owned();
@@ -151,6 +154,246 @@ fn wasm_check() -> Result {
         run("node", &["web/check.mjs", &wasm, example, "--native", &cli])?;
     }
     Ok(())
+}
+
+/// Whether Node is here. Without it a check is skipped on a developer's
+/// machine and fails in CI, which always has it.
+fn node(check: &str) -> Result<bool> {
+    if Command::new("node").arg("--version").output().is_ok_and(|o| o.status.success()) {
+        return Ok(true);
+    }
+    if std::env::var_os("CI").is_some() {
+        return Err(format!("`node` was not found; CI must run {check}"));
+    }
+    eprintln!("skipped: `node` was not found. Install Node.js to run {check}; CI always runs it.");
+    Ok(false)
+}
+
+/// `rwgpu export web` gives a folder that plays the game from any static
+/// server (ADR 0025): every example, with the CPU player (no GPU and no
+/// browser here), proved by [`prove_export`] at the site's root and under a
+/// path. The WebGPU player's folders are proved in a browser by `cargo xtask
+/// gpu` ([`export_folders`]).
+fn export_check() -> Result {
+    step("export web: the exported folder (the CPU player) plays the game from a static server");
+    if !node("the export check")? {
+        return Ok(());
+    }
+    let dir = root().join("target/export-check");
+    let _ = std::fs::remove_dir_all(&dir);
+    let built = Built::here()?;
+    let start = Instant::now();
+    for example in EXAMPLES {
+        let name = Path::new(example).file_name().and_then(|n| n.to_str()).ok_or("example name")?;
+        prove_export(&built, example, &dir.join(name), &["/", &format!("/games/{name}/")])?;
+    }
+    eprintln!("export check: {} ms for {} examples", start.elapsed().as_millis(), EXAMPLES.len());
+    Ok(())
+}
+
+/// The game the Pages workflow publishes, and the path GitHub Pages serves a
+/// project site under (`https://<owner>.github.io/<repository>/`).
+const PAGES_GAME: &str = "examples/tiny_town";
+const PAGES_BASE: &str = "/rwgpuengine/";
+
+/// `cargo xtask pages [--out DIR] [--base /PATH/]`: the folder the Pages
+/// workflow publishes (ADR 0025). Everything built through `cargo xtask dist`,
+/// then Tiny Town exported by the release `rwgpu` with the WebGPU player next
+/// to it, and proved on that very folder: a second export naming the player
+/// gives the same bytes, no file holds a path of this machine, and in a
+/// headless browser, from a plain static host under the path Pages serves it
+/// at and then at a site's root, every playtest reaches the engine's state on
+/// WebGPU and on the CPU path, with the picture rule where the browser draws
+/// WebGPU. Node and a browser are needed here even off CI: nothing unproved is
+/// published.
+fn pages(args: &[String]) -> Result {
+    let mut out = root().join("target/pages");
+    let mut base = PAGES_BASE.to_string();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match (a.as_str(), it.next()) {
+            ("--out", Some(v)) => out = root().join(v),
+            ("--base", Some(v)) if v.starts_with('/') && v.ends_with('/') => base = v.clone(),
+            _ => return Err(format!("pages takes --out DIR and --base /PATH/ (got `{a}`)")),
+        }
+    }
+    if Command::new("node").arg("--version").output().is_err() {
+        return Err("`node` was not found: the folder is proved in a browser before it is published".into());
+    }
+    step("pages: everything built through `cargo xtask dist`");
+    dist_all(&[])?;
+    step("pages: the folder GitHub Pages publishes, exported and proved");
+    let release = root().join("target/release");
+    let cli = release.join(format!("rwgpu{}", std::env::consts::EXE_SUFFIX));
+    let beside = release.join(rwgpuengine_cli::web::WEB_PLAYER_DIR);
+    // A folder of an earlier run of this command is ours to replace; any other
+    // folder must be new or empty (`rwgpu export web` refuses otherwise).
+    if out == root().join("target/pages") {
+        let _ = std::fs::remove_dir_all(&out);
+    }
+    let json = export_web(&cli, PAGES_GAME, &out, None)?;
+    expect_player(&json, "webgpu", &beside)?;
+    let named = root().join("target/pages-named");
+    let _ = std::fs::remove_dir_all(&named);
+    export_web(&cli, PAGES_GAME, &named, Some(("--web-player", &web::out_dir())))?;
+    let files = same_folders(&out, &named)?;
+    dist::check_artifacts(&dist::Machine::here(&root())?, &root(), &files)?;
+    let expected = web::expected(&cli, &[PAGES_GAME])?;
+    let gpu_check =
+        root().join("players/target-release/release").join(format!("gpu_check{}", std::env::consts::EXE_SUFFIX));
+    let pixels_apart = Budgets::load()?.limit("players", "pixels_apart");
+    let mut summary = Vec::new();
+    for at in [base.as_str(), "/"] {
+        let served = web::Served::Export { folders: &out, base: at };
+        let m = web::check(&beside, &cli, &gpu_check, &expected, pixels_apart, &served)?;
+        if !m.ran {
+            return Err("no Chromium browser was found (set RWGPU_BROWSER): the folder is proved in a browser before \
+                        it is published"
+                .into());
+        }
+        summary.extend(m.summary);
+    }
+    eprintln!("\nTiny Town's folder in a browser:");
+    for line in &summary {
+        eprintln!("  {line}");
+    }
+    eprintln!("\npages: {} is proved under {base} and at /, ready to publish as it is", display(&out));
+    Ok(())
+}
+
+/// The proof of one exported folder (ADR 0025). `example` is exported into
+/// `out` by the release `rwgpu`, which takes the module next to itself as an
+/// installed one would; exported again with `--wasm` into another folder: the
+/// same bytes; every file of `out` read for paths of this machine (ADR 0023);
+/// then `out` itself is played by `web/export-check.mjs` from a plain static
+/// server under each of `bases`, and opened once more under the first with the
+/// module sent as `application/octet-stream`.
+fn prove_export(built: &Built, example: &str, out: &Path, bases: &[&str]) -> Result {
+    let Built { wasm, cli, beside, machine } = built;
+    let name = Path::new(example).file_name().and_then(|n| n.to_str()).ok_or("example name")?;
+    let scratch = root().join("target/export-check");
+    std::fs::create_dir_all(&scratch).map_err(|e| e.to_string())?;
+    let again = scratch.join(format!("{name}-with-wasm-flag"));
+    let _ = std::fs::remove_dir_all(&again);
+    let json = export_web(cli, example, out, None)?;
+    // An installed rwgpu has no source tree: it took the module next to itself.
+    expect_player(&json, "cpu", beside)?;
+    export_web(cli, example, &again, Some(("--wasm", wasm)))?;
+    let files = same_folders(out, &again)?;
+    dist::check_artifacts(machine, &root(), &files)?;
+    let manifest = scratch.join(format!("{name}.json"));
+    std::fs::write(&manifest, &json).map_err(|e| e.to_string())?;
+    let (out_s, cli_s, manifest_s) = (out.to_string_lossy(), cli.to_string_lossy(), manifest.to_string_lossy());
+    let check = ["web/export-check.mjs", &out_s, example, "--native", &cli_s];
+    for (i, base) in bases.iter().enumerate() {
+        let sizes: &[&str] = if i == 0 { &["--export-json", &manifest_s] } else { &[] };
+        run("node", &[&check[..], &["--base", base], sizes].concat())?;
+    }
+    let first = bases.first().ok_or("no base path")?;
+    run("node", &[&check[..], &["--base", first, "--wasm-type", "application/octet-stream", "--open-only"]].concat())
+}
+
+/// The release `rwgpu` and web module, built as `cargo xtask dist` builds
+/// them, and a copy of that `rwgpu` in a folder of its own with only the CPU
+/// module next to it: an installed `cargo xtask dist --agent`. Whatever else
+/// target/release holds (the WebGPU player, after `cargo xtask dist`) is not
+/// seen, so the CPU player is what the lookup finds.
+struct Built {
+    wasm: PathBuf,
+    cli: PathBuf,
+    beside: PathBuf,
+    machine: dist::Machine,
+}
+
+impl Built {
+    fn here() -> Result<Built> {
+        let wasm = web()?;
+        let release = release_cli()?;
+        let bin = root().join("target/export-check/bin");
+        let _ = std::fs::remove_dir_all(&bin);
+        std::fs::create_dir_all(&bin).map_err(|e| format!("{}: {e}", bin.display()))?;
+        let cli = bin.join(release.file_name().ok_or("rwgpu")?);
+        std::fs::copy(&release, &cli).map_err(|e| format!("{}: {e}", cli.display()))?;
+        let beside = module_beside(&wasm, &cli)?;
+        Ok(Built { wasm, cli, beside, machine: dist::Machine::here(&root())? })
+    }
+}
+
+/// A path for messages: relative to the repository when it is inside it.
+fn display(p: &Path) -> String {
+    p.strip_prefix(root()).unwrap_or(p).display().to_string()
+}
+
+/// The module next to the release `rwgpu`, as `cargo xtask dist` leaves it and
+/// as `rwgpu serve` and `rwgpu export web` look for it.
+fn module_beside(wasm: &Path, cli: &Path) -> Result<PathBuf> {
+    let to = cli.with_file_name("rwgpuengine_web.wasm");
+    std::fs::copy(wasm, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+    Ok(to)
+}
+
+/// `rwgpu export web` into `out`, with the player found by the lookup (none
+/// named, and the variables removed) or named by a flag (`--wasm FILE`,
+/// `--web-player DIR`). Returns its JSON.
+fn export_web(cli: &Path, example: &str, out: &Path, player: Option<(&str, &Path)>) -> Result<String> {
+    let out_s = out.to_string_lossy().into_owned();
+    let mut args = vec!["export".to_string(), "web".into(), example.into(), "--out".into(), out_s, "--json".into()];
+    if let Some((flag, place)) = player {
+        args.extend([flag.to_string(), place.to_string_lossy().into_owned()]);
+    }
+    eprintln!("$ rwgpu {}", args.join(" "));
+    let o = Command::new(cli)
+        .args(&args)
+        .current_dir(root())
+        .env_remove("RWGPU_WEB_WASM")
+        .env_remove("RWGPU_WEB_PLAYER")
+        .output()
+        .map_err(|e| format!("rwgpu: {e}"))?;
+    let json = String::from_utf8_lossy(&o.stdout).into_owned();
+    if !o.status.success() {
+        return Err(format!("rwgpu export web {example} failed: {json}"));
+    }
+    Ok(json)
+}
+
+/// `rwgpu export web --json` took this player from this place.
+fn expect_player(json: &str, kind: &str, place: &Path) -> Result {
+    let j = Json::parse(json).map_err(|e| format!("rwgpu export web: bad JSON ({e})"))?;
+    let got = j.get("player").and_then(Json::as_str).unwrap_or("");
+    let from = j.get("player_from").and_then(Json::as_str).unwrap_or("");
+    let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    if got != kind || canon(&root().join(from)) != canon(place) {
+        return Err(format!(
+            "rwgpu export web took the {got} player from {from}, not the {kind} player in {}",
+            display(place)
+        ));
+    }
+    Ok(())
+}
+
+/// The two folders hold the same files with the same bytes. Returns the first's files.
+fn same_folders(a: &Path, b: &Path) -> Result<Vec<PathBuf>> {
+    let list = |d: &Path| -> Result<Vec<(String, Vec<u8>)>> {
+        let mut v = Vec::new();
+        for e in std::fs::read_dir(d).map_err(|e| format!("{}: {e}", d.display()))? {
+            let e = e.map_err(|e| e.to_string())?;
+            v.push((e.file_name().to_string_lossy().into_owned(), std::fs::read(e.path()).map_err(|e| e.to_string())?));
+        }
+        v.sort();
+        Ok(v)
+    };
+    let (la, lb) = (list(a)?, list(b)?);
+    let names = |l: &[(String, Vec<u8>)]| l.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
+    if names(&la) != names(&lb) {
+        return Err(format!("two exports hold different files: {:?} and {:?}", names(&la), names(&lb)));
+    }
+    for ((name, x), (_, y)) in la.iter().zip(&lb) {
+        if x != y {
+            return Err(format!("two exports of one project differ in {name}"));
+        }
+    }
+    eprintln!("ok: two exports, the same {} files byte for byte", la.len());
+    Ok(la.into_iter().map(|(n, _)| a.join(n)).collect())
 }
 
 /// `cargo xtask repo-check`: the first step of `ci`, before anything is built.
@@ -212,8 +455,11 @@ fn dist_all(args: &[String]) -> Result {
         return Err(format!("unknown option `{bad}`: dist takes --agent"));
     }
     step("dist: the rwgpu command");
-    let mut artifacts = vec![release_cli()?];
-    artifacts.push(web()?);
+    let cli = release_cli()?;
+    let wasm = web()?;
+    // Next to rwgpu, where `rwgpu serve` and `rwgpu export web` look for it.
+    let beside = module_beside(&wasm, &cli)?;
+    let mut artifacts = vec![cli, wasm, beside];
     if args.is_empty() {
         step("dist: the players' programs");
         let machine = dist::Machine::here(&root())?;
@@ -223,10 +469,10 @@ fn dist_all(args: &[String]) -> Result {
         step("dist: the web player");
         let dir = web::build(&machine)?;
         // Beside the release `rwgpu`, where `rwgpu serve` looks first.
-        let beside = root().join("target/release").join(rwgpuengine_cli::serve::WEB_PLAYER_DIR);
+        let beside = root().join("target/release").join(rwgpuengine_cli::web::WEB_PLAYER_DIR);
         let _ = std::fs::remove_dir_all(&beside);
         std::fs::create_dir_all(&beside).map_err(|e| format!("{}: {e}", beside.display()))?;
-        for f in rwgpuengine_cli::serve::WEB_PLAYER_FILES {
+        for f in rwgpuengine_cli::web::WEB_PLAYER_FILES {
             std::fs::copy(dir.join(f), beside.join(f)).map_err(|e| format!("{f}: {e}"))?;
             artifacts.push(beside.join(f));
         }
@@ -741,42 +987,84 @@ fn gpu(args: &[String]) -> Result {
     }
     let played = player_programs(&built, b.limit("players", "pixels_apart"), window);
 
-    // The web player: built, measured, and played in a browser.
+    // The web player: built, measured, and played in a browser; then every
+    // example exported with it and played from the folder (ADR 0025).
     let mut browser = Ok(web::Measured::default());
+    let mut exported = Ok(web::Measured::default());
+    let px_limit = b.limit("players", "pixels_apart");
     match web::build(&machine) {
         Ok(dir) => {
             r.add("players.web_download_bytes", web::download_bytes(&dir)?, b.limit("players", "web_download_bytes"));
             if let Ok(expected) = &played {
                 let rwgpu = root().join("target/debug").join(format!("rwgpu{}", std::env::consts::EXE_SUFFIX));
-                browser = web::check(&dir, &rwgpu, &exe, expected, b.limit("players", "pixels_apart"));
-                if let Ok(m) = &browser
-                    && let Some(px) = m.pixels_apart
-                {
-                    r.add("players.web_pixels_apart", px, b.limit("players", "pixels_apart"));
+                browser = web::check(&dir, &rwgpu, &exe, expected, px_limit, &web::Served::Serve);
+                let start = Instant::now();
+                exported = export_folders(&rwgpu, &dir, &machine).and_then(|folders| {
+                    let mut all = web::Measured::default();
+                    for base in ["/", PAGES_BASE] {
+                        let served = web::Served::Export { folders: &folders, base };
+                        let m = web::check(&dir, &rwgpu, &exe, expected, px_limit, &served)?;
+                        all.ran |= m.ran;
+                        all.pixels_apart = all.pixels_apart.max(m.pixels_apart);
+                        all.summary.extend(m.summary);
+                    }
+                    Ok(all)
+                });
+                eprintln!(
+                    "rwgpu export web: every example exported and played in a browser at / and under {PAGES_BASE} in \
+                     {:.1} s",
+                    start.elapsed().as_secs_f64()
+                );
+                let px = [&browser, &exported].iter().filter_map(|m| m.as_ref().ok()?.pixels_apart).max();
+                if let Some(px) = px {
+                    r.add("players.web_pixels_apart", px, px_limit);
                 }
             }
         }
         Err(e) => browser = Err(e),
     }
     let budgets = r.print_and_check();
-    if let Ok(m) = &browser
-        && m.ran
+    for (title, m) in
+        [("the web player in a browser", &browser), ("rwgpu export web's folders in a browser", &exported)]
     {
-        eprintln!(
-            "
-the web player in a browser:"
-        );
-        for line in &m.summary {
-            eprintln!("  {line}");
+        if let Ok(m) = m
+            && m.ran
+        {
+            eprintln!("\n{title}:");
+            for line in &m.summary {
+                eprintln!("  {line}");
+            }
         }
     }
     checked?;
     played?;
     browser?;
+    exported?;
     paths?;
     budgets?;
     eprintln!("\ngpu: all green");
     Ok(())
+}
+
+/// Every example exported by `rwgpu` (the debug build, which finds the
+/// workspace's WebGPU player, `player`) into
+/// `target/web-check-export/folders/<name>`, for the browser check; and proved
+/// like any export: it took that player, a second export naming it gives the
+/// same bytes, and no file holds a path of this machine (ADR 0025).
+fn export_folders(rwgpu: &Path, player: &Path, machine: &dist::Machine) -> Result<PathBuf> {
+    step("rwgpu export web: every example with the WebGPU player");
+    let top = root().join("target/web-check-export");
+    let _ = std::fs::remove_dir_all(&top);
+    let (folders, named) = (top.join("folders"), top.join("named"));
+    for example in EXAMPLES {
+        let name = Path::new(example).file_name().and_then(|n| n.to_str()).ok_or("example name")?;
+        let json = export_web(rwgpu, example, &folders.join(name), None)?;
+        expect_player(&json, "webgpu", player)?;
+        export_web(rwgpu, example, &named.join(name), Some(("--web-player", player)))?;
+        let files = same_folders(&folders.join(name), &named.join(name))?;
+        dist::check_artifacts(machine, &root(), &files)?;
+    }
+    Ok(folders)
 }
 
 /// The `rwgpu-player` program, run as a person or an agent runs it.

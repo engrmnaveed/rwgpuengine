@@ -38,6 +38,56 @@ const INPUT: Flag =
     flag("--input", Some("FILE"), "Drive the scene with a playtest's [[input]] (and use its scene and seed).");
 const SEED: Flag = flag("--seed", Some("N"), "Override the random seed.");
 
+const WEB_PLAYER: Flag = flag(
+    "--web-player",
+    Some("DIR"),
+    "The WebGPU player's folder, as `cargo xtask web-player` writes it. Default: RWGPU_WEB_PLAYER, else `web-player` \
+     next to rwgpu, else (from the source tree) target/web-player.",
+);
+const WASM: Flag = flag(
+    "--wasm",
+    Some("FILE"),
+    "The CPU player's module, rwgpuengine_web.wasm, instead of the WebGPU player. Default, when no WebGPU player is \
+     found: RWGPU_WEB_WASM, else next to rwgpu, else (from the source tree) where `cargo xtask web` writes it.",
+);
+
+/// How `serve` and `export web` find the web player: one lookup for both
+/// (`web::find_player`). A macro, so both commands' details can hold it.
+macro_rules! player_lookup {
+    () => {
+        "The web player is the WebGPU player when one is found (ADR 0024): the frame is drawn \
+with WebGPU where the browser has it and by the CPU reference renderer where it has not, and the page says which in \
+one line. Otherwise it is the CPU player (rwgpuengine_web.wasm). A flag names the one place and beats a variable: \
+--web-player, --wasm, then RWGPU_WEB_PLAYER, RWGPU_WEB_WASM. With none, `web-player` next to rwgpu, then (from the \
+source tree) target/web-player, then rwgpuengine_web.wasm in the same two places. E0008 when none is found; \
+`cargo xtask dist` puts both players next to the release rwgpu."
+    };
+}
+
+/// `rwgpu export web`'s details: what the folder holds and what a host needs.
+pub const EXPORT_DETAILS: &str = concat!(
+    "Checks the project first: one that does not pass `rwgpu check` is not exported, \
+and the diagnostics are the checker's. Then writes the player's files, the game's lists (project.json) and the \
+game's files as one bundle (bundle.txt): the files `rwgpu serve` serves, written once. The WebGPU player is \
+index.html, player.js, rwgpu_web.js and rwgpu_web_bg.wasm, copied as they are; the CPU player is index.html, \
+player.js and player.wasm. The bundle holds rwgpu.toml, scenes/, prefabs/ and tests/ (and the main scene and \
+playtests' scenes wherever they are); reference pictures, notes and other files stay behind, and --json lists them \
+and why.
+
+Every address in the folder is relative, so it works at the root of a site and under a path. Any static web host \
+serves it; serving .wasm as application/wasm lets the browser compile the module while it downloads. It needs a web \
+server: opened as a file, browsers refuse to load the module. WebGPU needs a secure context (https, or http on \
+localhost); elsewhere the page draws with the CPU. `rwgpu serve --site DIR` serves the folder as a host would. The \
+same project and player give the same bytes, with no time and no path of this machine in them.
+
+--json says which player, and lists each file with its size, its hash (FNV-1a 64) and what it is, the bundled \
+files and why, the files left out, and how to try the folder. E0005 if the folder is not empty (without --force), \
+E0008 if no player is found, E0003 if --out is the project folder or holds it.
+
+",
+    player_lookup!()
+);
+
 const PATH_ARG: (&str, &str) = (
     "[PATH]",
     "Project folder, scene file or playtest file (default: current folder). The project is found by walking up to rwgpu.toml.",
@@ -62,16 +112,21 @@ E0006 when the player is not installed: build it from a clone of the repository 
 `cargo install --locked --path players/rwgpuengine_player`.";
 
 /// What `rwgpu help serve` says about the two web players.
-pub const SERVE_DETAILS: &str = "Opens nothing by itself; visit the printed URL. It serves the WebGPU player when it \
-finds one (--web-player, the RWGPU_WEB_PLAYER folder, `web-player` next to rwgpu, or the workspace build): the frame \
-is drawn with WebGPU where the browser has it, and by the CPU reference renderer where it has not, and the page says \
-which in one line. Without the WebGPU player it serves the CPU player (rwgpuengine_web.wasm), and says so. rwgpu \
-itself never needs a GPU: it only serves files. URL parameters: scene=PATH, input=PATH, frames=N (run N frames \
-immediately, then pause), renderer=cpu (draw with the CPU reference renderer). The page shows the frame number and \
-state hash, which match `rwgpu run` for the same input.
+pub const SERVE_DETAILS: &str = concat!(
+    "Opens nothing by itself; visit the printed URL, and its first line says which player \
+it serves and from where. rwgpu itself never needs a GPU: it only serves files. The project's files are read again \
+on every request, and the page reloads when they change. URL parameters: scene=PATH, input=PATH, frames=N (run N \
+frames immediately, then pause), renderer=cpu (draw with the CPU reference renderer). The page shows the frame \
+number and state hash, which match `rwgpu run` for the same input.
 
 The WebGPU player has the bindings of `rwgpu play` (see `rwgpu help play`): keys, taps, swipes and the camera, with \
-a two-finger pinch on a touch screen. The CPU player has keys, taps and swipes.";
+a two-finger pinch on a touch screen. The CPU player has keys, taps and swipes.
+
+--site DIR serves a folder as it is, as a static web host would: one made by `rwgpu export web`.
+
+",
+    player_lookup!()
+);
 
 pub static COMMANDS: &[Command] = &[
     Command {
@@ -229,17 +284,13 @@ pub static COMMANDS: &[Command] = &[
         args: &[PATH_ARG],
         flags: &[
             flag("--port", Some("N"), "Port on 127.0.0.1 (default 4410; 0 picks a free one and prints it)."),
+            WEB_PLAYER,
+            WASM,
             flag(
-                "--web-player",
+                "--site",
                 Some("DIR"),
-                "Folder of the WebGPU player (default: `web-player` next to rwgpu, then the workspace build, see \
-                 `cargo xtask web-player`).",
-            ),
-            flag(
-                "--wasm",
-                Some("FILE"),
-                "Path to rwgpuengine_web.wasm, the CPU player served when there is no WebGPU player (default: the \
-                 workspace build, see `cargo xtask web`).",
+                "Serve a folder as it is, as a static web host would (a folder made by `rwgpu export web`), instead \
+                 of a project.",
             ),
         ],
         details: SERVE_DETAILS,
@@ -247,6 +298,33 @@ pub static COMMANDS: &[Command] = &[
             "rwgpu serve examples/tiny_town",
             "rwgpu serve --port 8080",
             "rwgpu serve examples/iso_garden --wasm target/wasm32-unknown-unknown/web/rwgpuengine_web.wasm",
+            "rwgpu serve --site out/web",
+        ],
+    },
+    Command {
+        name: "export",
+        summary: "Write a project as a folder that any static web host can serve",
+        args: &[
+            ("TARGET", "What to make. `web` is the one target: a folder with the page, the web player and the game."),
+            ("[PATH]", "Project folder, or a file in it (default: current folder)."),
+        ],
+        flags: &[
+            flag("--out", Some("DIR"), "The folder to write (needed). It must be new or empty, unless --force."),
+            flag(
+                "--force",
+                None,
+                "Write into a folder that is not empty: the export's own files are replaced, nothing else is changed \
+                 or deleted (W0001 names what else is there).",
+            ),
+            WEB_PLAYER,
+            WASM,
+            JSON,
+        ],
+        details: EXPORT_DETAILS,
+        examples: &[
+            "rwgpu export web --out out/web",
+            "rwgpu export web examples/tiny_town --out site/town --json",
+            "rwgpu export web --out out/web --force",
         ],
     },
     Command {

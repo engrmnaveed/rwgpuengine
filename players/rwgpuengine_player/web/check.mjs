@@ -3,9 +3,13 @@
 //
 //   node check.mjs --rwgpu <rwgpu> --player <web player folder> --out <folder>
 //                  [--browser <program>] [--paths webgpu,cpu,software] [--measure]
+//                  [--export <folder> [--base /path/]]
 //                  <example> ...
 //
 // For each example it starts `rwgpu serve <example> --port 0 --web-player <folder>`
+// (or, with --export, serves <folder>/<example's name>, or <folder> itself when it
+// holds an index.html: a folder `rwgpu export web` wrote, from a plain static host
+// under --base, web/static-host.mjs, ADR 0025)
 // and opens the page once per path: `webgpu` (the page as a person gets it: WebGPU
 // where the browser gives an adapter), `cpu` (?renderer=cpu, the CPU reference
 // renderer) and `software` (?renderer=software, the browser's fallback adapter).
@@ -19,11 +23,14 @@
 // The browser runs headless with a profile folder of its own under <out>,
 // removed after; it is driven over the DevTools protocol on a pipe. The result
 // is one JSON object on stdout; the judging is xtask's. Exit code 1 only when
-// the check itself could not run.
+// the check itself could not run. With --export it also lists, per example,
+// every request that was not answered from the folder and every file of the
+// folder that nothing asked for.
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { host } from '../../../web/static-host.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (name, dflt) => { const i = argv.indexOf(name); return i >= 0 ? argv.splice(i, 2)[1] : dflt; };
@@ -33,6 +40,9 @@ const player = resolve(opt('--player', 'target/web-player'));
 const out = resolve(opt('--out', 'target/web-check'));
 const paths = opt('--paths', 'webgpu,cpu').split(',');
 const measure = has('--measure');
+const exportArg = opt('--export');
+const exported = exportArg && resolve(exportArg);
+const base = opt('--base', '/');
 const examples = argv.map((e) => resolve(e));
 const T0 = Date.now();
 const log = (...a) => console.error(`[${((Date.now() - T0) / 1000).toFixed(1)} s]`, ...a);
@@ -164,6 +174,14 @@ function serve(example) {
   });
 }
 
+// A folder `rwgpu export web` wrote for the example (<export>/<name>, or <export>
+// itself when it holds a page), from a plain static host.
+async function serveExported(example) {
+  const folder = existsSync(join(exported, 'index.html')) ? exported : join(exported, basename(example));
+  const site = await host(folder, base);
+  return { url: site.url, line: `a plain static host serves ${folder} at ${site.url}`, site, folder, stop: () => site.close() };
+}
+
 const QUERY = { webgpu: '', cpu: '?renderer=cpu', software: '?renderer=software' };
 
 async function main() {
@@ -187,7 +205,7 @@ async function main() {
   const result = {
     browser: null, program: basename(program), flags, download,
     bytes: download.reduce((n, f) => n + f.bytes, 0), gzip: download.reduce((n, f) => n + f.gzip, 0),
-    paths: {}, measure: {},
+    paths: {}, measure: {}, served: [],
   };
   const b = await launch(program, flags);
   result.browser = b.product;
@@ -196,7 +214,7 @@ async function main() {
   try {
     for (const example of examples) {
       const name = basename(example);
-      const server = await serve(example);
+      const server = exported ? await serveExported(example) : await serve(example);
       log(server.line);
       for (const path of paths) {
         const tab = await b.open(server.url + QUERY[path]);
@@ -205,7 +223,7 @@ async function main() {
           first_frame_ms: [], playtests: [] };
         run.first_frame_ms.push(tab.ready.firstFrameMs);
         log(`${name}, ${path}: ${tab.ready.path === 'webgpu' ? 'WebGPU, ' + tab.ready.adapter : 'CPU reference renderer, ' + tab.ready.fallback}`);
-        const tests = JSON.parse(await tab.evaluate(`fetch('project').then((r) => r.json()).then((p) => JSON.stringify(p.tests))`));
+        const tests = JSON.parse(await tab.evaluate(`fetch('project.json').then((r) => r.json()).then((p) => JSON.stringify(p.tests))`));
         for (const test of tests) {
           const r = JSON.parse(await tab.evaluate(`window.rwgpu.play(${JSON.stringify(test)}).then(JSON.stringify)`));
           const row = { example: name, test, path: r.path, fallback: r.fallback, frame: r.frame, state: r.state, image: r.image,
@@ -242,7 +260,20 @@ async function main() {
           await tab.close();
         }
       }
-      server.stop();
+      await server.stop();
+      if (server.site) {
+        const bad = server.site.answered.filter((a) => a.status !== 200).map((a) => `${a.path} ${a.status}`);
+        // The folder's sizes by part, plain and gzip -9: the player's files, then the game's.
+        const sizes = { player: { bytes: 0, gzip: 0 }, game: { bytes: 0, gzip: 0 } };
+        for (const f of readdirSync(server.folder)) {
+          const bytes = readFileSync(join(server.folder, f));
+          const part = sizes[WEB_FILES.includes(f) ? 'player' : 'game'];
+          part.bytes += bytes.length;
+          part.gzip += gzipSync(bytes, { level: 9 }).length;
+        }
+        result.served.push({ example: name, base, requests: server.site.answered.length, bad, unused: server.site.unused(), sizes });
+        log(`${name}: ${server.site.answered.length} requests under ${base}${bad.length ? ', not answered: ' + bad.join(', ') : ''}`);
+      }
     }
   } finally {
     result.errors = b.events;

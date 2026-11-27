@@ -14,9 +14,11 @@
 pub mod args;
 pub mod commands;
 pub mod docs;
+pub mod export;
 pub mod out;
 pub mod project;
 pub mod serve;
+pub mod web;
 
 use rwgpuengine_runtime::Game;
 
@@ -51,6 +53,7 @@ pub fn main_with(args: Vec<String>, games: &GameFactory) -> i32 {
         "schema" => commands::schema_cmd(&parsed),
         "docs" => commands::docs_cmd(&parsed),
         "serve" => serve::serve(&parsed),
+        "export" => export::export(&parsed),
         // The player prints its own result; only a missing player is ours to print.
         "play" => match commands::play(&args[1..]) {
             Ok(code) => return code,

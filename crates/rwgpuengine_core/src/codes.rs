@@ -68,8 +68,11 @@ disk, or a path that is a folder.
 Fix: check the path in the message and that its parent folder is writable.";
 
     ALREADY_EXISTS = "E0005", "already-exists", Error, "Target folder is not empty",
-"`rwgpu new` refuses to write into a folder that already has files, so it can
-never overwrite your work.
+"`rwgpu new` and `rwgpu export web` refuse to write into a folder that already
+has files, so they can never overwrite your work. `rwgpu export web --force`
+writes its own files into such a folder and leaves everything else as it is,
+but it never writes through a link, or over a folder, that has the name of one
+of its files.
 
 Fix: choose a new folder name, or empty the folder first.";
 
@@ -98,6 +101,34 @@ Fix: run the command again with a network, or install the tool by hand with
 the command in the message and name it in `WASM_BINDGEN` or put it on `PATH`.
 Nothing else needs it: without the WebGPU player, `rwgpu serve` serves the CPU
 player.";
+
+    WEB_PLAYER_NOT_FOUND = "E0008", "web-player-not-found", Error, "No web player was found",
+"`rwgpu serve` and `rwgpu export web` need a web player, which is built on its
+own. There are two. The WebGPU player (ADR 0024) is a folder of four files,
+`index.html`, `player.js`, `rwgpu_web.js` and `rwgpu_web_bg.wasm`, that
+`cargo xtask web-player` writes to `target/web-player`; where a browser has no
+WebGPU it draws with the CPU reference renderer. The CPU player (ADR 0008) is
+the module `rwgpuengine_web.wasm`, which `cargo xtask web` builds; its page and
+script are inside `rwgpu`.
+
+A flag names the one place looked at, and beats a variable: `--web-player
+DIR`, `--wasm FILE`, then `RWGPU_WEB_PLAYER`, `RWGPU_WEB_WASM`. With none, the
+WebGPU player is looked for in `web-player` next to the `rwgpu` program, then,
+when `rwgpu` runs from the source tree (a debug build), in `target/web-player`;
+then the CPU player's module in the same two places.
+
+Fix: from a clone of the rwgpuengine repository, `cargo xtask dist` builds
+`rwgpu` and puts both players next to it (`target/release/`; with `--agent`,
+the CPU player only). Or build one and name it with the flag or the variable,
+or copy it next to `rwgpu`.";
+
+    EXPORT_EXTRA_FILES = "W0001", "export-extra-files", Warning, "The export folder holds other files",
+"`rwgpu export web --force` wrote into a folder that already held files it
+does not write. They were left as they are. A web host that publishes the
+folder publishes them too.
+
+Fix: look at the files the message names. To publish only the game, export
+into a new or empty folder.";
 
     // ---- x01xx: file format ----------------------------------------------
     TOML_SYNTAX = "E0101", "toml-syntax", Error, "Invalid TOML syntax",

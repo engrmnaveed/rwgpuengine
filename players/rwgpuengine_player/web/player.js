@@ -7,6 +7,11 @@
 // has no WebGPU, gives no adapter, or loses the device. This script only
 // hands the module the canvas, the events and the animation frames, and puts
 // on the screen what it gives back. No framework, no build step.
+//
+// Every address here is relative (ADR 0025): the page works wherever it is
+// served, at a site's root or under a path, from `rwgpu serve` or from the
+// folder `rwgpu export web` writes. The game is project.json and bundle.txt;
+// only `rwgpu serve` has bundle-hash.txt, and says so with `reload`.
 import init, * as rw from './rwgpu_web.js';
 
 const PIXELS = 1, FINISHED = 2, LOST = 4, DREW = 8;
@@ -134,7 +139,7 @@ function status() {
 }
 
 async function loadBundle() {
-  const text = await (await fetch('bundle', { cache: 'no-store' })).text();
+  const text = await (await fetch('bundle.txt', { cache: 'no-store' })).text();
   if (!rw.set_bundle(text)) { showProblems(rw.out()); return false; }
   return true;
 }
@@ -320,11 +325,13 @@ async function main() {
   }
   if (page.path === 'webgpu') { showPath(); watchSize(); } else { useCpu(rw.fallback()); }
 
-  const project = await (await fetch('project', { cache: 'no-store' })).json();
+  const project = await (await fetch('project.json', { cache: 'no-store' })).json();
   $('project').textContent = `${project.name || '?'} · rwgpu ${project.version}`;
+  if (project.name) document.title = project.name;
+  $('reloads').style.display = project.reload ? '' : 'none';
   fill($('scene'), project.scenes, params.get('scene') || project.main_scene);
   fill($('input'), project.tests, params.get('input') || '');
-  bundleHash = await (await fetch('bundle-hash', { cache: 'no-store' })).text();
+  if (project.reload) bundleHash = await (await fetch('bundle-hash.txt', { cache: 'no-store' })).text();
   if (await loadBundle()) restart(true);
 
   $('scene').onchange = () => restart(false);
@@ -348,16 +355,19 @@ async function main() {
     for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, () => rw.key(code, false, false));
   }
 
-  // Data edits reload at once: poll the bundle hash.
-  setInterval(async () => {
-    try {
-      const h = await (await fetch('bundle-hash', { cache: 'no-store' })).text();
-      if (h !== bundleHash) {
-        bundleHash = h;
-        if (await loadBundle()) { restart(false); $('note').textContent = 'reloaded'; }
-      }
-    } catch (_) { /* the server stopped */ }
-  }, 1000);
+  // Data edits reload at once: poll the bundle hash (`rwgpu serve` only; an
+  // exported folder does not change).
+  if (project.reload) {
+    setInterval(async () => {
+      try {
+        const h = await (await fetch('bundle-hash.txt', { cache: 'no-store' })).text();
+        if (h !== bundleHash) {
+          bundleHash = h;
+          if (await loadBundle()) { restart(false); $('note').textContent = 'reloaded'; }
+        }
+      } catch (_) { /* the server stopped */ }
+    }, 1000);
+  }
 
   // The module steps at the project's rate whatever the display does, and
   // draws only when the picture changed. A hidden tab gets no animation

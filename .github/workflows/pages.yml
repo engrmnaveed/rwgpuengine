@@ -1,0 +1,82 @@
+# Publishes Tiny Town with GitHub Pages from this repository (ADR 0025). The
+# owner decided it on 2026-11-26, for when step 4 is done.
+#
+# Manual only: it runs when someone presses "Run workflow" on this workflow in
+# the Actions tab. No push and no pull request starts it, so merging this file
+# publishes nothing. It changes no setting of the repository.
+#
+# Before the first run, Pages is switched on for the repository:
+# Settings -> Pages -> Build and deployment -> Source: "GitHub Actions". The
+# page is then https://engrmnaveed.github.io/rwgpuengine/, and it is public.
+#
+# What is published: only the folder `cargo xtask pages` writes and proves,
+# the six files `rwgpu export web examples/tiny_town` makes with the WebGPU
+# player (index.html, player.js, rwgpu_web.js, rwgpu_web_bg.wasm, project.json,
+# bundle.txt). The page draws with WebGPU where the browser has it and with
+# the CPU reference renderer where not. The bundle holds Tiny Town's TOML
+# files, which the repository already shows.
+name: pages
+
+on:
+  workflow_dispatch:
+
+# Nothing by default; each job asks for what it needs.
+permissions: {}
+
+# One publication at a time; a second run waits instead of cancelling the first.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # macOS: there the runner's Chrome draws WebGPU on a canvas (the Paravirtual
+    # Metal device), so the folder is proved on WebGPU, picture included, and
+    # on the CPU path. The Linux runner's Chrome loses that device (ADR 0024).
+    runs-on: macos-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # rust-toolchain.toml pins the version and the wasm target.
+      - name: Install toolchain
+        run: rustup show
+      # The proof runs the page in the runner's Chrome, driven by Node.
+      - name: Node version
+        run: node --version
+      # Everything built through `cargo xtask dist` (the rwgpu command, both web
+      # players, no path of the runner in them: ADR 0023; the first run
+      # installs the pinned wasm-bindgen tool into target/tools). Then Tiny Town
+      # exported into target/pages by the release rwgpu with the WebGPU player
+      # next to it, and that folder proved before anything is published: the
+      # same bytes as a second export, no path of the runner in any file, and in
+      # a headless Chrome, from a plain static host under the path Pages serves
+      # it at and then at a site's root, every playtest at the state of
+      # `rwgpu test` on WebGPU (each frame held to the reference picture) and on
+      # the CPU path (the canvas holding the reference's pixels).
+      - name: cargo xtask pages
+        env:
+          BASE: /${{ github.event.repository.name }}/
+        run: cargo xtask pages --out target/pages --base "$BASE"
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: target/pages
+
+  deploy:
+    needs: build
+    # Only what was built from main is published.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

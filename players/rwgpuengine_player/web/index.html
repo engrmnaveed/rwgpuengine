@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>rwgpu player</title>
+<link rel="icon" href="data:,">
 <style>
   :root { color-scheme: dark; --bg: #12151c; --panel: #1b202b; --line: #2a3140; --text: #d7dce5; --dim: #8a93a6; --accent: #ffcc33; --bad: #ff6b5b; }
   * { box-sizing: border-box; }
@@ -77,7 +78,7 @@
       <p class="help">Camera: Q and E turn a quarter turn; right-drag turns freely; middle-drag or Shift + right-drag
       pans; the wheel, a pinch (two fingers, or a trackpad), - and = zoom; V switches between iso and perspective;
       Home goes back to the scene's camera.</p>
-      <p class="help">Edit any project file and the player reloads it. URL: <code>?scene=…&amp;input=…&amp;frames=N</code>
+      <p class="help"><span id="reloads">Edit any project file and the player reloads it. </span>URL: <code>?scene=…&amp;input=…&amp;frames=N</code>
       runs N frames at once and pauses; the state hash matches <code>rwgpu run</code>.
       <code>?renderer=cpu</code> draws with the CPU reference renderer.</p>
     </section>

@@ -81,6 +81,25 @@ the page reloads it. Without `cargo xtask web-player`, `rwgpu serve` serves the 
 (`cargo xtask web` builds it); its first line says which it serves
 ([ADR 0024](docs/decisions/0024-web-player-on-webgpu.md)).
 
+Put a game on the web: `rwgpu export web` writes a folder that any static web host can serve (GitHub Pages,
+any web server, a folder on a site), with the same player `rwgpu serve` finds. The project must pass
+`rwgpu check` first.
+
+```bash
+cargo xtask dist                 # target/release/rwgpu, with both web players next to it
+target/release/rwgpu export web examples/tiny_town --out target/site
+target/release/rwgpu serve --site target/site   # try it as a host would serve it: http://127.0.0.1:4410/
+```
+
+Copy the folder to the host as it is. Every address in it is relative, so it works at the root of a site or
+under a path such as `/games/town/`. It needs a web server, not a file opened from disk; WebGPU also needs a
+secure context (https, or http on `localhost`), and elsewhere the page draws with the CPU. A host that sends
+`.wasm` as `application/wasm` lets the browser compile while it downloads (others work too, a little slower).
+The folder holds the page, the player and the game's text files, and no path of the machine that made it;
+`--json` says which player and lists every file with its size and hash. `cargo xtask dist --agent` builds
+only the CPU player, which needs no wasm-bindgen
+([ADR 0025](docs/decisions/0025-rwgpu-export-web.md)).
+
 A window, drawn with the GPU (Vulkan, Metal or Direct3D 12; on Linux without a graphics card, Mesa's
 `mesa-vulkan-drivers`). The native player is a program of its own, so `rwgpu` never needs a GPU; build and
 install it once:
@@ -117,14 +136,14 @@ taps and swipes and two fingers pinch.
 | `examples/iso_garden` | reference example: plate opens gate, goal raises flag; 2 playtests |
 | `examples/coin_vault` | reference example for data logic: coin counter on a HUD, vault opens at 3, AND lock held by a pushed crate; 4 playtests |
 | `examples/tiny_town` | **reference game 1** ([spec](docs/games/tiny-town.md)): a builder — terrain map, tap to build 2 × 2 houses, trees and a well within a coin budget, clear with refund, a job card that counts copies, hints that say why nothing was built; 4 playtests, one of which turns the camera and builds in perspective |
-| `xtask` | `cargo xtask ci | repo-check | dist | web | web-player | smoke | budgets | docs | wasm-check | gpu` |
-| `web/` | the CPU player's page and glue, and `check.mjs`, which holds its wasm module to the native command |
+| `xtask` | `cargo xtask ci | repo-check | dist | web | web-player | smoke | budgets | docs | wasm-check | export-check | pages | gpu` |
+| `web/` | the CPU player's page and glue; `check.mjs`, which holds its wasm module to the native command; `export-check.mjs` and `static-host.mjs`, which play an exported folder from a plain static host |
 | `docs/` | vision, architecture, decisions (ADRs), proposals, roadmap, open questions, reference |
 
 ## Development
 
 ```bash
-cargo xtask ci        # repository check, fmt, clippy (native+wasm), tests, docs drift, examples, budgets, wasm check — what CI runs
+cargo xtask ci        # repository check, fmt, clippy (native+wasm), tests, docs drift, examples, budgets, wasm check, export check — what CI runs
 cargo xtask dist      # release artifacts to share: no path of the machine that built them (ADR 0023)
 cargo xtask gpu       # the players' half: the wgpu renderer against the CPU reference, the native player, the web player in a headless Chrome, players' budgets (needs a GPU)
 ```

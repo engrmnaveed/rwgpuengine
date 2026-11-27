@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>rwgpu player</title>
+<link rel="icon" href="data:,">
 <style>
   :root { color-scheme: dark; --bg: #12151c; --panel: #1b202b; --line: #2a3140; --text: #d7dce5; --dim: #8a93a6; --accent: #ffcc33; --bad: #ff6b5b; }
   * { box-sizing: border-box; }
@@ -71,7 +72,7 @@
     <section>
       <h2>Controls</h2>
       <p class="help">Arrow keys / WASD or the pad move; swipe on the screen to move, tap to tap an entity.
-      Edit any project file and the player reloads it. URL: <code>?scene=…&amp;input=…&amp;frames=N</code> runs N
+      <span id="reloads">Edit any project file and the player reloads it.</span> URL: <code>?scene=…&amp;input=…&amp;frames=N</code> runs N
       frames at once and pauses; the state hash matches <code>rwgpu run</code>.</p>
     </section>
   </aside>

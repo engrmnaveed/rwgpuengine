@@ -278,6 +278,17 @@ for rwgpu {v} (`rwgpu docs --agents` prints the version you have installed).
 Add `--json` to any command for one machine-readable JSON object. Exit code 0 = ok, 1 = errors or failed
 checks, 2 = bad command line. Commands run from anywhere inside the project.
 
+## Put it on the web
+
+- `rwgpu serve` plays the project in a browser at <http://127.0.0.1:4410/> and reloads it when a file changes.
+- `rwgpu export web --out out/web` writes a folder that any static web host can serve: the page, the web player
+  and the game, every address relative. The player draws with WebGPU where the browser has it (on https or
+  localhost) and with the CPU reference renderer where not, when `rwgpu` has the WebGPU player next to it;
+  otherwise it is the CPU player. The project must pass `rwgpu check` first. `--json` says which player and
+  lists each file with its size and hash, and the project files left out (reference pictures, notes) and why.
+- `rwgpu serve --site out/web` serves that folder as a host would. A link such as
+  `?input=tests/X.toml&frames=N` replays a playtest and shows the state hash `rwgpu run` gives.
+
 ## Project layout
 
 ```text

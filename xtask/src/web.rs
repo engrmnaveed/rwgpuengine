@@ -10,13 +10,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
-use rwgpuengine_cli::serve::WEB_PLAYER_FILES;
+use rwgpuengine_cli::web::WEB_PLAYER_FILES;
 use rwgpuengine_core::codes;
 use rwgpuengine_core::diag::Diagnostic;
 use rwgpuengine_core::hash;
 use rwgpuengine_core::json::Json;
 
-use crate::{EXAMPLES, Result, dist, root, step};
+use crate::{Result, dist, root, step};
 
 /// Where the built player goes, and where `rwgpu serve` (a debug build run
 /// from the source tree) finds it.
@@ -146,6 +146,17 @@ pub fn build(machine: &dist::Machine) -> Result<PathBuf> {
     }
     let files: Vec<PathBuf> = WEB_PLAYER_FILES.iter().map(|f| out.join(f)).collect();
     dist::check_artifacts(machine, &root(), &files)?;
+    // The glue fetches the module relative to itself, so the player works under
+    // any path of a site (ADR 0025).
+    let glue = std::fs::read_to_string(out.join("rwgpu_web.js")).map_err(|e| format!("rwgpu_web.js: {e}"))?;
+    for bad in ["fetch('/", "fetch(\"/", "from '/", "import('/", "new URL('/"] {
+        if glue.contains(bad) {
+            return Err(format!("rwgpu_web.js has `{bad}`: an address that would not work under a path of a site"));
+        }
+    }
+    if !glue.contains("new URL('rwgpu_web_bg.wasm', import.meta.url)") {
+        return Err("rwgpu_web.js no longer finds the module next to itself: look at how the glue loads it".into());
+    }
     let shown = out.strip_prefix(root()).unwrap_or(&out).display().to_string();
     eprintln!("built {shown} in {built:.1} s, glue by wasm-bindgen {version} in {glued:.2} s:");
     for f in &files {
@@ -177,6 +188,43 @@ pub struct Measured {
     pub summary: Vec<String>,
 }
 
+/// What the browser check opens.
+pub enum Served<'a> {
+    /// `rwgpu serve` for each example, with the WebGPU player's folder; and,
+    /// on Tiny Town, the measurements (real time, a lost device, idle, turning).
+    Serve,
+    /// Folders `rwgpu export web` wrote: `<folders>/<example's name>` (or
+    /// `<folders>` itself when it holds an index.html), each from a plain
+    /// static host under `base` (ADR 0025).
+    Export { folders: &'a Path, base: &'a str },
+}
+
+/// What the engine reaches for every playtest of `examples`: `rwgpu test`.
+pub fn expected(rwgpu: &Path, examples: &[&'static str]) -> Result<Vec<Expected>> {
+    let mut all = Vec::new();
+    for example in examples {
+        let out = Command::new(rwgpu)
+            .args(["test", example, "--json"])
+            .current_dir(root())
+            .output()
+            .map_err(|e| format!("rwgpu test {example}: {e}"))?;
+        let j = Json::parse(&String::from_utf8_lossy(&out.stdout)).map_err(|e| format!("rwgpu test {example}: {e}"))?;
+        if !out.status.success() {
+            return Err(format!("rwgpu test {example} failed: {}", j.to_compact()));
+        }
+        for t in j.get("tests").and_then(Json::as_array).unwrap_or(&[]) {
+            let text = |k: &str| t.get(k).map(|v| v.as_str().map_or_else(|| v.to_compact(), str::to_string));
+            all.push(Expected {
+                example,
+                test: text("path").unwrap_or_default(),
+                frames: text("frames").unwrap_or_default(),
+                state: text("state_hash").unwrap_or_default(),
+            });
+        }
+    }
+    Ok(all)
+}
+
 /// The web player in a real browser (`players/rwgpuengine_player/web/check.mjs`):
 /// every example playtest on the WebGPU path and on the CPU path ends in the
 /// engine's state; the WebGPU frames are within `pixels_apart` of the
@@ -186,8 +234,18 @@ pub struct Measured {
 ///
 /// Without Node or a browser it is skipped on a developer's machine and fails
 /// in CI. `RWGPU_BROWSER_RUNS` runs it several times.
-pub fn check(dir: &Path, rwgpu: &Path, gpu_check: &Path, expected: &[Expected], pixels_apart: i64) -> Result<Measured> {
-    step("web player: in a browser, headless");
+pub fn check(
+    dir: &Path,
+    rwgpu: &Path,
+    gpu_check: &Path,
+    expected: &[Expected],
+    pixels_apart: i64,
+    served: &Served,
+) -> Result<Measured> {
+    match served {
+        Served::Serve => step("web player: in a browser, headless"),
+        Served::Export { base, .. } => step(&format!("rwgpu export web: the folders in a browser, under {base}")),
+    }
     let in_ci = std::env::var_os("CI").is_some();
     let skip = |why: &str| -> Result<Measured> {
         if in_ci {
@@ -205,7 +263,7 @@ pub fn check(dir: &Path, rwgpu: &Path, gpu_check: &Path, expected: &[Expected], 
         if runs > 1 {
             eprintln!("\nbrowser check, run {run} of {runs}");
         }
-        match one_check(dir, rwgpu, gpu_check, expected, pixels_apart, &mut m)? {
+        match one_check(dir, rwgpu, gpu_check, expected, pixels_apart, served, &mut m)? {
             true => m.ran = true,
             false => return skip("no Chromium browser was found (set RWGPU_BROWSER to one)"),
         }
@@ -219,13 +277,28 @@ fn one_check(
     gpu_check: &Path,
     expected: &[Expected],
     pixels_apart: i64,
+    served: &Served,
     m: &mut Measured,
 ) -> Result<bool> {
-    let out = root().join("target/web-check");
     let script = root().join("players/rwgpuengine_player/web/check.mjs");
     let mut cmd = Command::new("node");
-    cmd.arg(&script).arg("--rwgpu").arg(rwgpu).arg("--player").arg(dir).arg("--out").arg(&out);
-    cmd.args(["--measure"]).args(EXAMPLES).current_dir(root()).stderr(Stdio::inherit());
+    let out = match served {
+        Served::Serve => {
+            let out = root().join("target/web-check");
+            cmd.arg(&script).arg("--rwgpu").arg(rwgpu).arg("--player").arg(dir).arg("--out").arg(&out);
+            cmd.arg("--measure");
+            out
+        }
+        Served::Export { folders, base } => {
+            let out = root().join("target/web-check-export").join(base.trim_matches('/').replace('/', "-") + "-check");
+            cmd.arg(&script).arg("--rwgpu").arg(rwgpu).arg("--player").arg(dir).arg("--out").arg(&out);
+            cmd.arg("--export").arg(folders).args(["--base", base]);
+            out
+        }
+    };
+    let mut examples: Vec<&str> = expected.iter().map(|e| e.example).collect();
+    examples.dedup();
+    cmd.args(&examples).current_dir(root()).stderr(Stdio::inherit());
     let start = Instant::now();
     let done = cmd.output().map_err(|e| format!("node {}: {e}", script.display()))?;
     let took = start.elapsed().as_secs_f64();
@@ -422,6 +495,46 @@ fn one_check(
         eprintln!("     {line}");
         m.summary.push(line);
     }
+    // An exported folder: every request answered from it, every file of it asked for.
+    if let Served::Export { base, .. } = served {
+        let rows = j.get("served").and_then(Json::as_array).unwrap_or(&[]);
+        for want in &examples {
+            let name = want.rsplit('/').next().unwrap_or("");
+            let Some(row) = rows.iter().find(|r| s(r, "example") == name) else {
+                bad.push(format!("{name}: the exported folder was not served"));
+                continue;
+            };
+            let list = |k: &str| {
+                row.get(k).and_then(Json::as_array).unwrap_or(&[]).iter().map(Json::to_compact).collect::<Vec<_>>()
+            };
+            let (missed, unused) = (list("bad"), list("unused"));
+            let line = format!(
+                "{name}: {} requests under {base}, all answered from the folder; every file of it asked for",
+                row.get("requests").map(Json::to_compact).unwrap_or_default()
+            );
+            let size =
+                |part: &str, k: &str| row.pointer(&format!("sizes/{part}/{k}")).and_then(Json::as_i64).unwrap_or(0);
+            let sizes = format!(
+                "{name}: the folder {} bytes ({} gzipped): player {} ({}), game {} ({})",
+                size("player", "bytes") + size("game", "bytes"),
+                size("player", "gzip") + size("game", "gzip"),
+                size("player", "bytes"),
+                size("player", "gzip"),
+                size("game", "bytes"),
+                size("game", "gzip")
+            );
+            eprintln!("      {sizes}");
+            if !m.summary.contains(&sizes) {
+                m.summary.push(sizes);
+            }
+            if missed.is_empty() && unused.is_empty() {
+                eprintln!("ok    {line}");
+            } else {
+                bad.push(format!("{name} under {base}: not answered {missed:?}, never asked for {unused:?}"));
+            }
+        }
+        m.summary.push(format!("the exported folders under {base}: every request answered, every file used"));
+    }
     let errors = j.get("errors").and_then(Json::as_array).unwrap_or(&[]);
     if !errors.is_empty() {
         bad.push(format!("the page reported: {}", errors.iter().map(Json::to_compact).collect::<Vec<_>>().join("; ")));
@@ -503,5 +616,27 @@ mod tests {
         }
         let script = std::fs::read_to_string(page.join("player.js")).unwrap();
         assert!(script.contains("from './rwgpu_web.js'") && script.contains("'rwgpu_web_bg.wasm'"));
+    }
+
+    /// The page and its script name files relative to themselves, so a folder
+    /// `rwgpu export web` writes works under any path of a site (ADR 0025); the
+    /// glue is checked where it is written, and the browser check serves the
+    /// folders under a path. The game's files have the names `rwgpu serve` and
+    /// `rwgpu export web` give them.
+    #[test]
+    fn the_web_player_asks_for_everything_by_a_relative_address() {
+        use rwgpuengine_cli::web::{BUNDLE, BUNDLE_HASH, PROJECT_JSON};
+        let page = root().join("players/rwgpuengine_player/web");
+        for name in ["index.html", "player.js"] {
+            let text = std::fs::read_to_string(page.join(name)).unwrap();
+            for bad in ["src=\"/", "href=\"/", "fetch('/", "fetch(\"/", "from '/", "import('/", "http://", "https://"] {
+                assert!(!text.contains(bad), "{name} has `{bad}`");
+            }
+        }
+        let script = std::fs::read_to_string(page.join("player.js")).unwrap();
+        for name in [PROJECT_JSON, BUNDLE, BUNDLE_HASH] {
+            assert!(script.contains(&format!("fetch('{name}'")), "player.js does not ask for {name}");
+        }
+        assert!(script.contains("if (project.reload)"), "only `rwgpu serve` has the bundle's hash to poll");
     }
 }

@@ -7,6 +7,39 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-27 — `rwgpu export web`: a game as a folder for any static web host, with the WebGPU player
+
+- Step 4, piece 3 ([ADR 0025](decisions/0025-rwgpu-export-web.md)). `rwgpu export web [PATH] --out DIR` writes
+  the files `rwgpu serve` serves, under the same names, once: the player's, then `project.json` and
+  `bundle.txt`. Every address the pages, their scripts and wasm-bindgen's glue use is relative, so the folder
+  works at a site's root and under any path. Built first with the CPU player on 2026-11-26; the WebGPU player
+  of piece 2 went in when it landed.
+- **One lookup for both commands.** `rwgpuengine_cli/src/web.rs` finds the player for `serve` and `export`:
+  a flag or a variable names the one place (`--web-player`, `--wasm`, `RWGPU_WEB_PLAYER`, `RWGPU_WEB_WASM`);
+  otherwise a WebGPU player next to `rwgpu` or in the workspace beats a CPU module in the same places. E0008
+  when there is none (E0007 went to piece 2's `web-tool-missing`). `cargo xtask dist` puts both players next
+  to `rwgpu`. `--json` says which player.
+- **Only what the engine reads** goes in the bundle: `rwgpu.toml`, `scenes/`, `prefabs/`, `tests/`. Validated
+  first; refuses a folder that is not empty without `--force`; never deletes; never writes through a link;
+  the same bytes every time.
+- **The proof, in both gates.** `cargo xtask ci` (no GPU, no browser) exports every example with the CPU
+  player and plays the folder's own page under Node from a plain static host, at `/` and under a path: all ten
+  playtests at the state and image hashes of `rwgpu test` and `rwgpu shot`. `cargo xtask gpu` exports every
+  example with the WebGPU player and runs piece 2's browser check on the folders, from the same static host at
+  `/` and under `/rwgpuengine/`: every playtest at the engine's state on WebGPU (0 pixels apart from the
+  reference, on Metal) and on the CPU path (the reference's exact pixels); every request answered from the
+  folder, every file used.
+- **The link: GitHub Pages, decided by the owner** on 2026-11-26 ("Yes, GitHub Pages"). `cargo xtask pages`
+  builds through `cargo xtask dist`, exports Tiny Town with the WebGPU player and proves that very folder in a
+  headless Chrome under `/rwgpuengine/` and at `/`. `.github/workflows/pages.yml` runs it on `macos-latest`,
+  where the runner's Chrome draws WebGPU, and publishes only that folder; manual trigger only, deploy only
+  from `main`, least permissions. The supervisor switches Pages on and runs it after step 4 is in `main`.
+- **Sizes.** Tiny Town's folder: 788,625 bytes (303,479 gzipped), of which the WebGPU player is 771,924
+  (299,098) against its budget of 1,500,000, and the game 16,701 (4,381). With the CPU player: 662,530.
+- **Found on the way.** A browser asks the host for `/favicon.ico`, outside a folder served under a path;
+  both pages now name an empty icon, so nothing outside the folder is asked for.
+- Not done: offline or installable pages, hashed file names against host caching, compression.
+
 ## 2026-11-26 — The web player on WebGPU, with the CPU reference renderer as its fallback
 
 - Step 4, piece 2 ([ADR 0024](decisions/0024-web-player-on-webgpu.md)). `cargo xtask web-player` builds

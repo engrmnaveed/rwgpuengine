@@ -22,9 +22,13 @@ cargo rwgpu <command> ...            # the CLI from source, e.g. cargo rwgpu che
 cargo xtask web                      # build the CPU web player (the wasm module of the agent's half)
 cargo xtask web-player               # build the WebGPU web player into target/web-player (the players' half)
 cargo rwgpu serve examples/tiny_town # web player at http://127.0.0.1:4410/ (WebGPU if built, else the CPU player)
+cargo rwgpu export web examples/tiny_town --out target/site   # a folder any static web host can serve, with the same player
+cargo rwgpu serve --site target/site    # that folder, served as a host would serve it
+cargo xtask export-check             # every example exported (CPU player) and played from a static server (part of ci)
+cargo xtask pages                    # the folder the Pages workflow publishes: dist, Tiny Town with the WebGPU player, proved in a browser under /rwgpuengine/
 cargo xtask docs                     # regenerate docs/reference after changing commands/formats/codes
 cargo xtask budgets                  # measure size/time/dependency budgets
-cargo xtask gpu                      # the players' gate: the wgpu renderer against the CPU reference, the native player and the web player (headless Chrome) against `rwgpu test`, players' budgets
+cargo xtask gpu                      # the players' gate: the wgpu renderer against the CPU reference, the native player and the web player (headless Chrome) against `rwgpu test`, every example exported and played from a static host, players' budgets
 cargo xtask gpu --fast               # only the picture check, built incrementally (the edit loop for players/)
 cargo xtask gpu --fast -- --random 3000   # random scenes: what the fixed ones miss
 cargo xtask gpu --window             # the gate plus a replay in a real window (needs a desktop or `xvfb-run`)
@@ -77,6 +81,7 @@ Where the browser loses the WebGPU device of a canvas (Chrome on SwiftShader, as
 | new component | `schema.rs` (Spec + Field) → `defs.rs` (decode) → `world.rs` (Entity field, behavior, state_hash) → `dump.rs` (JSON) → `list.rs` if visual (an instance or a card in the render list; `reference.rs` if it needs a new mesh) → tests → `cargo xtask docs` |
 | new diagnostic | `rwgpuengine_core/src/codes.rs` (next free number in range) → emit with `.at(src, span).hint(..)` → test asserts the code |
 | new command | `rwgpuengine_cli/src/args.rs` (Command entry with examples) → `lib.rs` dispatch → `commands.rs` → `cargo xtask docs` |
+| web player file | `web/` for the CPU player, `players/rwgpuengine_player/web/` for the WebGPU player (relative addresses only) → `CPU_PLAYER_FILES` or `WEB_PLAYER_FILES` in `rwgpuengine_cli/src/web.rs` (each player's files, where each comes from and the one lookup; `serve`, `export web` and xtask read them) → `cargo xtask export-check` (CPU) and `cargo xtask gpu` (WebGPU, in a browser) |
 | new event kind | `rwgpuengine_sim/src/events.rs` + `schema::EVENT_KINDS` (a test keeps them equal) |
 | player input or window | `players/rwgpuengine_player`: `input.rs` (keys, taps, camera gestures; the web player's mapping for the game's input) and the `play` entry's text in `rwgpuengine_cli/src/args.rs` (a test keeps them equal), `window.rs` (the event loop), `clock.rs` (the fixed step) → `cargo xtask docs` → `cargo xtask gpu --window`. No game rule and no visual feature here: those go in the engine and the reference |
 | web player | `players/rwgpuengine_player/src/web.rs` (what the page calls) and `web/player.js` (the page: canvas, events, animation frames; nothing that decides); bindings stay in `input.rs`, shared with the window (a test keeps the page's help equal) → `cargo xtask web-player`, `cargo rwgpu serve examples/tiny_town` → `cargo xtask gpu` (the browser check: `web/check.mjs`, then `gpu_check --web-frames`) |

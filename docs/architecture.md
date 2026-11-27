@@ -8,7 +8,7 @@ How rwgpuengine is built, as of v0.1.0 (first milestone). Decisions behind each 
 ```text
                 ┌──────────────────────────────────────────────────────────────┐
  agent surface  │ rwgpuengine_cli   `rwgpu` binary + library: commands, --json,       │
-                │             help/docs from registries, dev server (serve)      │
+                │             help/docs from registries, serve, export web       │
                 │ rwgpuengine_web   wasm32 cdylib, C ABI for web/player.js (the CPU player) │
                 └───────────────┬──────────────────────────────┬───────────────┘
                                 │                              │
@@ -33,7 +33,7 @@ How rwgpuengine is built, as of v0.1.0 (first milestone). Decisions behind each 
                 │             colors, suggestions. Zero dependencies.            │
                 └──────────────────────────────────────────────────────────────┘
  rented         toml_edit (parsing) · png (encode/decode)
- dev tooling    xtask: ci, repo-check, dist, web, web-player, smoke, budgets, docs, wasm-check, gpu
+ dev tooling    xtask: ci, repo-check, dist, web, web-player, smoke, budgets, docs, wasm-check, export-check, pages, gpu
 ```
 
 Dependency rule: arrows only point down. `rwgpuengine_sim` knows nothing about rendering; `rwgpuengine_render` reads
@@ -68,7 +68,8 @@ The players' crates depend on the agent's, never the other way round. wgpu and w
 `Cargo.lock`, so no command in the agent's half can compile them. `rwgpu play` runs the player as a separate
 program, found next to `rwgpu` or on `PATH` ([ADR 0022](decisions/0022-native-player-winit-and-rwgpu-play.md)).
 `rwgpu serve` serves the web player's built files as they are
-([ADR 0024](decisions/0024-web-player-on-webgpu.md)).
+([ADR 0024](decisions/0024-web-player-on-webgpu.md)), and `rwgpu export web` copies them into a folder for a
+web host ([ADR 0025](decisions/0025-rwgpu-export-web.md)).
 
 | crate | owns | must not |
 |---|---|---|
@@ -77,7 +78,7 @@ program, found next to `rwgpu` or on `PATH` ([ADR 0022](decisions/0022-native-pl
 | `rwgpuengine_sim` | `World`, entities, built-in behaviors, signals, event log, state hash | render, read files, use wall-clock time |
 | `rwgpuengine_render` | the camera, the render list, the CPU reference renderer, frame report, picking, PNG | change the world |
 | `rwgpuengine_runtime` | sessions, scripted input, playtests, the `Game` trait | touch the filesystem (the CLI does) |
-| `rwgpuengine_cli` | commands, output envelope, docs generation, templates, dev server | contain engine logic |
+| `rwgpuengine_cli` | commands, output envelope, docs generation, templates, dev server, the web players' lookup and `export web` | contain engine logic |
 | `rwgpuengine_web` | the CPU player's wasm C ABI | contain engine logic |
 | `rwgpuengine_gpu` (players) | the render list drawn with wgpu: frame, copy to bytes, show on a target | open a window, block, decide what a frame looks like (the reference does) |
 | `rwgpuengine_player` (players) | `rwgpu-player`: the window, the clock, keys, taps and camera gestures, `--headless` and `--screenshot`; the web player (`web`, for wasm32) and its page | have a game rule or a visual feature (the engine and the reference do), load a project its own way |
@@ -280,7 +281,7 @@ same steps with no window and no clock; `--frames` and `--input` end a run and p
 ## The web player
 
 [ADR 0024](decisions/0024-web-player-on-webgpu.md). `rwgpuengine_player`'s library built for wasm32 is one
-module (670 KB, with the glue the `wasm-bindgen` tool writes; 768 KB to download in all, budget 1,500,000).
+module (670 KB, with the glue the `wasm-bindgen` tool writes; 772 KB to download in all, budget 1,500,000).
 It holds the engine, the GPU renderer on WebGPU and the CPU reference painter. The page's own script
 (`players/rwgpuengine_player/web/player.js`, no framework, no build step) hands it the canvas, the events
 and the animation frames:
@@ -292,12 +293,32 @@ and the animation frames:
                 └ no WebGPU, no adapter, a lost device ──► Presenter (the reference's pixels) ──► 2D canvas
 ```
 
-`rwgpu serve` finds the built player (`cargo xtask web-player`, `target/web-player`) and serves its four
-files, the project as a bundle rebuilt from disk per request, and a content hash the page polls to reload.
-Without it, it serves the CPU player of ADR 0008: `rwgpuengine_web` (a wasm module with zero imports, about
-620 KB, budget 800,000), driven by `web/player.js`, which copies the pixels to the canvas only when the
-picture changed. Diagnostics show in the page. Touch first: tap = tap, swipe = move along the iso axes,
-on-screen pad; the WebGPU player adds the camera's bindings and a two-finger pinch.
+Without the WebGPU player, the CPU player of ADR 0008 is served: `rwgpuengine_web` (a wasm module with zero
+imports, about 630 KB, budget 800,000), driven by `web/player.js`, which copies the pixels to the canvas only
+when the picture changed. Diagnostics show in the page. Touch first: tap = tap, swipe = move along the iso
+axes, on-screen pad; the WebGPU player adds the camera's bindings and a two-finger pinch.
+
+Both pages ask only for files next to them, by relative addresses, and one lookup in `rwgpuengine_cli/src/web.rs`
+finds the player for `serve` and for `export web` ([ADR 0025](decisions/0025-rwgpu-export-web.md)):
+
+```text
+ the WebGPU player: index.html, player.js,  ─┐  --web-player, --wasm, RWGPU_WEB_PLAYER, RWGPU_WEB_WASM
+   rwgpu_web.js, rwgpu_web_bg.wasm           ├─ name the one place; else web-player next to rwgpu, the
+ or the CPU player: index.html, player.js    │  workspace build, then rwgpuengine_web.wasm (E0008: none)
+   (in rwgpu), player.wasm                  ─┤
+ project.json, bundle.txt ── web::game(Vfs) ─┤  the files the engine reads, nothing else
+                                             ├──► rwgpu serve PATH      made per request; also bundle-hash.txt,
+                                             │                          which the page polls to reload
+                                             └──► rwgpu export web      written once into a folder that any
+                                                  PATH --out DIR        static host serves, at a site's root or
+                                                                        under a path
+```
+
+`rwgpu export web` validates the project first, writes the same bytes for the same project and player, and
+never writes outside `--out`; `rwgpu serve --site DIR` serves such a folder as a host would. Each folder is
+played from a plain static host (`web/static-host.mjs`) at `/` and under `/rwgpuengine/`: with the CPU player
+under Node in `cargo xtask ci` (`web/export-check.mjs`), with the WebGPU player in a headless Chrome on both
+paths in `cargo xtask gpu`; `cargo xtask pages` proves the folder the Pages workflow publishes the same way.
 
 ## Extension points
 

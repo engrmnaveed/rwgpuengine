@@ -3,6 +3,11 @@
 // The wasm module exports a small C ABI (see crates/rwgpuengine_web/src/lib.rs):
 // strings go in as (pointer, length) into linear memory, text comes back
 // through rwgpu_out_ptr/rwgpu_out_len. No wasm-bindgen, no build step.
+//
+// Every address is relative to the page, so the same files work from
+// `rwgpu serve` and from a folder made by `rwgpu export web`, at the root of
+// a site or under a path. Only `rwgpu serve` sets `reload` in project.json:
+// then the page polls bundle-hash.txt and reloads the game when it changes.
 'use strict';
 
 const ACTION = { up: 1, down: 2, left: 4, right: 8, confirm: 16, cancel: 32 };
@@ -56,7 +61,7 @@ function showProblems(text) {
 }
 
 async function loadBundle() {
-  const res = await fetch('/bundle', { cache: 'no-store' });
+  const res = await fetch('bundle.txt', { cache: 'no-store' });
   const text = await res.text();
   const status = withStr(text, (p, n) => w.rwgpu_set_bundle(p, n));
   if (status !== 0) { showProblems(out()); return false; }
@@ -141,15 +146,27 @@ function fill(select, values, chosen) {
   if (chosen != null) select.value = chosen;
 }
 
+// Streaming compilation needs the host to send application/wasm; some static
+// hosts do not, so then the module is compiled from its bytes.
+async function instantiate(url) {
+  try {
+    return (await WebAssembly.instantiateStreaming(fetch(url), {})).instance;
+  } catch (_) {
+    const bytes = await (await fetch(url)).arrayBuffer();
+    return (await WebAssembly.instantiate(bytes, {})).instance;
+  }
+}
+
 async function main() {
   ctx = $('screen').getContext('2d');
-  const { instance } = await WebAssembly.instantiateStreaming(fetch('/player.wasm'), {});
-  w = instance.exports;
-  const project = await (await fetch('/project', { cache: 'no-store' })).json();
+  w = (await instantiate('player.wasm')).exports;
+  const project = await (await fetch('project.json', { cache: 'no-store' })).json();
   $('project').textContent = `${project.name || '?'} · rwgpu ${project.version}`;
+  if (project.name) document.title = project.name;
+  $('reloads').style.display = project.reload ? '' : 'none';
   fill($('scene'), project.scenes, params.get('scene') || project.main_scene);
   fill($('input'), project.tests, params.get('input') || '');
-  bundleHash = await (await fetch('/bundle-hash', { cache: 'no-store' })).text();
+  if (project.reload) bundleHash = await (await fetch('bundle-hash.txt', { cache: 'no-store' })).text();
   if (await loadBundle()) await restart(true);
 
   $('scene').onchange = () => restart(false);
@@ -194,10 +211,10 @@ async function main() {
     if (paused) { step(); draw(); }
   });
 
-  // Data edits reload instantly: poll the bundle hash.
-  setInterval(async () => {
+  // Data edits reload instantly under `rwgpu serve`: poll the bundle hash.
+  if (project.reload) setInterval(async () => {
     try {
-      const h = await (await fetch('/bundle-hash', { cache: 'no-store' })).text();
+      const h = await (await fetch('bundle-hash.txt', { cache: 'no-store' })).text();
       if (h !== bundleHash) {
         bundleHash = h;
         if (await loadBundle()) { await restart(false); $('note').textContent = 'reloaded'; }
