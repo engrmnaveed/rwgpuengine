@@ -7,6 +7,7 @@ use rwgpuengine_core::text::did_you_mean;
 use super::super::order::Sink;
 use super::super::scene::{prefab_exists, prefab_names};
 use super::super::vfs::Vfs;
+use super::shape;
 use crate::defs::{self, EntityDef, LabelPart};
 use crate::node::Table;
 use crate::schema;
@@ -70,6 +71,18 @@ pub(crate) fn rules(def: &EntityDef, t: &Table, span: Span, src: &SourceFile, ou
             );
         }
     }
+    // Its own shape list, or its prefab's against its own footprint (a
+    // prefab's list is checked against the prefab's, in the prefab's file).
+    if let Some(shapes) = &def.shapes {
+        let mut push = |d: Diagnostic| out.push(d);
+        if let Some(list) = t.get("shape") {
+            let w = shape::Written { src, list: Some(list), span, allow: &def.allow };
+            shape::list(shapes, def.footprint, &w, &mut push);
+        } else if t.has("footprint") {
+            let w = shape::Written { src, list: None, span: t.key_span("footprint", span), allow: &def.allow };
+            shape::inside(shapes, def.footprint, &w, &mut push);
+        }
+    }
     if let Some(label) = &def.label {
         let at = t.table("label").map_or(span, |l| l.value_span("text", t.value_span("label", span)));
         match defs::parse_label(&label.text) {
@@ -126,6 +139,7 @@ pub(crate) fn rules(def: &EntityDef, t: &Table, span: Span, src: &SourceFile, ou
     }
     if def.screen_pos.is_some() {
         let world_only: Vec<&str> = [
+            ("shape", def.shapes.is_some()),
             ("tile", def.tile.is_some()),
             ("block", def.block.is_some()),
             ("mover", def.mover.is_some()),

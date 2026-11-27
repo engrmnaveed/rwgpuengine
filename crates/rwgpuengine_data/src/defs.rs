@@ -3,6 +3,8 @@
 //! These are plain data: what the files say, with defaults applied. The
 //! simulation builds its world from them; nothing here changes at runtime.
 
+use std::sync::Arc;
+
 use rwgpuengine_core::color::Rgba;
 use rwgpuengine_core::diag::{SourceFile, Span};
 
@@ -213,7 +215,7 @@ pub struct Origin {
     pub span: Span,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct EntityDef {
     pub name: Option<String>,
     pub prefab: Option<String>,
@@ -242,6 +244,42 @@ pub struct EntityDef {
     /// Warning codes intended for this entity (not reported).
     pub allow: Vec<String>,
     pub origin: Origin,
+    /// Its `[[shape]]` list, if it has one with shapes in it. Every entity
+    /// made from one prefab shares the prefab's list.
+    pub shapes: Option<Arc<[ShapeDef]>>,
+}
+
+/// As `#[derive(Debug)]` writes it, with the keys that came after the
+/// loader's oracle (`corpus.rs`) only where they are set: the definition of
+/// a file that does not use them reads as it did, so its pin holds.
+impl std::fmt::Debug for EntityDef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut d = f.debug_struct("EntityDef");
+        d.field("name", &self.name)
+            .field("prefab", &self.prefab)
+            .field("pos", &self.pos)
+            .field("footprint", &self.footprint)
+            .field("enabled", &self.enabled)
+            .field("solid", &self.solid)
+            .field("pushable", &self.pushable)
+            .field("tile", &self.tile)
+            .field("block", &self.block)
+            .field("sprite", &self.sprite)
+            .field("mover", &self.mover)
+            .field("patrol", &self.patrol)
+            .field("wander", &self.wander)
+            .field("trigger", &self.trigger)
+            .field("label", &self.label)
+            .field("screen_pos", &self.screen_pos)
+            .field("props", &self.props)
+            .field("counts", &self.counts)
+            .field("allow", &self.allow)
+            .field("origin", &self.origin);
+        if let Some(shapes) = &self.shapes {
+            d.field("shapes", shapes);
+        }
+        d.finish()
+    }
 }
 
 impl EntityDef {
@@ -302,6 +340,52 @@ pub struct BlockDef {
     /// Top face color (defaults to `color`).
     pub top: Rgba,
     pub height: f32,
+}
+
+/// The solids a `[[shape]]` can be. Each fills its box.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ShapeKind {
+    Box,
+    /// A gable roof: two slopes that meet in a ridge along x.
+    Roof,
+    /// A ramp or a lean-to roof: one slope that rises toward +x.
+    Wedge,
+    /// Round and upright.
+    Cylinder,
+    /// Round, with its point up.
+    Cone,
+}
+
+impl ShapeKind {
+    pub const ALL: [ShapeKind; 5] =
+        [ShapeKind::Box, ShapeKind::Roof, ShapeKind::Wedge, ShapeKind::Cylinder, ShapeKind::Cone];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ShapeKind::Box => "box",
+            ShapeKind::Roof => "roof",
+            ShapeKind::Wedge => "wedge",
+            ShapeKind::Cylinder => "cylinder",
+            ShapeKind::Cone => "cone",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<ShapeKind> {
+        ShapeKind::ALL.into_iter().find(|k| k.name() == s)
+    }
+}
+
+/// One `[[shape]]`: a solid in one flat color that fills the box from `at`
+/// to `at + size`. `at` is counted from the corner of the entity's footprint
+/// with the lowest x and y, at the entity's height.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShapeDef {
+    pub kind: ShapeKind,
+    pub at: [f32; 3],
+    pub size: [f32; 3],
+    pub color: Rgba,
+    /// Quarter turns of the solid inside its box, from +x toward +y (0 to 3).
+    pub turn: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -811,8 +895,31 @@ pub(crate) fn decode_terrain(t: &Table) -> TerrainDef {
     }
 }
 
-/// Decode an entity from its merged (prefab + overrides) table.
-pub(crate) fn decode_entity(t: &Table, pos: [f32; 3], origin: Origin) -> EntityDef {
+/// A `shape` list. `None` for a list with nothing in it (an entity can write
+/// `shape = []` to have none of its prefab's), and for a list the schema
+/// refused: its rules are then not checked on values it does not have.
+pub(crate) fn decode_shapes(n: &Node) -> Option<Arc<[ShapeDef]>> {
+    let shape = |item: &Node| {
+        let t = item.as_table()?;
+        let f = Fields::new(t, &schema::SHAPE);
+        let three = t.get("size")?.as_array()?.len() == 3;
+        let size = f.opt_pos("size").filter(|s| three && s.iter().all(|v| *v > 0.0))?;
+        let turn = f.opt_int("turn").filter(|v| matches!(v, 0 | 90 | 180 | 270))?;
+        Some(ShapeDef {
+            kind: ShapeKind::parse(&f.str("kind"))?,
+            at: f.opt_pos("at")?,
+            size,
+            color: f.opt_color("color")?,
+            turn: (turn / 90) as u8,
+        })
+    };
+    let shapes: Vec<ShapeDef> = n.as_array()?.iter().map(shape).collect::<Option<_>>()?;
+    (!shapes.is_empty()).then(|| shapes.into())
+}
+
+/// Decode an entity from its merged (prefab + overrides) table. `shapes` is
+/// its shape list, decoded once for every entity that shares it.
+pub(crate) fn decode_entity(t: &Table, pos: [f32; 3], origin: Origin, shapes: Option<Arc<[ShapeDef]>>) -> EntityDef {
     let f = Fields::new(t, &schema::ENTITY);
     let comp = |key: &str| f.table(key);
     let counts: Vec<(String, String)> = f
@@ -887,6 +994,7 @@ pub(crate) fn decode_entity(t: &Table, pos: [f32; 3], origin: Origin) -> EntityD
         counts,
         allow: f.strs("allow"),
         origin,
+        shapes,
     }
 }
 

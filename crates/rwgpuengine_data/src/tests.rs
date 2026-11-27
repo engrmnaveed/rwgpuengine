@@ -785,3 +785,33 @@ fn spawn_costs_are_checked() {
                  signal = \"changed\"\nto = \"sign\"\naction = \"set\"\nprop = \"msg\"\nvalue = \"paid\"";
     assert_eq!(costed(ok, funds), Vec::<&str>::new());
 }
+
+#[test]
+fn every_copy_of_a_prefab_shares_its_shape_list() {
+    let house = "footprint = [2, 2]\n\n[[shape]]\nkind = \"box\"\nsize = [2, 2, 1.5]\n\n[[shape]]\nkind = \"roof\"\nat = [0, 0, 1.5]\nsize = [2, 2, 0.75]\ncolor = \"#8b2f2f\"\nturn = 90\n";
+    let scene = "[[entity]]\nprefab = \"house\"\ncells = [[0, 0], [2, 0]]\n\n[[entity]]\nname = \"third\"\nprefab = \"house\"\npos = [4, 0]\n\n[[entity]]\nname = \"shed\"\nprefab = \"house\"\npos = [0, 2]\nshape = [{ kind = \"wedge\", size = [2, 2, 1], turn = 270 }]\n\n[[entity]]\nname = \"lot\"\nprefab = \"house\"\npos = [2, 2]\nshape = []\n\n[[connect]]\nfrom = \"third\"\nsignal = \"tapped\"\naction = \"spawn\"\nprefab = \"house\"\n";
+    let vfs = project(&[("prefabs/house.toml", house), ("scenes/main.toml", scene)]);
+    assert_eq!(codes(&vfs), Vec::<&str>::new());
+    let mut loader = crate::SceneLoader::new(&vfs);
+    let def = loader.load_scene("scenes/main.toml").expect("the scene loads");
+    let shapes = |i: usize| def.entities[i].shapes.as_ref();
+    let list = shapes(0).expect("the prefab's list");
+    assert_eq!(list.len(), 2);
+    assert_eq!(
+        (list[1].kind, list[1].at, list[1].size, list[1].turn),
+        (crate::ShapeKind::Roof, [0.0, 0.0, 1.5], [2.0, 2.0, 0.75], 1)
+    );
+    assert_eq!(list[0].color, rwgpuengine_core::color::Rgba::parse_hex("#9aa0a6").unwrap());
+    // One list for every copy, placed or spawned: not one each.
+    for other in [shapes(1), shapes(2), def.templates[0].shapes.as_ref()] {
+        assert!(std::sync::Arc::ptr_eq(list, other.expect("a copy has the list")));
+    }
+    // A list of its own replaces the prefab's; an empty one leaves none.
+    let own = shapes(3).expect("its own list");
+    assert_eq!((own.len(), own[0].kind, own[0].turn), (1, crate::ShapeKind::Wedge, 3));
+    assert!(shapes(4).is_none());
+    // A file that has no shapes reads as it did before there were any.
+    let plain = format!("{:?}", def.entities[4]);
+    assert!(!plain.contains("shapes") && plain.ends_with("} }"), "{plain}");
+    assert!(format!("{:?}", def.entities[0]).contains("shapes: [ShapeDef { kind: Box"));
+}

@@ -1,6 +1,7 @@
 //! A scene through the four stages, and the prefabs it uses.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use rwgpuengine_core::codes;
 use rwgpuengine_core::diag::{Diagnostic, SourceFile, Span};
@@ -11,21 +12,34 @@ use super::order::{At, Diags};
 use super::parse::{self, Parsed};
 use super::resolve::{self, Resolved};
 use super::vfs::Vfs;
-use crate::defs::{self, EntityDef, Origin, SceneDef};
+use crate::defs::{self, EntityDef, Origin, SceneDef, ShapeDef};
 use crate::node::Table;
 use crate::schema::{self, Fields};
+
+/// A prefab file that loaded: its table, and its shape list, decoded once
+/// and shared by every entity made from it.
+#[derive(Clone)]
+pub(crate) struct Prefab {
+    pub table: Table,
+    pub shapes: Option<Arc<[ShapeDef]>>,
+}
 
 /// Loads scenes, resolving prefabs (each prefab file is parsed and reported
 /// once, however many entities use it).
 pub struct SceneLoader<'a> {
     vfs: &'a Vfs,
-    prefabs: BTreeMap<String, Option<Table>>,
+    /// Each prefab asked for so far, by its place in `loaded` (a map of a
+    /// kind the loader has already: a new kind of map is 4 KB of the web
+    /// module).
+    prefabs: BTreeMap<String, usize>,
+    /// `None` for a file that is missing or has errors.
+    loaded: Vec<Option<Prefab>>,
     pub diags: Vec<Diagnostic>,
 }
 
 impl<'a> SceneLoader<'a> {
     pub fn new(vfs: &'a Vfs) -> SceneLoader<'a> {
-        SceneLoader { vfs, prefabs: BTreeMap::new(), diags: Vec::new() }
+        SceneLoader { vfs, prefabs: BTreeMap::new(), loaded: Vec::new(), diags: Vec::new() }
     }
 
     /// Names of all prefab files, e.g. `wall`, `props/tree`.
@@ -35,16 +49,42 @@ impl<'a> SceneLoader<'a> {
 
     /// Load (once) and validate a prefab. `None` if missing or invalid.
     pub fn prefab(&mut self, name: &str) -> Option<Table> {
-        if let Some(cached) = self.prefabs.get(name) {
-            return cached.clone();
-        }
-        let path = format!("prefabs/{name}.toml");
-        let loaded = match parse::parse_checked(self.vfs, &path, &schema::PREFAB_FILE, &mut self.diags) {
-            Some(Parsed { root, ok: true, .. }) => Some(root),
-            _ => None,
+        self.loaded(name).map(|p| p.table.clone())
+    }
+
+    /// The prefab, loaded and checked the first time it is asked for: its
+    /// file against the schema, and its shape list by its rules.
+    fn loaded(&mut self, name: &str) -> Option<&Prefab> {
+        let at = match self.prefabs.get(name) {
+            Some(at) => *at,
+            None => {
+                let prefab = self.load(name);
+                self.loaded.push(prefab);
+                self.prefabs.insert(name.to_string(), self.loaded.len() - 1);
+                self.loaded.len() - 1
+            }
         };
-        self.prefabs.insert(name.to_string(), loaded.clone());
-        loaded
+        self.loaded[at].as_ref()
+    }
+
+    fn load(&mut self, name: &str) -> Option<Prefab> {
+        let path = format!("prefabs/{name}.toml");
+        let Parsed { root, ok: true, src } =
+            parse::parse_checked(self.vfs, &path, &schema::PREFAB_FILE, &mut self.diags)?
+        else {
+            return None;
+        };
+        let shapes = root.get("shape").and_then(defs::decode_shapes);
+        let before = self.diags.len();
+        if let Some(shapes) = &shapes {
+            let f = Fields::new(&root, &schema::PREFAB_FILE);
+            let allow = f.strs("allow");
+            let w = check::shape::Written { src: &src, list: root.get("shape"), span: Span::default(), allow: &allow };
+            let [fw, fh] = f.cell("footprint");
+            check::shape::list(shapes, [fw.max(1), fh.max(1)], &w, &mut |d| self.diags.push(d));
+        }
+        let failed = self.diags[before..].iter().any(Diagnostic::is_error);
+        (!failed).then_some(Prefab { table: root, shapes })
     }
 
     pub fn prefab_exists(&self, name: &str) -> bool {
@@ -84,15 +124,15 @@ impl<'a> SceneLoader<'a> {
         Some(build(path, &parsed, resolved))
     }
 
-    /// A prefab's table (see [`SceneLoader::prefab`]). The problems of its
-    /// file are reported at `at`: where it is first used.
-    pub(crate) fn prefab_at(&mut self, name: &str, out: &mut Diags, at: At) -> Option<&Table> {
+    /// A prefab (see [`SceneLoader::prefab`]). The problems of its file are
+    /// reported at `at`: where it is first used.
+    pub(crate) fn prefab_at(&mut self, name: &str, out: &mut Diags, at: At) -> Option<&Prefab> {
         if !self.prefabs.contains_key(name) {
             let before = self.diags.len();
-            self.prefab(name);
+            self.loaded(name);
             out.extend(at, self.diags.drain(before..));
         }
-        self.prefabs.get(name)?.as_ref()
+        self.loaded(name)
     }
 
     /// A prefab decoded as an entity at [0, 0, 0], reporting E0201 at `span`
@@ -114,10 +154,10 @@ impl<'a> SceneLoader<'a> {
             );
             return None;
         }
-        let mut table = self.prefab_at(name, out, at)?.clone();
+        let Prefab { mut table, shapes } = self.prefab_at(name, out, at)?.clone();
         table.set_str("prefab", name);
         let origin = Origin { file: src.path.clone(), line: src.locate(span.start).0, span };
-        Some(defs::decode_entity(&table, [0.0, 0.0, 0.0], origin))
+        Some(defs::decode_entity(&table, [0.0, 0.0, 0.0], origin, shapes))
     }
 }
 

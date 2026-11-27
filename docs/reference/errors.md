@@ -35,6 +35,8 @@ Codes are stable: never renumbered or reused. `E` codes are errors (the command 
 | [W0205](#w0205) | `engine-mismatch` | Project targets a different engine version |
 | [W0206](#w0206) | `actor-in-solid` | Actor starts inside a solid entity |
 | [W0207](#w0207) | `unsupported-char` | Label text has characters the font cannot draw |
+| [W0208](#w0208) | `shape-outside-footprint` | A shape reaches outside its entity's cells |
+| [W0209](#w0209) | `shapes-in-one-plane` | Two shapes have a side in the same plane |
 | [E0301](#e0301) | `signal-limit` | Too many signals in one frame |
 | [E0302](#e0302) | `action-limit` | Too many actions in one frame |
 | [E0303](#e0303) | `count-limit` | Too many count changes in one frame |
@@ -318,7 +320,8 @@ The message says which limit and by how much:
   its entities: each prefab's size, once for every entity made from it;
 - a name or a key of more than 128 characters;
 - a playtest of more than 100000 `[[input]]`, `[[expect]]` and `[[shot]]`
-  tables.
+  tables;
+- a list of more than 64 `[[shape]]` tables.
 
 The limits keep `rwgpu check`, loading and the first step of a game short
 whatever a file says. A project over one is refused where it goes over,
@@ -402,6 +405,31 @@ Labels use rwgpu's built-in pixel font, which has the printable ASCII characters
 characters (accents, other scripts, emoji) are drawn as a hollow box.
 
 Fix: use ASCII text. Fonts for other scripts are not in this version.
+
+## W0208
+
+**A shape reaches outside its entity's cells** (`shape-outside-footprint`, warning)
+
+A `[[shape]]` reaches past the cells its entity covers: `at` is below 0, or
+`at` plus `size` is past the `footprint`, along x or y. Placement, blocking
+and taps go by the footprint, so the part outside stands on cells that count
+as free, and it is drawn into whatever is built there.
+
+Fix: make the shape smaller or move it (`at`), or give the entity the
+`footprint` it needs. If it is meant (the eaves of a roof), add
+`allow = ["W0208"]`.
+
+## W0209
+
+**Two shapes have a side in the same plane** (`shapes-in-one-plane`, warning)
+
+Two shapes of one list each have an upright side in the same plane, facing
+the same way, and the two sides overlap: a chimney flush with a wall. No rule
+says which of two sides in one plane shows, so the picture there can differ
+between two cameras and between the two renderers.
+
+Fix: move one shape a little (`at`), so that its side is in front of the
+other or behind it, or make them meet without overlapping.
 
 ## E0301
 

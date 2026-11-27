@@ -419,6 +419,52 @@
               "pattern": "^W[0-9]{4}$"
             },
             "description": "Warning codes that are intended for this entity and should not be reported, e.g. `[\"W0201\"]` for deliberately stacked solids. Errors cannot be allowed."
+          },
+          "shape": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One solid of an entity's shape list: a `kind` that fills the box from `at` to `at + size`, in one flat color, shaded by the scene's light like a block. `at` is counted in cells from the entity's own corner (the lowest x and y of its footprint, at its height): `at = [0, 0, 1.5]`, `size = [2, 2, 0.8]` is a roof on a 2 x 2 house 1.5 high. Shapes are drawn in list order and stay inside the footprint (W0208). Two shapes must not have upright sides in one plane that overlap (W0209).",
+              "properties": {
+                "kind": {
+                  "enum": ["box", "roof", "wedge", "cylinder", "cone"],
+                  "description": "`box`; `roof`: a gable roof, its ridge along x; `wedge`: a ramp or lean-to roof that rises toward +x; `cylinder` and `cone`: round, upright."
+                },
+                "at": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 3,
+                  "description": "The corner of its box with the lowest x, y and z. Default: [0, 0, 0]."
+                },
+                "size": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 64.0
+                  },
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "description": "The size of its box along x, y and z, in cells."
+                },
+                "color": {
+                  "type": "string",
+                  "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+                  "description": "Its color (no see-through colors). Default: \"#9aa0a6\"."
+                },
+                "turn": {
+                  "enum": [0, 90, 180, 270],
+                  "description": "Quarter turns of the solid inside its box, from +x toward +y: at 90 a roof's ridge runs along y and a wedge rises toward +y, at 180 toward -x. Default: 0."
+                }
+              },
+              "required": ["kind", "size"],
+              "additionalProperties": false
+            },
+            "maxItems": 64,
+            "description": "What it is built of: solids with flat colors, one `[[shape]]` table each (in a scene: `[[entity.shape]]`, or `shape = [{ ... }]`). A list here replaces the prefab's."
           }
         },
         "additionalProperties": false

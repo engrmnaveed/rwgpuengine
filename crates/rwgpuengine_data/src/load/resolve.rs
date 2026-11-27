@@ -317,9 +317,9 @@ fn entities<'p>(
     for (item, node) in root.array("entity").unwrap_or(&[]).iter().enumerate() {
         let Some(t) = node.as_table() else { continue };
         let at = |step| At::Entity(item, step);
-        let merged = match t.str("prefab") {
+        let (merged, inherited) = match t.str("prefab") {
             Some(name) if loader.prefab_exists(name) => match loader.prefab_at(name, out, at(EntityStep::Prefab)) {
-                Some(p) => p.merged_with(t),
+                Some(p) => (p.table.merged_with(t), p.shapes.clone()),
                 None => continue, // prefab file has errors, already reported
             },
             Some(name) => {
@@ -333,7 +333,12 @@ fn entities<'p>(
                 );
                 continue;
             }
-            None => Table::default().merged_with(t),
+            None => (Table::default().merged_with(t), None),
+        };
+        // Its own shape list, or the one every copy of its prefab shares.
+        let shapes = match t.get("shape") {
+            Some(own) => defs::decode_shapes(own),
+            None => inherited,
         };
         let origin = Origin { file: path.to_string(), line: src.locate(node.span.start).0, span: node.span };
         let z = t.get("pos").and_then(schema::node_pos).map_or(0.0, |p| p[2]);
@@ -362,12 +367,12 @@ fn entities<'p>(
             for (i, c) in cells.into_iter().enumerate() {
                 let span = cells_node.as_array().and_then(|a| a.get(i)).map_or(cells_node.span, |n| n.span);
                 let origin = Origin { span, line: src.locate(span.start).0, ..origin.clone() };
-                entities.push(defs::decode_entity(&merged, [c[0] as f32, c[1] as f32, z], origin));
+                entities.push(defs::decode_entity(&merged, [c[0] as f32, c[1] as f32, z], origin, shapes.clone()));
             }
             tables.push(EntityTable { item, node, table: t, checked });
         } else {
             let pos = Fields::new(t, &schema::ENTITY).opt_pos("pos").unwrap_or([0.0, 0.0, 0.0]);
-            let def = defs::decode_entity(&merged, pos, origin);
+            let def = defs::decode_entity(&merged, pos, origin, shapes);
             if let Some(name) = &def.name {
                 if let Some(&first_line) = names.get(name) {
                     out.at(at(EntityStep::Name)).push(

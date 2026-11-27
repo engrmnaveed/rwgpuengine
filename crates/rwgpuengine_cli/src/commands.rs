@@ -507,8 +507,9 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
     if let Some(c) = p.value("--component") {
         let known = schema::COMPONENT_SPECS.iter().map(|s| s.id).chain(["props"]);
         if !known.clone().any(|k| k == c) {
-            let hint = did_you_mean(c, known)
-                .unwrap_or_else(|| "components: tile, block, sprite, mover, patrol, wander, trigger, label".into());
+            let hint = did_you_mean(c, known).unwrap_or_else(|| {
+                "components: tile, block, shape, sprite, mover, patrol, wander, trigger, label".into()
+            });
             return Outcome::usage(args::bad_arg(format!("unknown component `{c}`"), Some(hint)));
         }
     }

@@ -88,7 +88,8 @@ pub fn formats_body(h: &str) -> String {
         &mut out,
         h,
         "Components",
-        "Tables an entity or prefab can carry. An empty table (`mover = {}`) adds the component with defaults.",
+        "Tables an entity or prefab can carry. An empty table (`mover = {}`) adds the component with defaults. \
+         `shape` is a list of tables, one per solid.",
         schema::COMPONENT_SPECS,
     );
     section(

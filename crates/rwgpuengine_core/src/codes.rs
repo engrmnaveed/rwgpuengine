@@ -238,7 +238,8 @@ The message says which limit and by how much:
   its entities: each prefab's size, once for every entity made from it;
 - a name or a key of more than 128 characters;
 - a playtest of more than 100000 `[[input]]`, `[[expect]]` and `[[shot]]`
-  tables.
+  tables;
+- a list of more than 64 `[[shape]]` tables.
 
 The limits keep `rwgpu check`, loading and the first step of a game short
 whatever a file says. A project over one is refused where it goes over,
@@ -301,6 +302,25 @@ logic piece inside a wall), add `allow = [\"W0206\"]` to the actor.";
 characters (accents, other scripts, emoji) are drawn as a hollow box.
 
 Fix: use ASCII text. Fonts for other scripts are not in this version.";
+
+    SHAPE_OUTSIDE_FOOTPRINT = "W0208", "shape-outside-footprint", Warning, "A shape reaches outside its entity's cells",
+"A `[[shape]]` reaches past the cells its entity covers: `at` is below 0, or
+`at` plus `size` is past the `footprint`, along x or y. Placement, blocking
+and taps go by the footprint, so the part outside stands on cells that count
+as free, and it is drawn into whatever is built there.
+
+Fix: make the shape smaller or move it (`at`), or give the entity the
+`footprint` it needs. If it is meant (the eaves of a roof), add
+`allow = [\"W0208\"]`.";
+
+    SHAPES_IN_ONE_PLANE = "W0209", "shapes-in-one-plane", Warning, "Two shapes have a side in the same plane",
+"Two shapes of one list each have an upright side in the same plane, facing
+the same way, and the two sides overlap: a chimney flush with a wall. No rule
+says which of two sides in one plane shows, so the picture there can differ
+between two cameras and between the two renderers.
+
+Fix: move one shape a little (`at`), so that its side is in front of the
+other or behind it, or make them meet without overlapping.";
 
     // ---- x03xx: runtime and frame report ------------------------------------
     SIGNAL_LIMIT = "E0301", "signal-limit", Error, "Too many signals in one frame",

@@ -146,6 +146,7 @@ A thing in the world. Starts from an optional prefab; keys here override it (com
 | `props` | table | — | Game data: numbers, text and flags, e.g. `{ score = 0 }`. A prop's type is fixed by its starting value. `[[connect]]` `add`/`set` change props at runtime, `when` conditions and label `{placeholders}` read them, `inspect` shows them and `[[expect]] props` checks them. |
 | `counts` | table: prop = "prefab" | — | Props that count enabled copies of a prefab, kept up to date by the engine: `counts = { houses = "house" }` makes `houses` an integer prop equal to the number of enabled `house` entities (placed in the scene or spawned; an entity with `prefab = "house"` is a copy whatever keys it overrides). It changes when a copy is spawned, disabled or enabled again; the entity then emits `changed`, so labels, `when` conditions and `[[expect]] props` read it like any prop. `add`/`set` cannot change it. |
 | `allow` | ["W....", ...] | — | Warning codes that are intended for this entity and should not be reported, e.g. `["W0201"]` for deliberately stacked solids. Errors cannot be allowed. |
+| `shape` | [[shape]] | — | What it is built of: solids with flat colors, one `[[shape]]` table each (in a scene: `[[entity.shape]]`, or `shape = [{ ... }]`). A list here replaces the prefab's. |
 
 ### `[[connect]]`
 
@@ -221,11 +222,12 @@ A reusable entity template: prefabs/<name>.toml. Same keys as an entity, minus n
 | `props` | table | — | Game data: numbers, text and flags, e.g. `{ score = 0 }`. A prop's type is fixed by its starting value. `[[connect]]` `add`/`set` change props at runtime, `when` conditions and label `{placeholders}` read them, `inspect` shows them and `[[expect]] props` checks them. |
 | `counts` | table: prop = "prefab" | — | Props that count enabled copies of a prefab, kept up to date by the engine: `counts = { houses = "house" }` makes `houses` an integer prop equal to the number of enabled `house` entities (placed in the scene or spawned; an entity with `prefab = "house"` is a copy whatever keys it overrides). It changes when a copy is spawned, disabled or enabled again; the entity then emits `changed`, so labels, `when` conditions and `[[expect]] props` read it like any prop. `add`/`set` cannot change it. |
 | `allow` | ["W....", ...] | — | Warning codes that are intended for this entity and should not be reported, e.g. `["W0201"]` for deliberately stacked solids. Errors cannot be allowed. |
+| `shape` | [[shape]] | — | What it is built of: solids with flat colors, one `[[shape]]` table each (in a scene: `[[entity.shape]]`, or `shape = [{ ... }]`). A list here replaces the prefab's. |
 
 
 ## Components
 
-Tables an entity or prefab can carry. An empty table (`mover = {}`) adds the component with defaults.
+Tables an entity or prefab can carry. An empty table (`mover = {}`) adds the component with defaults. `shape` is a list of tables, one per solid.
 
 ### `tile`
 
@@ -244,6 +246,18 @@ An isometric box filling the entity's cell (or its whole `footprint`). Left and 
 | `color` | color | `"#9aa0a6"` | Wall color; the top face too unless `top` is given. |
 | `top` | color | — | Top face color (a roof, the water in a well). Default: `color`. |
 | `height` | number 0–64 | `1.0` | Height in z units. |
+
+### `[[shape]]`
+
+One solid of an entity's shape list: a `kind` that fills the box from `at` to `at + size`, in one flat color, shaded by the scene's light like a block. `at` is counted in cells from the entity's own corner (the lowest x and y of its footprint, at its height): `at = [0, 0, 1.5]`, `size = [2, 2, 0.8]` is a roof on a 2 x 2 house 1.5 high. Shapes are drawn in list order and stay inside the footprint (W0208). Two shapes must not have upright sides in one plane that overlap (W0209).
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `kind` | box \| roof \| wedge \| cylinder \| cone | **required** | `box`; `roof`: a gable roof, its ridge along x; `wedge`: a ramp or lean-to roof that rises toward +x; `cylinder` and `cone`: round, upright. |
+| `at` | [x, y, z?] | `[0, 0, 0]` | The corner of its box with the lowest x, y and z. |
+| `size` | [x, y, z] | **required** | The size of its box along x, y and z, in cells. |
+| `color` | color | `"#9aa0a6"` | Its color (no see-through colors). |
+| `turn` | 0 \| 90 \| 180 \| 270 | `0` | Quarter turns of the solid inside its box, from +x toward +y: at 90 a roof's ridge runs along y and a wedge rises toward +y, at 180 toward -x. |
 
 ### `sprite`
 
@@ -435,6 +449,7 @@ single values are in the tables above.
 | prefab bytes copied in a scene | 134217728 | load | E0209 | Bytes of prefab files copied into the entities of one scene: each prefab's size, once for every entity made from it (128 MiB). The scene is read up to the [[entity]] table that goes over. |
 | characters in a name | 128 | load | E0209 | Characters in a name or in a key. A file with a longer one is not read past its schema check. |
 | tables in a playtest | 100000 | load | E0209 | `[[input]]`, `[[expect]]` and `[[shot]]` tables in one playtest. A longer playtest is not run. |
+| shapes in a list | 64 | load | E0209 | `[[shape]]` tables in one list, a prefab's or an entity's. A file with a longer list is not read past its schema check. |
 | signals per step | 1000 | step | E0301 | Signals dispatched in one step. The rest of the step's signals are dropped: usually a loop of connections. |
 | actions per step | 10000 | step | E0302 | `[[connect]]` actions run or skipped in one step. The step stops at the next one and drops the signals still queued: one signal can reach many connections with many actions each. |
 | count changes per step | 10000 | step | E0303 | `counts` props changed in one step. The step stops there and drops the signals still queued; the next step brings the remaining counts up to date. |

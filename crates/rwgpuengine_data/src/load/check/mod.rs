@@ -1,6 +1,7 @@
 //! Stage 3, check: each rule on its own, on a resolved scene.
 //!
 //! - [`entity`]: the rules on one entity's definition, and its `counts`;
+//! - [`shape`]: the rules on one `[[shape]]` list, where it is written;
 //! - [`connect`]: a [[connect]]'s source, signal, the form of its actions,
 //!   and each action against what it acts on;
 //! - [`when`]: a [[connect]]'s `when` list;
@@ -12,6 +13,7 @@
 mod connect;
 mod entity;
 mod placement;
+pub(crate) mod shape;
 mod when;
 
 pub(crate) use entity::unknown_prop;

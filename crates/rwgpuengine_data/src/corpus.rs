@@ -1791,12 +1791,157 @@ pub(crate) fn cases() -> Vec<Case> {
     }
     v.push(case("playtest/all", tests));
     v.extend(file_cases());
+    v.extend(shape_cases());
     v.push(case("everything", everything()));
     v.extend(test_inputs());
     v.extend(generated());
     v.extend(limit_cases());
     v
 }
+// ---------------------------------------------------------------------------
+// Shape lists (ADR 0029). A group of its own: the groups above are in
+// `everything`, whose pin is older than shapes.
+
+/// A house of three shapes with no problem in it.
+const HOUSE_SHAPES: &str = "footprint = [2, 2]\n\n[[shape]]\nkind = \"box\"\nsize = [2, 2, 1.5]\ncolor = \"#b5651d\"\n\n[[shape]]\nkind = \"roof\"\nat = [0, 0, 1.5]\nsize = [2, 2, 0.8]\ncolor = \"#8b2f2f\"\n\n[[shape]]\nkind = \"box\"\nat = [0.25, 0.25, 1.5]\nsize = [0.25, 0.25, 1]\ncolor = \"#555555\"\n";
+
+/// Entities with shape lists, appended to the base scene: (name, text).
+const SHAPE_SNIPS: &[(&str, &str)] = &[
+    (
+        "house",
+        "[[entity]]\nname = \"home\"\npos = [0, 2]\nfootprint = [2, 2]\n\n[[entity.shape]]\nkind = \"box\"\nsize = [2, 2, 1.5]\n\n[[entity.shape]]\nkind = \"roof\"\nat = [0, 0, 1.5]\nsize = [2, 2, 0.8]\ncolor = \"#8b2f2f\"\nturn = 90\n",
+    ),
+    (
+        "every-kind",
+        "[[entity]]\nname = \"kit\"\npos = [0, 2]\nfootprint = [3, 2]\nshape = [{ kind = \"box\", size = [1, 1, 1] }, { kind = \"roof\", at = [1, 0], size = [1, 1, 0.5], turn = 0 }, { kind = \"wedge\", at = [2, 0], size = [1, 1, 0.5], turn = 270 }, { kind = \"cylinder\", at = [0, 1, 0], size = [1, 1, 2], color = \"#ccc\" }, { kind = \"cone\", at = [1.25, 1.25, 0.5], size = [0.5, 0.5, 1], turn = 180 }]\n",
+    ),
+    ("empty-list", "[[entity]]\nname = \"bare\"\npos = [0, 2]\nshape = []\n"),
+    ("kind-hint", "[[entity]]\npos = [0, 2]\nshape = [{ kind = \"cilinder\", size = [1, 1, 1] }]\n"),
+    (
+        "kind-no-hint",
+        "[[entity]]\npos = [0, 2]\nshape = [{ kind = \"prism\", size = [1, 1, 1] }, { kind = 3, size = [1, 1, 1] }]\n",
+    ),
+    ("required-missing", "[[entity]]\npos = [0, 2]\nshape = [{ size = [1, 1, 1] }, { kind = \"box\" }, {}]\n"),
+    (
+        "size-wrong",
+        "[[entity]]\npos = [0, 2]\nshape = [{ kind = \"box\", size = [1, 1] }, { kind = \"box\", size = [1, 0, 1] }, { kind = \"box\", size = [1, 1, 64.5] }, { kind = \"box\", size = \"big\" }, { kind = \"box\", size = [1, -1, 1] }, { kind = \"box\", size = [1, \"a\", 1] }, { kind = \"box\", size = [1, 1, 64] }]\n",
+    ),
+    (
+        "at-wrong",
+        "[[entity]]\npos = [0, 2]\nshape = [{ kind = \"box\", at = [1], size = [1, 1, 1] }, { kind = \"box\", at = [0, 0, 0, 0], size = [1, 1, 1] }, { kind = \"box\", at = [nan, 0], size = [1, 1, 1] }]\n",
+    ),
+    (
+        "turn-wrong",
+        "[[entity]]\npos = [0, 2]\nshape = [{ kind = \"roof\", size = [1, 1, 1], turn = 45 }, { kind = \"roof\", size = [1, 1, 1], turn = \"90\" }, { kind = \"roof\", size = [1, 1, 1], turn = 360 }, { kind = \"roof\", size = [1, 1, 1], turn = -90 }, { kind = \"roof\", size = [1, 1, 1], turn = 90.0 }]\n",
+    ),
+    (
+        "color-wrong",
+        "[[entity]]\nname = \"glass\"\npos = [0, 2]\nshape = [{ kind = \"box\", size = [1, 1, 1], color = \"#ff000080\" }, { kind = \"box\", at = [0, 0, 1], size = [1, 1, 1], color = \"red\" }, { kind = \"cone\", at = [0, 0, 2], size = [1, 1, 1], color = \"#abc8\" }]\n",
+    ),
+    (
+        "unknown-key-hint",
+        "[[entity]]\npos = [0, 2]\nshape = [{ kind = \"box\", size = [1, 1, 1], colour = \"#fff\" }]\n",
+    ),
+    ("unknown-key-no-hint", "[[entity]]\npos = [0, 2]\nshape = [{ kind = \"box\", size = [1, 1, 1], zzzzzzzz = 1 }]\n"),
+    (
+        "not-tables",
+        "[[entity]]\nname = \"a\"\npos = [0, 2]\nshape = [1, \"box\"]\n\n[[entity]]\nname = \"b\"\npos = [1, 2]\nshape = \"box\"\n",
+    ),
+    (
+        "outside",
+        "[[entity]]\nname = \"wide\"\npos = [0, 2]\nshape = [{ kind = \"box\", size = [1.5, 1, 1] }, { kind = \"box\", at = [0, -0.25, 1], size = [1, 1, 1] }, { kind = \"cone\", at = [0.25, 0.25, 2], size = [0.5, 0.5, 1] }, { kind = \"box\", at = [0.1, 0.3, 3], size = [0.9, 0.7, 1] }]\n",
+    ),
+    (
+        "outside-allowed",
+        "[[entity]]\nname = \"eaves\"\npos = [0, 2]\nallow = [\"W0208\"]\nshape = [{ kind = \"box\", size = [1, 1, 1] }, { kind = \"roof\", at = [-0.125, -0.125, 1], size = [1.25, 1.25, 0.5] }]\n",
+    ),
+    (
+        "one-plane",
+        "[[entity]]\nname = \"flush\"\npos = [0, 2]\nfootprint = [2, 2]\nshape = [{ kind = \"box\", size = [2, 2, 1] }, { kind = \"box\", at = [1.5, 0.5, 0.5], size = [0.5, 0.5, 2] }, { kind = \"wedge\", at = [0.5, 1.5, 0], size = [1, 0.5, 0.5], turn = 90 }, { kind = \"roof\", at = [0, 0.5, 0.25], size = [1, 1, 0.5] }, { kind = \"wedge\", at = [0.5, 0, 0.5], size = [1, 0.5, 1], turn = 90 }]\n",
+    ),
+    (
+        "one-plane-allowed",
+        "[[entity]]\nname = \"flush2\"\npos = [0, 2]\nallow = [\"w0209\"]\nshape = [{ kind = \"box\", size = [1, 1, 1] }, { kind = \"box\", at = [0.5, 0.25, 0.5], size = [0.5, 0.5, 2] }]\n",
+    ),
+    (
+        "planes-apart",
+        "[[entity]]\nname = \"fine\"\npos = [0, 2]\nfootprint = [2, 2]\nshape = [{ kind = \"box\", size = [1, 2, 1] }, { kind = \"roof\", at = [0, 0, 1], size = [1, 2, 0.5], turn = 90 }, { kind = \"box\", at = [1, 0, 0], size = [1, 1, 2] }, { kind = \"box\", at = [1, 1, 0], size = [1, 1, 0.5] }, { kind = \"cylinder\", at = [1, 1, 0.5], size = [1, 1, 1] }, { kind = \"wedge\", at = [1, 0, 2], size = [1, 1, 0.5], turn = 180 }]\n",
+    ),
+    (
+        "both-warnings",
+        "[[entity]]\nname = \"odd\"\npos = [0, 2]\nshape = [{ kind = \"box\", size = [1, 1, 1] }, { kind = \"box\", at = [0.5, 0, 0.5], size = [1, 0.5, 1] }]\n",
+    ),
+    (
+        "on-screen",
+        "[[entity]]\nname = \"icon\"\nscreen_pos = [4, 4]\nshape = [{ kind = \"box\", size = [1, 1, 1] }]\nlabel = { text = \"x\" }\n",
+    ),
+    (
+        "cells-checked-once",
+        "[[entity]]\ncells = [[0, 2], [1, 2], [0, 3]]\nshape = [{ kind = \"box\", size = [2, 1, 1] }]\n",
+    ),
+    (
+        "with-block",
+        "[[entity]]\nname = \"post\"\npos = [0, 2]\nblock = { height = 0.5 }\nshape = [{ kind = \"cylinder\", at = [0.25, 0.25, 0.5], size = [0.5, 0.5, 1] }]\n",
+    ),
+];
+
+/// Shape lists in prefab files, and what uses them.
+fn shape_cases() -> Vec<Case> {
+    let mut v = Vec::new();
+    for (name, text) in SHAPE_SNIPS {
+        v.push(case(format!("shape/{name}"), scene_with(text)));
+    }
+    let all: Vec<&str> = SHAPE_SNIPS.iter().map(|(_, t)| *t).collect();
+    v.push(case("shape/all", scene_with(&all.join("\n"))));
+    let homes = "[[entity]]\nprefab = \"home\"\npos = [0, 2]\n\n[[entity]]\nname = \"second\"\nprefab = \"home\"\npos = [6, 3]\n";
+    let scene = |extra: &str| format!("{}\n{extra}", base_scene());
+    v.push(case("shape/prefab", with(&[("prefabs/home.toml", HOUSE_SHAPES), ("scenes/main.toml", &scene(homes))])));
+    // A prefab's list is checked in the prefab's file, once, however many use it (or none).
+    let odd = "footprint = [2, 1]\n\n[[shape]]\nkind = \"box\"\nsize = [2, 1, 1]\n\n[[shape]]\nkind = \"box\"\nat = [1.5, 0.25, 0.5]\nsize = [0.5, 0.5, 1]\n\n[[shape]]\nkind = \"cone\"\nat = [0, 0.5, 1]\nsize = [1, 1, 1]\n";
+    v.push(case("shape/prefab-warnings", with(&[("prefabs/home.toml", odd), ("scenes/main.toml", &scene(homes))])));
+    v.push(case("shape/prefab-warnings-unused", with(&[("prefabs/home.toml", odd)])));
+    let allowed = format!("allow = [\"W0208\", \"W0209\"]\n{odd}");
+    v.push(case(
+        "shape/prefab-warnings-allowed",
+        with(&[("prefabs/home.toml", &allowed), ("scenes/main.toml", &scene(homes))]),
+    ));
+    // An entity's `allow` does not reach into its prefab's file.
+    let entity_allows = "[[entity]]\nprefab = \"home\"\npos = [0, 2]\nallow = [\"W0208\", \"W0209\"]\n";
+    v.push(case(
+        "shape/prefab-warnings-entity-allow",
+        with(&[("prefabs/home.toml", odd), ("scenes/main.toml", &scene(entity_allows))]),
+    ));
+    let glass = "[[shape]]\nkind = \"box\"\nsize = [1, 1, 1]\ncolor = \"#ffffff80\"\n";
+    v.push(case(
+        "shape/prefab-see-through",
+        with(&[("prefabs/home.toml", glass), ("scenes/main.toml", &scene(homes))]),
+    ));
+    let invalid = "[[shape]]\nkind = \"sphere\"\nsize = [1, 1]\nsides = 8\n";
+    v.push(case("shape/prefab-invalid", with(&[("prefabs/home.toml", invalid), ("scenes/main.toml", &scene(homes))])));
+    // Its prefab's list against its own footprint, and a list of its own in place of the prefab's.
+    let smaller = "[[entity]]\nname = \"squeezed\"\nprefab = \"home\"\npos = [0, 2]\nfootprint = [1, 2]\n\n[[entity]]\nname = \"roomy\"\nprefab = \"home\"\npos = [6, 3]\nfootprint = [2, 3]\n";
+    v.push(case(
+        "shape/prefab-own-footprint",
+        with(&[("prefabs/home.toml", HOUSE_SHAPES), ("scenes/main.toml", &scene(smaller))]),
+    ));
+    let own = "[[entity]]\nname = \"shed\"\nprefab = \"home\"\npos = [0, 2]\nshape = [{ kind = \"box\", size = [2, 2.5, 1] }]\n\n[[entity]]\nname = \"lot\"\nprefab = \"home\"\npos = [6, 3]\nshape = []\n";
+    v.push(case(
+        "shape/prefab-own-list",
+        with(&[("prefabs/home.toml", HOUSE_SHAPES), ("scenes/main.toml", &scene(own))]),
+    ));
+    // A shaped prefab that is spawned, and one that connections listen to.
+    let spawned = "[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"home\"\n\n[[connect]]\nfrom_prefab = \"home\"\nsignal = \"tapped\"\nto = \"self\"\naction = \"disable\"\n";
+    v.push(case(
+        "shape/prefab-spawned",
+        with(&[("prefabs/home.toml", HOUSE_SHAPES), ("scenes/main.toml", &scene(spawned))]),
+    ));
+    v.push(case(
+        "shape/prefab-spawned-warnings",
+        with(&[("prefabs/home.toml", odd), ("scenes/main.toml", &scene(spawned))]),
+    ));
+    v
+}
+
 // ---------------------------------------------------------------------------
 // Sizes over the limits (E0209)
 
@@ -1908,6 +2053,26 @@ fn limit_cases() -> Vec<Case> {
             ("tests/u.toml", "[[expect]]\nentity = \"zeppelin\"\npos = [0, 0]\n"),
         ]),
     ));
+    // Shape lists (ADR 0029): one over the limit in a scene and in a prefab, and one of exactly the limit.
+    let most = rwgpuengine_core::limits::SHAPES_IN_A_LIST.get();
+    let shapes = |n: usize| -> String {
+        (0..n)
+            .map(|i| format!("[[shape]]\nkind = \"box\"\nat = [0, 0, {}]\nsize = [1, 1, 0.5]\n\n", i as f32 * 0.5))
+            .collect()
+    };
+    let in_scene = |n: usize| {
+        format!("[[entity]]\nname = \"tower\"\npos = [0, 2]\n\n{}", shapes(n).replace("[[shape]]", "[[entity.shape]]"))
+    };
+    let towers = "[[entity]]\nprefab = \"tower\"\npos = [0, 2]\n\n[[entity]]\nprefab = \"tower\"\npos = [1, 2]\n";
+    v.push(case("limits/shapes", scene_with(&format!("{}\n[[entity]]\nprefab = \"nope\"\n", in_scene(most + 1)))));
+    v.push(case("limits/shapes-exactly", scene_with(&in_scene(most))));
+    v.push(case(
+        "limits/shapes-prefab",
+        with(&[
+            ("prefabs/tower.toml", &shapes(most + 2)),
+            ("scenes/main.toml", &format!("{}\n{towers}", base_scene())),
+        ]),
+    ));
     v
 }
 
@@ -1945,6 +2110,14 @@ fn everything() -> Vfs {
 /// `examples/tiny_town` was recorded again when the example got a fifth
 /// playtest (ADR 0030): its record differs from the one before only by the
 /// lines that list and decode that file, and every other case's is the same.
+///
+/// Five pins are newer, by one word each (ADR 0029): where an unknown key of
+/// an entity or of a prefab file has no near name, the hint lists the keys
+/// there are, and `shape` is one now (`entity/unknown-key-no-hint`,
+/// `entity/all`, `files/prefab-unused-invalid`,
+/// `files/prefab-invalid-from-prefab`, `everything`). Every other line of
+/// every record of before is the same byte for byte. The cases under
+/// `shape/` and `limits/shapes*` came with shapes.
 const PINS: &[(&str, &str)] = &[
     ("examples/coin_vault", "b7e48e8a696ae553"),
     ("examples/iso_garden", "c84862e5a560d2ec"),
@@ -2009,7 +2182,7 @@ const PINS: &[(&str, &str)] = &[
     ("entity/name-invalid", "8439275b913f98c1"),
     ("entity/name-wrong-type", "829f302ac8eae24a"),
     ("entity/unknown-key-hint", "b5c82855140cd9e6"),
-    ("entity/unknown-key-no-hint", "304e9eda6b30c1b4"),
+    ("entity/unknown-key-no-hint", "60882b18f6865f74"),
     ("entity/unknown-component-key", "166b582c65949910"),
     ("entity/component-wrong-type", "48d97e00bfb983dc"),
     ("entity/color-invalid", "dd7ca6235dcb4093"),
@@ -2023,7 +2196,7 @@ const PINS: &[(&str, &str)] = &[
     ("entity/allow-wrong-type", "1a73634911bc1125"),
     ("entity/missing-required", "df6e472e0ecbc578"),
     ("entity/bool-wrong-type", "ef392472d4c1c046"),
-    ("entity/all", "e5926cbfe8993f43"),
+    ("entity/all", "597cf038d383fb0d"),
     ("placement/solid-overlap", "5445844e40504593"),
     ("placement/solid-overlap-allowed-first", "a7bc67f6acfacf26"),
     ("placement/solid-overlap-footprint", "0215b0a7bc1b465f"),
@@ -2241,10 +2414,10 @@ const PINS: &[(&str, &str)] = &[
     ("ties/prefabs", "19aa1200e1ac2d77"),
     ("files/prefab-syntax", "451102ab2f2a041a"),
     ("files/prefab-unknown-key-used-twice", "d391fd06071e35cd"),
-    ("files/prefab-unused-invalid", "e331198151032186"),
+    ("files/prefab-unused-invalid", "e1b962775f859dcd"),
     ("files/prefab-empty", "c377855d158e3968"),
     ("files/prefab-subfolder", "aa6caac048b0e61d"),
-    ("files/prefab-invalid-from-prefab", "d49c4b1de5ced697"),
+    ("files/prefab-invalid-from-prefab", "7c89f80caa02fa2d"),
     ("files/spawn-screen-prefab", "ab4f0b7d6dd7dea0"),
     ("files/spawn-screen-prefab-cost", "4254e5348cfa14fa"),
     ("files/spawn-prefab-checks", "afb27f5e3917cf60"),
@@ -2269,7 +2442,41 @@ const PINS: &[(&str, &str)] = &[
     ("files/camera-bad", "888a9213d3b229d2"),
     ("files/terrains-255", "48a2e42d10397921"),
     ("files/terrains-256", "6dbe71d9849c8d1c"),
-    ("everything", "798adad819556c2b"),
+    ("shape/house", "9ebc5342405f8016"),
+    ("shape/every-kind", "b149217cef8c9aaa"),
+    ("shape/empty-list", "8e05c39ccbfe292d"),
+    ("shape/kind-hint", "0090848de675101d"),
+    ("shape/kind-no-hint", "ae8f636354e966c7"),
+    ("shape/required-missing", "d8080a2dc122e355"),
+    ("shape/size-wrong", "61878fa5c5e82d89"),
+    ("shape/at-wrong", "5812c74bc339287e"),
+    ("shape/turn-wrong", "f3121882131ff2fa"),
+    ("shape/color-wrong", "a983e47cbe84694e"),
+    ("shape/unknown-key-hint", "0891ed3dca5ab577"),
+    ("shape/unknown-key-no-hint", "e1adf7ed95da9991"),
+    ("shape/not-tables", "e23979a947dd498c"),
+    ("shape/outside", "833d0de3732471a8"),
+    ("shape/outside-allowed", "f77d9472b94fb73c"),
+    ("shape/one-plane", "361dde9e5799b6a4"),
+    ("shape/one-plane-allowed", "4d72904fcdcd32e9"),
+    ("shape/planes-apart", "50b14e33b2ed9c12"),
+    ("shape/both-warnings", "02e2f95dd48fde60"),
+    ("shape/on-screen", "5ef2dcf4875f77a3"),
+    ("shape/cells-checked-once", "da9a8dfa33d75531"),
+    ("shape/with-block", "d3466d828e326f5a"),
+    ("shape/all", "e02a57e15029c4e8"),
+    ("shape/prefab", "e9417fb3a483aeb9"),
+    ("shape/prefab-warnings", "f077c037b70ade21"),
+    ("shape/prefab-warnings-unused", "8c834f1da8e6db39"),
+    ("shape/prefab-warnings-allowed", "dbfa0a1a55c7dcd4"),
+    ("shape/prefab-warnings-entity-allow", "258f96be6e5dfb5a"),
+    ("shape/prefab-see-through", "4340bf59524b5098"),
+    ("shape/prefab-invalid", "c8207b676fd498de"),
+    ("shape/prefab-own-footprint", "425535b73d750eab"),
+    ("shape/prefab-own-list", "f7eaf743cef6ee70"),
+    ("shape/prefab-spawned", "ede6c88cb451020d"),
+    ("shape/prefab-spawned-warnings", "108e0105677140a2"),
+    ("everything", "41e16c1ca2df4163"),
     ("tests/a-valid-project", "ee60916e978d9580"),
     ("tests/missing-prefab", "63bab07b03a580ed"),
     ("tests/reference-errors", "828b83965df45d91"),
@@ -2420,12 +2627,16 @@ const PINS: &[(&str, &str)] = &[
     ("limits/playtest-exactly", "91f4214313f9d5f4"),
     ("limits/entities", "5b251d46318bdd4c"),
     ("limits/everything", "17f91b2536fcec79"),
+    ("limits/shapes", "2db1382040eda821"),
+    ("limits/shapes-exactly", "0a53ccaba8860449"),
+    ("limits/shapes-prefab", "3e63199cb3978abd"),
 ];
 
 /// Every code the loader can report.
 const LOADER_CODES: &[&str] = &[
     "E0001", "E0002", "E0101", "E0102", "E0103", "E0104", "E0105", "E0201", "E0202", "E0203", "E0204", "E0205",
-    "E0206", "E0207", "E0208", "E0209", "W0201", "W0202", "W0203", "W0204", "W0205", "W0206", "W0207",
+    "E0206", "E0207", "E0208", "E0209", "W0201", "W0202", "W0203", "W0204", "W0205", "W0206", "W0207", "W0208",
+    "W0209",
 ];
 
 /// A case's record, and the codes of its check and of each playtest loaded

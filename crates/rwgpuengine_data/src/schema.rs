@@ -38,6 +38,12 @@ pub enum Ty {
     Vec2,
     /// `[x, y]` or `[x, y, z]` numbers.
     Pos,
+    /// `[x, y, z]` numbers, each above 0 and at most `max`.
+    Size3 {
+        max: f64,
+    },
+    /// A quarter turn in degrees: 0, 90, 180 or 270.
+    Turn,
     /// `[x, y]` integers.
     Cell,
     /// Non-empty array of cells.
@@ -55,6 +61,8 @@ pub enum Ty {
     Table(&'static Spec),
     /// Array of tables (`[[name]]` sections).
     Tables(&'static Spec),
+    /// Array of tables with a limit on how many (E0209 beyond it).
+    TablesUpTo(&'static Spec, &'static limits::Limit),
     /// Inline list of tables: `[{ ... }, { ... }]`.
     List(&'static Spec),
 }
@@ -114,6 +122,8 @@ pub const EVENT_KINDS: &[&str] = &[
     "error", "custom", "omitted",
 ];
 pub const SPRITE_SHAPES: &[&str] = &["circle", "rect", "diamond"];
+/// The solids a `[[shape]]` can be.
+pub const SHAPE_KINDS: &[&str] = &["box", "roof", "wedge", "cylinder", "cone"];
 pub const PATROL_MODES: &[&str] = &["loop", "pingpong"];
 /// Why a move was refused (the `reason` of `blocked` events).
 pub const BLOCK_REASONS: &[&str] =
@@ -353,6 +363,7 @@ pub static ENTITY: Spec = Spec {
         F_PROPS,
         F_COUNTS,
         F_ALLOW,
+        F_SHAPE,
     ],
 };
 
@@ -378,6 +389,7 @@ pub static PREFAB_FILE: Spec = Spec {
         F_PROPS,
         F_COUNTS,
         F_ALLOW,
+        F_SHAPE,
     ],
 };
 
@@ -451,6 +463,14 @@ const F_ALLOW: Field = opt(
      deliberately stacked solids. Errors cannot be allowed.",
 );
 
+const F_SHAPE: Field = opt(
+    "shape",
+    Ty::TablesUpTo(&SHAPE, &limits::SHAPES_IN_A_LIST),
+    None,
+    "What it is built of: solids with flat colors, one `[[shape]]` table each (in a scene: `[[entity.shape]]`, \
+     or `shape = [{ ... }]`). A list here replaces the prefab's.",
+);
+
 pub static TILE: Spec = Spec {
     id: "tile",
     title: "tile",
@@ -467,6 +487,34 @@ pub static BLOCK: Spec = Spec {
         opt("color", Ty::Color, Some("\"#9aa0a6\""), "Wall color; the top face too unless `top` is given."),
         opt("top", Ty::Color, None, "Top face color (a roof, the water in a well). Default: `color`."),
         opt("height", Ty::Num { min: 0.0, max: 64.0 }, Some("1.0"), "Height in z units."),
+    ],
+};
+
+pub static SHAPE: Spec = Spec {
+    id: "shape",
+    title: "[[shape]]",
+    doc: "One solid of an entity's shape list: a `kind` that fills the box from `at` to `at + size`, in one flat \
+          color, shaded by the scene's light like a block. `at` is counted in cells from the entity's own corner \
+          (the lowest x and y of its footprint, at its height): `at = [0, 0, 1.5]`, `size = [2, 2, 0.8]` is a roof \
+          on a 2 x 2 house 1.5 high. Shapes are drawn in list order and stay inside the footprint (W0208). Two \
+          shapes must not have upright sides in one plane that overlap (W0209).",
+    fields: &[
+        req(
+            "kind",
+            Ty::Enum(SHAPE_KINDS),
+            "`box`; `roof`: a gable roof, its ridge along x; `wedge`: a ramp or lean-to roof that rises toward +x; \
+             `cylinder` and `cone`: round, upright.",
+        ),
+        opt("at", Ty::Pos, Some("[0, 0, 0]"), "The corner of its box with the lowest x, y and z."),
+        req("size", Ty::Size3 { max: 64.0 }, "The size of its box along x, y and z, in cells."),
+        opt("color", Ty::Color, Some("\"#9aa0a6\""), "Its color (no see-through colors)."),
+        opt(
+            "turn",
+            Ty::Turn,
+            Some("0"),
+            "Quarter turns of the solid inside its box, from +x toward +y: at 90 a roof's ridge runs along y and \
+             a wedge rises toward +y, at 180 toward -x.",
+        ),
     ],
 };
 
@@ -905,6 +953,7 @@ pub static ALL_SPECS: &[&Spec] = &[
     &PREFAB_FILE,
     &TILE,
     &BLOCK,
+    &SHAPE,
     &SPRITE,
     &MOVER,
     &PATROL,
@@ -922,8 +971,8 @@ pub static ALL_SPECS: &[&Spec] = &[
 /// File-level specs, exported as JSON Schemas.
 pub static FILE_SPECS: &[&Spec] = &[&PROJECT_FILE, &SCENE_FILE, &PREFAB_FILE, &PLAYTEST_FILE];
 
-/// Component specs (tables an entity can carry).
-pub static COMPONENT_SPECS: &[&Spec] = &[&TILE, &BLOCK, &SPRITE, &MOVER, &PATROL, &WANDER, &TRIGGER, &LABEL];
+/// Component specs (tables an entity can carry; `shape` is a list of them).
+pub static COMPONENT_SPECS: &[&Spec] = &[&TILE, &BLOCK, &SHAPE, &SPRITE, &MOVER, &PATROL, &WANDER, &TRIGGER, &LABEL];
 
 /// Find a spec by id or title (`sprite`, `entity`, `[ground]`, `ground`).
 pub fn find_spec(name: &str) -> Option<&'static Spec> {
@@ -956,6 +1005,8 @@ impl Ty {
             }
             Ty::Vec2 => "two numbers [x, y]".into(),
             Ty::Pos => "[x, y] or [x, y, z] numbers".into(),
+            Ty::Size3 { max } => format!("three numbers [x, y, z], each above 0 and at most {max}"),
+            Ty::Turn => "0, 90, 180 or 270".into(),
             Ty::Cell => "two integers [x, y]".into(),
             Ty::Cells => "a list of cells like [[0, 0], [1, 0]]".into(),
             Ty::Props => "a table of simple values like { hp = 3 }".into(),
@@ -964,7 +1015,7 @@ impl Ty {
             Ty::Strs => "a list of strings like [\"ggw\", \"gww\"]".into(),
             Ty::Counts => "a table of prop names to prefab names like { houses = \"house\" }".into(),
             Ty::Table(spec) => format!("a table ({})", spec.title),
-            Ty::Tables(spec) => format!("an array of tables ({})", spec.title),
+            Ty::Tables(spec) | Ty::TablesUpTo(spec, _) => format!("an array of tables ({})", spec.title),
             Ty::List(spec) => format!("a list of inline tables like [{{ ... }}] ({})", spec.title),
         }
     }
@@ -984,6 +1035,8 @@ impl Ty {
             Ty::Enum(values) => values.join(" \\| "),
             Ty::Vec2 => "[x, y]".into(),
             Ty::Pos => "[x, y, z?]".into(),
+            Ty::Size3 { .. } => "[x, y, z]".into(),
+            Ty::Turn => "0 \\| 90 \\| 180 \\| 270".into(),
             Ty::Cell => "[x, y] int".into(),
             Ty::Cells => "[[x, y], ...]".into(),
             Ty::Props => "table".into(),
@@ -992,7 +1045,7 @@ impl Ty {
             Ty::Strs => "[\"...\", ...]".into(),
             Ty::Counts => "table: prop = \"prefab\"".into(),
             Ty::Table(spec) => format!("table: {}", spec.id),
-            Ty::Tables(spec) => format!("[[{}]]", spec.title.trim_matches(['[', ']'])),
+            Ty::Tables(spec) | Ty::TablesUpTo(spec, _) => format!("[[{}]]", spec.title.trim_matches(['[', ']'])),
             Ty::List(spec) => format!("[{{ {} }}, ...]", spec.id),
         }
     }
@@ -1166,6 +1219,20 @@ impl Checker<'_> {
                 }
                 _ => wrong_type(self),
             },
+            Ty::Size3 { max } => match node.as_array() {
+                Some(items @ [_, _, _]) if items.iter().all(|n| n.as_num().is_some()) => {
+                    items.iter().all(|n| n.as_num().is_some_and(|v| v > 0.0 && v <= *max))
+                        || invalid(self, format!("`{label}` must be {}, found {}", ty.describe(), node.preview()), None)
+                }
+                _ => wrong_type(self),
+            },
+            Ty::Turn => match node.as_int() {
+                None => wrong_type(self),
+                Some(0 | 90 | 180 | 270) => true,
+                Some(_) => {
+                    invalid(self, format!("`{label}` must be {}, found {}", ty.describe(), node.preview()), None)
+                }
+            },
             Ty::Cell => match node.as_array() {
                 Some([a, b]) if a.as_int().is_some() && b.as_int().is_some() => true,
                 _ => wrong_type(self),
@@ -1275,11 +1342,31 @@ impl Checker<'_> {
                 None => wrong_type(self),
                 Some(t) => self.table(t, spec, node.span),
             },
-            Ty::Tables(spec) | Ty::List(spec) => match node.as_array() {
+            Ty::Tables(spec) | Ty::List(spec) | Ty::TablesUpTo(spec, _) => match node.as_array() {
                 None => wrong_type(self),
                 Some(items) => {
                     let mut ok = true;
-                    for item in items {
+                    // Past a limit, nothing more of the list is read.
+                    let most = match ty {
+                        Ty::TablesUpTo(_, limit) => limit.get(),
+                        _ => usize::MAX,
+                    };
+                    if let (Some(over), Ty::TablesUpTo(_, limit)) = (items.get(most), ty) {
+                        ok = false;
+                        self.error(
+                            Diagnostic::new(
+                                &codes::TOO_LARGE,
+                                format!(
+                                    "this `{label}` list has {} tables, more than one list can have ({})",
+                                    items.len(),
+                                    limit.value
+                                ),
+                            )
+                            .at(self.src, over.span)
+                            .hint("use fewer, larger shapes, or give some of them to a second entity"),
+                        );
+                    }
+                    for item in items.iter().take(most) {
                         match item.as_table() {
                             Some(t) => ok &= self.table(t, spec, item.span),
                             None => ok &= self.value(item, &Ty::Table(spec), label),
@@ -1502,6 +1589,12 @@ fn ty_schema(ty: &Ty) -> Json {
         Ty::Enum(values) => Json::object().with("enum", values.iter().map(|v| Json::from(*v)).collect::<Vec<_>>()),
         Ty::Vec2 => num_array("number", 2, 2),
         Ty::Pos => num_array("number", 2, 3),
+        Ty::Size3 { max } => Json::object()
+            .with("type", "array")
+            .with("items", Json::object().with("type", "number").with("exclusiveMinimum", 0).with("maximum", *max))
+            .with("minItems", 3)
+            .with("maxItems", 3),
+        Ty::Turn => Json::object().with("enum", vec![Json::from(0), 90.into(), 180.into(), 270.into()]),
         Ty::Cell => num_array("integer", 2, 2),
         Ty::Cells => Json::object().with("type", "array").with("items", num_array("integer", 2, 2)).with("minItems", 1),
         Ty::Codes => Json::object()
@@ -1522,6 +1615,9 @@ fn ty_schema(ty: &Ty) -> Json {
         Ty::Scalar => Json::object().with("type", vec![Json::from("boolean"), "number".into(), "string".into()]),
         Ty::Table(spec) => table_schema(spec),
         Ty::Tables(spec) | Ty::List(spec) => Json::object().with("type", "array").with("items", table_schema(spec)),
+        Ty::TablesUpTo(spec, limit) => {
+            Json::object().with("type", "array").with("items", table_schema(spec)).with("maxItems", limit.value)
+        }
     }
 }
 
