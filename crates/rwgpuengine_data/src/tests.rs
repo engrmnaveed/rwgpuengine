@@ -2,7 +2,7 @@
 
 use crate::load::{Vfs, check_project};
 
-fn project(files: &[(&str, &str)]) -> Vfs {
+pub(crate) fn project(files: &[(&str, &str)]) -> Vfs {
     let mut vfs = Vfs::new();
     vfs.insert("rwgpu.toml", "[project]\nname = \"t\"\n");
     for (p, t) in files {
@@ -15,7 +15,7 @@ fn codes(vfs: &Vfs) -> Vec<&'static str> {
     check_project(vfs).diagnostics.iter().map(|d| d.code).collect()
 }
 
-const WALL: &str = "block = { color = \"#888\" }\nsolid = true\n";
+pub(crate) const WALL: &str = "block = { color = \"#888\" }\nsolid = true\n";
 
 #[test]
 fn a_valid_project_has_no_diagnostics() {
@@ -245,7 +245,7 @@ fn actors_starting_inside_solids_are_warned_unless_allowed() {
 // ---------------------------------------------------------------------------
 // Data logic v1 (ADR 0011): props, conditions, labels, screen entities
 
-const LOGIC: &str = r##"
+pub(crate) const LOGIC: &str = r##"
 [ground]
 size = [6, 4]
 
@@ -443,9 +443,10 @@ fn pushables_are_checked() {
 // ---------------------------------------------------------------------------
 // Builder kit (ADR 0013): terrain maps, footprints, spawn, prefab sources
 
-const HOUSE: &str = "footprint = [2, 2]\nblock = { color = \"#eee\", top = \"#c33\" }\nsolid = true\n";
+pub(crate) const HOUSE: &str = "footprint = [2, 2]\nblock = { color = \"#eee\", top = \"#c33\" }\nsolid = true\n";
 
-fn builder_with(extra: &str) -> Vec<&'static str> {
+/// The builder kit's scene with `extra` appended, and its house prefab.
+pub(crate) fn builder_project(extra: &str) -> Vfs {
     let scene = format!(
         r##"
 [ground]
@@ -471,7 +472,11 @@ props = {{ coins = 5 }}
 {extra}
 "##
     );
-    codes(&project(&[("prefabs/house.toml", HOUSE), ("scenes/main.toml", &scene)]))
+    project(&[("prefabs/house.toml", HOUSE), ("scenes/main.toml", &scene)])
+}
+
+fn builder_with(extra: &str) -> Vec<&'static str> {
+    codes(&builder_project(extra))
 }
 
 #[test]
@@ -622,10 +627,10 @@ fn event_expectations_can_filter_by_prefab() {
 // ---------------------------------------------------------------------------
 // Builder kit v2 (ADR 0014): refusal signals and count props
 
-const SPAWN_HOUSE: &str =
+pub(crate) const SPAWN_HOUSE: &str =
     "[[connect]]\nfrom = \"ground\"\nsignal = \"tapped\"\naction = \"spawn\"\nprefab = \"house\"\n";
 
-fn hint_on_refused(when: &str) -> String {
+pub(crate) fn hint_on_refused(when: &str) -> String {
     format!(
         "{SPAWN_HOUSE}\n[[entity]]\nname = \"hint\"\nprops = {{ msg = \"\" }}\n\n[[connect]]\nfrom = \"ground\"\n\
          signal = \"refused\"\nto = \"hint\"\naction = \"set\"\nprop = \"msg\"\nvalue = \"no\"\n{when}"

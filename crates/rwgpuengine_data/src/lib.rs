@@ -18,4 +18,6 @@ pub use defs::*;
 pub use load::{CheckReport, PROJECT_FILE, SceneLoader, Vfs, check_project, load_playtest, load_project};
 
 #[cfg(test)]
+mod corpus;
+#[cfg(test)]
 mod tests;
