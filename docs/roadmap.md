@@ -77,6 +77,16 @@ decision in [open-questions.md](open-questions.md).
     river valley, in three stages. It pulls five shapes (box, roof, wedge, cylinder, cone), quarter turns,
     placement by neighbours and terrain, and a camera that stays over the ground and works by touch. Done
     when the town, its playtests and a cold-agent run pass.
+   - ~~shapes as text and quarter turns~~ (piece 6.1): built on 2026-11-28
+     ([ADR 0029](decisions/0029-shapes-as-text-and-quarter-turns.md)). A prefab lists `[[shape]]` tables
+     (box, roof, wedge, cylinder, cone); the engine bakes one mesh per prefab and turn and draws an instance
+     per entity, in the reference renderer first and then on the GPU, with no scene of the gate failing and
+     none of 6,000 random ones. Entities turn in quarter turns, footprint and all, and a `spawn` turns its
+     copy by a prop. The frame report names each shape; `rwgpu check` warns about a shape outside its
+     footprint (W0208) and two sides in one plane (W0209). `examples/river_town` is the catalog of the town's
+     ten buildings at every turn, pinned as a picture in each view. Measured: a mesh per prefab against
+     instances of unit shapes, how round a cylinder is (16 sides), what the shading rule costs. The piece
+     adds 28,959 bytes to the web module (735,503 of 800,000); every older playtest keeps its hashes.
    - ~~the camera over the ground, and every camera move by touch~~ (piece 6.2): built on 2026-11-28
      ([ADR 0030](decisions/0030-camera-over-the-ground-and-by-touch.md)). However a move arrives, the camera's
      center stays over the ground's cells; in both players one finger pans a game with no mover, two fingers
@@ -84,6 +94,7 @@ decision in [open-questions.md](open-questions.md).
      home, and the page has buttons for the turns, the view and Home. The browser check touches the page and
      `rwgpu run` replays what it recorded to the same state and camera. No example's hash changed. Not tested
      on a real touch screen.
+   - placement by neighbours and terrain, then the game.
 11. Then, in the order the proposal gives (its section 7): Rust game code, with people and carts in River
     Town as its test; templates per kind of game. Then demos, the MCP adapter and the desktop app.
 
@@ -202,7 +213,7 @@ Need: the first real game. Q3 is decided: the **isometric builder**, Tiny Town
   - a placement anchor (centre a multi-cell building on the tap; run #7);
   - drag input (ADR 0010);
   - terrain that blocks walking;
-  - rotation;
+  - ~~rotation~~: quarter turns, pulled by River Town ([ADR 0029](decisions/0029-shapes-as-text-and-quarter-turns.md));
 
 ## M4 — Rust game code, fast
 

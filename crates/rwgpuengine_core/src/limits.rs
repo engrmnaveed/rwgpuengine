@@ -149,7 +149,7 @@ pub const EVENT_LOG: Limit = Limit {
 // (215 MB copied) check in 0.38 s and take 2.7 GB. A playtest of 100,000
 // inputs checks in 75 ms. The example games' longest name or key has 15
 // characters and their longest playtest 37 tables. The longest shape list of
-// River Town's ten buildings has 12 shapes (ADR 0029).
+// River Town's ten buildings has 9 shapes (ADR 0029).
 
 /// Bytes in one file: a larger one is not parsed.
 pub const FILE_BYTES: Limit = Limit {

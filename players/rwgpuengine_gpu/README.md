@@ -78,6 +78,9 @@ and `stats()` says what the last `draw` did (passes, draws, what was sent to the
 - Measured on an Apple M5 Pro, 50,000 boxes on a 224 × 224 ground at 1280 × 720: 1.0 ms with nothing sent,
   1.6 ms with every instance packed and sent again, 1.2 ms through the iso view and 1.6 ms while that camera
   turns.
+- A generated town of 50,000 buildings made of shapes (233,472 shapes, 24 models), the same machine and
+  size: 5.2 ms with nothing sent, 10.2 ms with every instance packed and sent again, 5.1 ms through the iso
+  view; 5,000 buildings: 0.73, 1.07 and 0.74 ms (ADR 0029).
 
 ## The browser
 
@@ -91,10 +94,10 @@ frame. In Chrome its frames are 0 pixels apart from the reference on Metal and o
 ## Working on it
 
 ```bash
-cargo xtask gpu                        # the gate: lints, tests, budgets, 271 scenes against the reference
+cargo xtask gpu                        # the gate: lints, tests, budgets, 383 scenes against the reference
 cargo xtask gpu --fast                 # only the scenes, built incrementally: the edit loop
 cargo xtask gpu --fast -- --scene cards --pictures    # one group, with PNGs in target/gpu-check/
-cargo xtask gpu --fast -- --random 3000               # 3,000 random scenes: look for what the fixed ones miss
+cargo xtask gpu --fast -- --random 3000               # 3,000 random scenes and 3,000 of shapes: look for what the fixed ones miss
 cargo xtask gpu --study                # the options of ADR 0021 on this machine's adapter
 ```
 

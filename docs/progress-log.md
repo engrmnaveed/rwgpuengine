@@ -7,6 +7,51 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-28 — Step 6, piece 1: shapes as text, and entities that turn
+
+- Built ([ADR 0029](decisions/0029-shapes-as-text-and-quarter-turns.md)): a `[[shape]]` list in a prefab or
+  on an entity (box, roof, wedge, cylinder, cone; five keys), drawn by the reference renderer first and then
+  by the wgpu renderer; `turn` on an entity in quarter turns, footprint and all, and on a `spawn` by a number
+  or a prop; W0208, W0209 and a limit of 64 shapes in a list; the frame report names each shape.
+  `examples/river_town` is the catalog: the town's ten buildings at every turn, a picture in each view.
+- Every file that loaded before loads unchanged and draws the same pixels: the eleven older playtests keep
+  their state and image hashes, both oracles of the simulation hold, and of the loader's 474 pins five
+  changed, by the two new key names in a hint and nothing else (535 cases now).
+- **A mesh per prefab was measured against instances of unit shapes**, both built far enough to pass the
+  gate. On a generated town of 5,000 buildings (23,237 shapes) the render list is 3.2 MB against 4.4, the
+  reference frame 13.3 ms against 16.4, the GPU frame 0.73 ms against 0.78 and 1.07 against 1.34 with every
+  instance uploaded again; the sizes are within 2,500 bytes. The tools stay: `cargo xtask shape-bench`, and
+  the GPU gate prints its frame of the same town.
+- **16 sides** for a cylinder and a cone: against a picture with 128 sides the catalog is 51 pixels apart at
+  its own zoom (191 with 12 sides, 25 with 24), and 24 sides cost 3 to 4 ms more on the 13 ms frame of the
+  town. 20 sides are worse than 16 in three views of four: a multiple of 8 puts corners where the iso
+  outline turns.
+- **The shading rule is the one boxes had**, with the true normal of a slanted face: 3 to 8 ns a face over
+  no shading, nothing on the GPU, and the catalog's hashes are the same on aarch64, x86-64 and wasm32.
+- The check: 383 scenes (271 before step 6), 0 failed, at most 7 pixels apart in one; 3,000 random scenes of each
+  kind, 0 failed. No tolerance was added and the reference was never changed to match.
+- What it cost, on `river-town` with piece 2 under it: the web module 706,544 → 735,503 bytes (limit
+  800,000; 91.9 % used, 64,497 left), `rwgpu` 2,334,576 → 2,368,560, the players' web download 838,391 →
+  872,382. No limit moved.
+- The piece was built beside piece 2 and rebased onto it. Four files met (the loader's pins, the count of
+  frames in a runtime test, this log and the roadmap), each a case of keeping both. The camera's bound for
+  a scene without a ground reads an entity's cells as covered, so it holds a turned building without a
+  change; a test says so now.
+- Finding: **a new map type costs 3,500 to 5,000 bytes in the web module.** The format alone first cost
+  19,406 bytes. Comparing each function's size in two unstripped builds showed a `BTreeMap` with a new value
+  type, and a function written with lists of lists (8,600 bytes; 3,500 with static tables). Reuse a map
+  type the crate already has, and look at the per-function sizes before accepting a jump.
+- Finding: **the frame report caught the catalog's own mistake.** The first catalog put each row's turn label
+  behind the halls; `rwgpu test` said W0305 for them before anyone looked at the picture.
+- Finding: one random scene of shapes is 11 pixels apart, all on one edge: the edge between two sides of a
+  cone passes through a pixel center every second row in that view. It is ADR 0021's single-pixel tie on a
+  slanted edge, repeated; inside the limit of 24, and written down in ADR 0029.
+- Finding: two shapes with upright sides in one plane (a chimney flush with a wall) are the tie ADR 0021
+  left undefined, and shapes make it easy to write. It is a warning at load now (W0209), not a rule in the
+  renderers.
+- Not done: placement by neighbours and terrain, the game. No budget row for a town of
+  shapes. Two slanted faces in one plane are not warned about.
+
 ## 2026-11-28 — Step 6, piece 2: the camera stays over the ground, and every camera move by touch
 
 - [ADR 0030](decisions/0030-camera-over-the-ground-and-by-touch.md), on the branch `camera-touch` for

@@ -32,7 +32,9 @@
 //! 50,000 entities; run it as a release build
 //! (`cargo run --release -p xtask -- sim-bench`). `load-bench` times loading
 //! and checking generated projects of the same sizes, written as files
-//! (`cargo run --release -p xtask -- load-bench`).
+//! (`cargo run --release -p xtask -- load-bench`). `shape-bench` times the
+//! reference renderer on a generated town of buildings made of shapes
+//! (`cargo run --release -p xtask -- shape-bench`).
 
 // xtask measures wall-clock time on purpose (budgets); the determinism ban
 // on Instant::now applies to the engine, not to dev tooling.

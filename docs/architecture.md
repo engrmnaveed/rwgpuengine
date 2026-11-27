@@ -34,7 +34,7 @@ How rwgpuengine is built, as of v0.1.0 (first milestone). Decisions behind each 
                 └──────────────────────────────────────────────────────────────┘
  rented         toml_edit (parsing) · png (encode/decode)
  dev tooling    xtask: ci, repo-check, dist, web, web-player, smoke, budgets, docs, wasm-check, export-check, pages, gpu,
-                sim-bench, load-bench
+                sim-bench, load-bench, shape-bench
 ```
 
 Dependency rule: arrows only point down. `rwgpuengine_sim` knows nothing about rendering; `rwgpuengine_render` reads
@@ -109,6 +109,8 @@ Every command is a **pure function of (files, input script, seed, frame)**. `sho
 - `scenes/*.toml`: `[scene]`, `[camera]`, `[ground]` (a size or a terrain `map`), `[[terrain]]`, `[[entity]]`,
   `[[connect]]`.
 - `prefabs/<name>.toml`: an entity template; entity keys override it, component tables merge key by key.
+  A `[[shape]]` list (what a building is drawn with) is taken whole: an entity's own list replaces its
+  prefab's, and every copy of a prefab shares the prefab's one list.
 - `tests/*.toml`: playtests — `[test]`, `[[input]]`, `[[expect]]`, `[[shot]]`.
 
 Parsing pipeline (ADR 0003): `toml_edit` parses → converted at once into an owned `Node` tree that keeps
@@ -123,14 +125,15 @@ runs over the whole scene; every problem carries its place in the file (`load/or
 lists are merged into the order agents read them in. Loading and checking grow with the project: names are
 looked up in one index per scene, cells in maps, never by scanning every entity. A project's sizes have
 limits (`rwgpuengine_core::limits`: bytes in a file, entities, a ground's cells, cells covered, prefab bytes
-copied, a name's length, a playtest's tables), each reported as E0209 where it is gone over, before the work
-it would cause. An oracle pins everything the loader says (`rwgpuengine_data/src/corpus.rs`, 474 cases).
+copied, a name's length, a playtest's tables, the shapes in a list), each reported as E0209 where it is gone
+over, before the work it would cause. An oracle pins everything the loader says
+(`rwgpuengine_data/src/corpus.rs`, 535 cases).
 
 ## The world
 
 "Fat" entities (ADR 0006): one `Entity` struct with optional built-in components (`tile`, `block`,
 `sprite`, `label`, `mover`, `patrol`, `wander`, `trigger`), an optional `screen_pos` (HUD entities), a
-`footprint` (cells covered from `pos` toward +x/+y, default 1 × 1) and a `props` map. Props are runtime state with types fixed by their declared starting values: `[[connect]]`
+`footprint` (cells covered from `pos` toward +x/+y, default 1 × 1), a `turn` and a `props` map. Props are runtime state with types fixed by their declared starting values: `[[connect]]`
 `add`/`set` change them, `when` conditions and label placeholders read them (ADR 0011); `counts` props are
 kept equal to the number of enabled copies of a prefab by the engine (ADR 0014). Entity ids are their
 index in scene order — stable for a given file, usable in scripts and tests. Entities made at runtime by a
@@ -138,6 +141,16 @@ index in scene order — stable for a given file, usable in scripts and tests. E
 ids). The world also holds the ground (size, and a terrain per cell when the scene has a `map`) and the spawn
 templates (the prefabs `spawn` actions name, decoded at load time), so placement rules need no files at runtime
 (ADR 0013).
+
+**Shapes and turning** ([ADR 0029](decisions/0029-shapes-as-text-and-quarter-turns.md)). An entity can have
+a list of shapes (box, roof, wedge, cylinder, cone, each with a place, a size, a flat color and a quarter
+turn of its own). The world holds each list once (`World::shapes`) and an entity the number of its list, so
+the copies of a prefab share one. An entity's `turn` is a quarter turn about the vertical, from +x toward
++y. The world holds its `footprint` as the cells it covers, turned already (a prefab's 2 × 3 is 3 × 2 at 90
+and 270), and `pos` is the covered cell with the lowest x and y at every turn: blocking, triggers, taps,
+the cell index and placement read the cells as covered and need no rule for turns. A `spawn` turns its
+copy by a fixed turn or by an integer prop in degrees, read when the copy is placed. The state hash
+includes shape lists and turns only where there are some, so a world without them hashes as before.
 
 `world.rs` is the world, how it is built and the order of a step. The rules are in `world/`, one module per
 responsibility ([ADR 0026](decisions/0026-cell-index-and-the-world-in-modules.md)):
@@ -198,7 +211,8 @@ panics where they differ.
    checks the payer's prop first (refusal reason `funds`) and pays only when the copy is placed (ADR 0016). A connection listens
    to one entity, every copy of a prefab (`from_prefab`), or the ground, and `to = "self"` targets the
    emitter. Each queued signal carries a cell (the tapped cell, or the emitter's), which `spawn` builds on
-   after checking placement (inside the ground, buildable terrain, no entity taking up a cell). A prop that
+   after checking placement (inside the ground, buildable terrain, no entity taking up a cell; for a turned
+   copy, the cells its turned footprint covers). A prop that
    really changes makes its owner emit `changed`, and a new copy emits `spawned` (queued at the back, same
    step), if a connection listens. A refused placement makes the signal's source (the ground, or the emitter)
    emit `refused` with the reason, which `when = [{ reason = ... }]` tests. After every spawn, enable,
@@ -269,7 +283,8 @@ the wasm's pixels hash to native `rwgpu shot`'s image hashes. The current finger
 **render list** is the central artifact:
 
 - `list::build` turns the world into a view, a camera, one light and three kinds of things: **instances**
-  (solid: a box per `block`, a flat rectangle per `tile` and per ground cell), **cards** (flat pictures that
+  (solid: a box per `block`, a flat rectangle per `tile` and per ground cell, a model per entity with
+  shapes), **cards** (flat pictures that
   face the camera: a world entity's `sprite` or `label`) and the **2D layer** (screen entities, in file
   order). Nothing in it depends on a GPU; a GPU renderer for players will read the same list.
 - The **camera** (`camera.rs`) is session state: `view` (`iso` or `perspective`), `center`, `turn`, `zoom`.
@@ -288,6 +303,14 @@ the wasm's pixels hash to native `rwgpu shot`'s image hashes. The current finger
   far to near. A level face takes its depth from its plane's equation, not from its corners, so the first
   two rules hold whatever the corners are: a tile of nine cells lies on nine ground cells, and the part of a
   card below its anchor shows on the floor it lies on.
+- **Shapes** ([ADR 0029](decisions/0029-shapes-as-text-and-quarter-turns.md)): the list has one `Model` for
+  each (shape list, footprint, turn) that is drawn, and an entity with shapes is one instance of its model.
+  `model::bake` turns a model into flat faces with their final colors: a face's tone is the light's rule,
+  `clamp(base + n · toward)`, with the face's true unit normal (a cross product and one square root), so a
+  box shape has exactly a block's tones. A cylinder and a cone have 16 sides, from the owned sine and
+  cosine. The reference bakes the models of a frame and draws each shape as an item of its own: a level
+  face in its plane with the rank of a box's top, every other face by its corners' depth. The frame report
+  lists an entity's shapes with the pixels each drew and shows, and a tap on any of them hits the entity.
 - `Painter` gives the same pixels without owners, for players, through `rwgpuengine_runtime::Presenter`,
   which repaints only when the render list changed. Tests hold the two pixel-identical on every frame of
   every example playtest.
@@ -316,6 +339,9 @@ What decides a pixel comes from the reference renderer's own code; the GPU fills
   for all flat rectangles. The vertex shader projects corners with the `Projector`'s matrix.
 - **A face's color** is selected from a table of 6 × 256 levels filled by the reference's `shade`. The GPU
   does no color arithmetic and writes whole 8-bit levels.
+- **Models** (an entity's shapes) are meshes of the faces `model::bake` made, uploaded once per model, each
+  corner with its face's final color: the GPU computes no tone. The instances of a model are one instanced
+  draw for its level faces and one for the rest, through the same fragment stages as boxes.
 - **Level faces** write their depth per pixel from the plane's equation, the one the reference uses, two
   depth steps nearer per rank. Two faces in one plane then differ only in rank, on every adapter, and one
   depth test orders them.
@@ -325,14 +351,16 @@ What decides a pixel comes from the reference renderer's own code; the GPU fills
   the reference's integer coverage rule per shape and writes a depth per pixel row: upright above the
   anchor, and at and below it in the anchor's level plane, in front of any floor there.
 - **In the iso view the corner columns come from the CPU**, computed and snapped as the reference does, so
-  an upright edge of a box is drawn in the reference's pixel column.
+  an upright edge of a box is drawn in the reference's pixel column. A model's corners read theirs from a
+  storage buffer, a column for each place a corner of the model stands on.
 - **See-through colors** are mixed in the fragment shader with the reference's integer formula, from a copy
   of the picture so far. Things that overlap on the screen take a pass each; things that do not share one.
 - **The 2D layer** is the same shapes with no depth test, in list order.
 
-`cargo xtask gpu` draws 271 scenes with both renderers (every frame the example playtests shoot, a town of
-5,000 boxes under five cameras, a scene per rule under iso and perspective cameras, three copies of what
-random scenes found, and 200 random scenes that are the same on every run). A pixel that differs must lie on an
+`cargo xtask gpu` draws 383 scenes with both renderers (every frame the example playtests shoot, River
+Town's catalog of buildings among them; a town of 5,000 boxes under five cameras; a scene per rule under iso
+and perspective cameras, one of them every shape at every turn; three copies of what random scenes found;
+200 random scenes and 100 random scenes of shapes, the same on every run). A pixel that differs must lie on an
 edge of the reference picture, and a scene may have at most `pixels_apart` of them (`budgets.toml`). There
 is no per-channel tolerance. No GPU picture is ever a reference image: they differ between systems by a
 few edge pixels, and the CPU reference does not.
@@ -432,5 +460,5 @@ paths in `cargo xtask gpu`; `cargo xtask pages` proves the folder the Pages work
 
 ## Known limits of v0.1 (by design, for now)
 
-See [mvp-plan.md](mvp-plan.md#known-limitations) — no images or audio; ASCII text only; no rotation or
-dragging; the command renders on the CPU; the GPU draws in the players, natively and in a browser.
+See [mvp-plan.md](mvp-plan.md#known-limitations) — no images or audio; ASCII text only; entities turn in
+quarter turns only, and nothing is dragged; the command renders on the CPU; the GPU draws in the players, natively and in a browser.
