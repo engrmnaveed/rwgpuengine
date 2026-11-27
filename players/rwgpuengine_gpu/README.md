@@ -67,6 +67,10 @@ and `stats()` says what the last `draw` did (passes, draws, what was sent to the
   `list.instances` differs (`stats().uploaded_instances`). A camera that moves over a still world sends the
   uniforms (1,744 bytes) and the cards, and in the iso view 16 bytes per instance
   (`stats().uploaded_columns`).
+- A `[[shape]]` list is a model (`list.models`): the reference's own code bakes its faces, with their colors
+  under the light, into one mesh, sent when a shape list in the picture is new (`stats().uploaded_models`).
+  Every entity with that list is an instance of 16 bytes. In the iso view an instance also takes 4 bytes for
+  each upright line the model's corners stand on, sent like the boxes' columns.
 - Cards (sprites and text in the world) and the 2D layer are placed on the CPU on every `draw`, by the
   reference's own code.
 - See-through things that overlap on the screen take one copy of the frame and one pass each

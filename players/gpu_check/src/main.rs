@@ -16,7 +16,8 @@
 //! --pictures            write every scene's pictures, not only failing ones
 //! --study               measure the options of ADR 0021 on this adapter
 //! --no-timing           skip the frame times
-//! --random N            N random scenes instead of the fixed ones
+//! --random N            N random scenes and N random scenes of shapes instead
+//!                       of the fixed ones
 //! --web-frames DIR      only compare the web player's frames in DIR with the
 //!                       reference (written by the browser check; no GPU here)
 //! ```
@@ -393,7 +394,8 @@ fn run() -> Result<bool, String> {
     println!("adapter: {}", describe(&gpu.info));
     let mut scenes = match a.random {
         0 => scenes::all(&root())?,
-        n => (1..=n).map(scenes::random).collect::<Result<Vec<_>, _>>()?,
+        // As many of boxes, tiles and cards, and as many of shapes.
+        n => (1..=n).map(scenes::random).chain((1..=n).map(scenes::random_shapes)).collect::<Result<Vec<_>, _>>()?,
     };
     if let Some(only) = &a.only {
         scenes.retain(|s| s.name.contains(only.as_str()));

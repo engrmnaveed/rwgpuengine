@@ -13,7 +13,7 @@ use rwgpuengine_core::color::Rgba;
 use rwgpuengine_render::camera::to_fixed;
 use rwgpuengine_render::font::lit;
 use rwgpuengine_render::reference::{BOX_FACES, card_shapes, middle_depth, shade};
-use rwgpuengine_render::{Instance, Mesh, Projector, Rect, RenderList, Shape};
+use rwgpuengine_render::{Instance, Light, Mesh, Model, Projector, Rect, RenderList, Shape, bake};
 
 use crate::{FaceColor, Options, Origin};
 
@@ -29,6 +29,14 @@ const ISO_DEPTH_SCALE: f32 = 60.0;
 
 /// Bytes of one instance's corner columns (the iso view).
 pub(crate) const COLUMNS_BYTES: usize = 16;
+
+/// Bytes of one corner of a model's mesh: where it is from the instance
+/// (three floats), its face's color under the light, and four bytes: the
+/// rank of a level face, then the corner's column, low and high.
+pub(crate) const MODEL_VERTEX_BYTES: usize = 20;
+/// Bytes of one instance of a model: where it stands, and where its corner
+/// columns begin among all of them.
+pub(crate) const MODEL_INSTANCE_BYTES: usize = 16;
 
 /// Shader flags (`shader.wgsl`).
 const SHADE_IN_SHADER: u32 = 1;
@@ -139,6 +147,131 @@ pub(crate) fn columns(list: &[Instance], solid: &Instances, proj: &Projector) ->
             // The projector's own sum for a point's x (`Projector::hom`); in this view w is 1.
             let px = row[0] * x + row[1] * y + row[2] * p[2] + row[3];
             let fixed = to_fixed(px).clamp(-(1 << 23), 1 << 23) as i32;
+            out.extend_from_slice(&fixed.to_le_bytes());
+        }
+    }
+    out
+}
+
+/// One model as a mesh: its vertices in [`Models::vertices`], level faces and
+/// the others apart (they are drawn by different rules), and where its
+/// corners stand.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct ModelMesh {
+    pub levels: Range<u32>,
+    pub sides: Range<u32>,
+    /// The x and y of each upright line a corner of the model is on, from
+    /// the instance's place: a corner's column is its place here.
+    pub columns: Vec<[f32; 2]>,
+}
+
+/// The models of a list as meshes, ready to upload. They do not depend on
+/// the camera, nor on where their instances are.
+#[derive(Debug, Default)]
+pub(crate) struct Models {
+    pub vertices: Vec<u8>,
+    pub meshes: Vec<ModelMesh>,
+}
+
+/// The faces the reference renderer bakes for each model ([`bake`]: corners,
+/// and each face's color under the light), as triangles. A face is a fan
+/// from its first corner, as the reference cuts it.
+pub(crate) fn models(list: &[Model], light: &Light) -> Models {
+    let mut out = Models::default();
+    for model in list {
+        let baked = bake(model, light);
+        let mut mesh = ModelMesh::default();
+        let column: Vec<u16> = baked
+            .points
+            .iter()
+            .map(|p| {
+                let at = [p[0], p[1]];
+                let found = mesh.columns.iter().position(|c| c.map(f32::to_bits) == at.map(f32::to_bits));
+                found.unwrap_or_else(|| {
+                    mesh.columns.push(at);
+                    mesh.columns.len() - 1
+                }) as u16
+            })
+            .collect();
+        for level in [true, false] {
+            let start = (out.vertices.len() / MODEL_VERTEX_BYTES) as u32;
+            for face in baked.faces.iter().filter(|f| f.level.is_some() == level) {
+                let corners = &baked.corners[face.corners.start as usize..face.corners.end as usize];
+                for k in 1..corners.len() - 1 {
+                    for corner in [corners[0], corners[k], corners[k + 1]] {
+                        f32s(&mut out.vertices, &baked.points[corner as usize]);
+                        rgba(&mut out.vertices, face.color);
+                        let [low, high] = column[corner as usize].to_le_bytes();
+                        // A model's level faces have the rank of a box's top.
+                        out.vertices.extend_from_slice(&[u8::from(level), low, high, 0]);
+                    }
+                }
+            }
+            let range = start..(out.vertices.len() / MODEL_VERTEX_BYTES) as u32;
+            if level {
+                mesh.levels = range;
+            } else {
+                mesh.sides = range;
+            }
+        }
+        out.meshes.push(mesh);
+    }
+    out
+}
+
+/// The instances of models in a list, ready to upload: together by model,
+/// each model's in list order.
+#[derive(Debug, Default)]
+pub(crate) struct ModelInstances {
+    pub bytes: Vec<u8>,
+    /// Each model that has instances, with their places in `bytes`.
+    pub runs: Vec<(u32, Range<u32>)>,
+    /// The index in the list of each instance in `bytes`, in that order.
+    pub order: Vec<u32>,
+    /// Corner columns of all of them together.
+    pub columns: u32,
+}
+
+pub(crate) fn model_instances(list: &[Instance], models: &Models) -> ModelInstances {
+    let mut out = ModelInstances::default();
+    let mut found: Vec<(u32, u32)> = list
+        .iter()
+        .enumerate()
+        .filter_map(|(k, i)| match i.mesh {
+            Mesh::Model(m) if i.enabled => Some((m, k as u32)),
+            _ => None,
+        })
+        .collect();
+    // By model; the index keeps each model's in list order.
+    found.sort_unstable();
+    for (n, (model, k)) in found.into_iter().enumerate() {
+        f32s(&mut out.bytes, &list[k as usize].pos);
+        out.bytes.extend_from_slice(&out.columns.to_le_bytes());
+        out.columns += models.meshes[model as usize].columns.len() as u32;
+        out.order.push(k);
+        match out.runs.last_mut() {
+            Some((last, run)) if *last == model => run.end += 1,
+            _ => out.runs.push((model, n as u32..n as u32 + 1)),
+        }
+    }
+    out
+}
+
+/// The iso view: the pixel column of every corner of every instance of a
+/// model, as whole sub-pixel steps, in the order of [`ModelInstances`] and
+/// of each model's columns. From the reference's own projection of the same
+/// point, for the reason [`columns`] gives: a model has upright edges too,
+/// and its corners must meet a neighbor's in the same column.
+pub(crate) fn model_columns(list: &[Instance], inst: &ModelInstances, models: &Models, proj: &Projector) -> Vec<u8> {
+    let mut out = Vec::with_capacity(inst.columns as usize * 4);
+    for k in &inst.order {
+        let i = &list[*k as usize];
+        let Mesh::Model(model) = i.mesh else { continue };
+        let base = i.pos.map(f64::from);
+        for c in &models.meshes[model as usize].columns {
+            // A point's column does not depend on its height in this view.
+            let h = proj.hom([base[0] + c[0] as f64, base[1] + c[1] as f64, base[2]], 0);
+            let fixed = to_fixed(h[0] / h[3]).clamp(-(1 << 23), 1 << 23) as i32;
             out.extend_from_slice(&fixed.to_le_bytes());
         }
     }
@@ -506,6 +639,141 @@ mod tests {
         let rank = |k: usize| packed.bytes[k * INSTANCE_BYTES + 32];
         assert_eq!([rank(0), rank(1), rank(2), rank(3)], [2, 6, 1, 1]);
         assert_eq!(&packed.bytes[24..28], &[10, 20, 30, 255]);
+    }
+
+    fn house() -> Model {
+        use rwgpuengine_data::{ShapeDef, ShapeKind};
+        let shape = |kind, at, size, turn| ShapeDef { kind, at, size, color: Rgba::rgb(200, 120, 60), turn };
+        Model {
+            shapes: vec![
+                shape(ShapeKind::Box, [0.125, 0.125, 0.0], [1.75, 1.75, 1.25], 0),
+                shape(ShapeKind::Roof, [0.0, 0.0, 1.25], [2.0, 2.0, 0.875], 1),
+                shape(ShapeKind::Cylinder, [1.25, 0.375, 1.25], [0.25, 0.25, 1.0], 0),
+            ]
+            .into(),
+            footprint: [2, 2],
+            turn: 0,
+        }
+    }
+
+    fn tower() -> Model {
+        use rwgpuengine_data::{ShapeDef, ShapeKind};
+        let shape = ShapeDef {
+            kind: ShapeKind::Cone,
+            at: [0.0; 3],
+            size: [1.0, 1.0, 2.0],
+            color: Rgba::rgb(10, 200, 30),
+            turn: 0,
+        };
+        Model { shapes: vec![shape].into(), footprint: [1, 1], turn: 0 }
+    }
+
+    #[test]
+    fn a_model_is_packed_as_the_faces_the_reference_bakes() {
+        let light = rwgpuengine_render::Light::DEFAULT;
+        let list = [house(), tower()];
+        let packed = models(&list, &light);
+        assert_eq!(packed.meshes.len(), 2);
+        let mut next = 0;
+        for (model, mesh) in list.iter().zip(&packed.meshes) {
+            let baked = bake(model, &light);
+            // Level faces first, then the rest; each face a fan of triangles from its first corner.
+            let triangles = |level: bool| -> u32 {
+                baked.faces.iter().filter(|f| f.level.is_some() == level).map(|f| f.corners.len() as u32 - 2).sum()
+            };
+            assert_eq!(mesh.levels, next..next + 3 * triangles(true));
+            assert_eq!(mesh.sides, mesh.levels.end..mesh.levels.end + 3 * triangles(false));
+            next = mesh.sides.end;
+            // Every vertex is a corner of the model, in its face's color, on the column it says.
+            for v in mesh.levels.start..mesh.sides.end {
+                let b = &packed.vertices[v as usize * MODEL_VERTEX_BYTES..][..MODEL_VERTEX_BYTES];
+                let at: [f32; 3] = std::array::from_fn(|k| f32::from_le_bytes(b[4 * k..4 * k + 4].try_into().unwrap()));
+                assert!(baked.points.contains(&at), "{at:?}");
+                assert!(baked.faces.iter().any(|f| [f.color.r, f.color.g, f.color.b, f.color.a] == b[12..16]));
+                assert_eq!(b[16], u8::from(mesh.levels.contains(&v)), "the rank of a level face, 0 for the others");
+                let column = u16::from_le_bytes([b[17], b[18]]) as usize;
+                assert_eq!(mesh.columns[column], [at[0], at[1]]);
+            }
+            // A column for each place a corner stands on, each once.
+            for (i, c) in mesh.columns.iter().enumerate() {
+                assert!(!mesh.columns[..i].contains(c));
+            }
+        }
+        assert_eq!(next as usize * MODEL_VERTEX_BYTES, packed.vertices.len());
+        // The house: 4 corners of its walls, 4 of its roof and 2 ridge ends, 16 round its chimney.
+        // The cone: 16 round its base and its point in the middle.
+        assert_eq!((packed.meshes[0].columns.len(), packed.meshes[1].columns.len()), (26, 17));
+    }
+
+    #[test]
+    fn the_instances_of_models_go_together_and_their_columns_are_the_reference_s() {
+        use rwgpuengine_data::CameraView;
+        use rwgpuengine_render::{Camera, Part, View as Frame};
+        let light = rwgpuengine_render::Light::DEFAULT;
+        let list_models = [house(), tower()];
+        let packed = models(&list_models, &light);
+        let inst = |model: u32, pos: [f32; 3], enabled: bool| Instance {
+            entity: Some(1),
+            part: Part::Block,
+            cell: [0, 0],
+            enabled,
+            mesh: Mesh::Model(model),
+            pos,
+            size: [1.0, 1.0, 1.0],
+            color: Rgba::WHITE,
+            top: Rgba::WHITE,
+            layer: 0,
+            seq: 1,
+        };
+        let mut a_box = inst(0, [9.0, 9.0, 0.0], true);
+        a_box.mesh = Mesh::Box;
+        let list = [
+            inst(1, [3.5, -0.5, 0.0], true),
+            inst(0, [0.5, 1.5, 0.25], true),
+            a_box,
+            inst(0, [7.5, 2.5, 0.0], false),
+            inst(1, [-2.5, 4.5, 1.0], true),
+            inst(0, [5.5, 5.5, 0.0], true),
+        ];
+        let of = model_instances(&list, &packed);
+        // By model, each model's in list order; the disabled one and the box are not among them.
+        assert_eq!(of.order, [1, 5, 0, 4]);
+        assert_eq!(of.runs, [(0, 0..2), (1, 2..4)]);
+        assert_eq!(of.bytes.len(), 4 * MODEL_INSTANCE_BYTES);
+        let first = |k: usize| u32::from_le_bytes(of.bytes[k * MODEL_INSTANCE_BYTES + 12..][..4].try_into().unwrap());
+        assert_eq!([first(0), first(1), first(2), first(3)], [0, 26, 52, 69]);
+        assert_eq!(of.columns, 86);
+        assert_eq!(of.bytes[..12], [0.5f32, 1.5, 0.25].iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>()[..]);
+
+        // Under an iso camera, each corner's column is where the reference draws that corner,
+        // whatever its height.
+        let frame = Frame {
+            width: 640,
+            height: 480,
+            background: Rgba::BLACK,
+            tile_w: 64,
+            tile_h: 32,
+            z_h: 32,
+            pivot: [320.0, 240.0],
+        };
+        for turn in [0.0, 33.3, 217.0] {
+            let camera = Camera { view: CameraView::Iso, center: [3.0, 2.5], turn, zoom: 1.75 };
+            let proj = Projector::new(&frame, &camera);
+            let columns = model_columns(&list, &of, &packed, &proj);
+            assert_eq!(columns.len(), 86 * 4);
+            let column = |k: usize| i32::from_le_bytes(columns[4 * k..4 * k + 4].try_into().unwrap());
+            for (slot, k) in of.order.iter().enumerate() {
+                let i = &list[*k as usize];
+                let Mesh::Model(m) = i.mesh else { unreachable!() };
+                let (baked, mesh) = (bake(&list_models[m as usize], &light), &packed.meshes[m as usize]);
+                for p in &baked.points {
+                    let world: [f64; 3] = std::array::from_fn(|a| i.pos[a] as f64 + p[a] as f64);
+                    let h = proj.hom(world, 0);
+                    let at = mesh.columns.iter().position(|c| *c == [p[0], p[1]]).expect("its column");
+                    assert_eq!(column(first(slot) as usize + at) as i64, to_fixed(h[0] / h[3]), "turn {turn}: {p:?}");
+                }
+            }
+        }
     }
 
     #[test]

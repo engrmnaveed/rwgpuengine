@@ -6,6 +6,7 @@
 //!   and perspective cameras.
 //! - 200 random scenes, each under a random camera, the same on every run:
 //!   they look for what the hand-made scenes miss.
+//! - 100 random scenes of shapes (`[[shape]]` lists), made the same way.
 //!
 //! Two things are kept out of the random scenes on purpose, because there
 //! two things have the same depth, no rule says which shows, and the
@@ -35,7 +36,7 @@ use std::path::Path;
 
 use rwgpuengine_data::{CameraMove, CameraView, Vfs};
 use rwgpuengine_render::camera::to_fixed;
-use rwgpuengine_render::{Mesh, Projector, RenderList};
+use rwgpuengine_render::{Mesh, Projector, RenderList, bake};
 use rwgpuengine_runtime::{DataOnly, Session, SessionConfig};
 
 pub struct Scene {
@@ -69,6 +70,8 @@ fn town_seen(boxes: usize, cam: Option<Cam>) -> Result<RenderList, String> {
 
 /// How many random scenes the gate draws after the fixed ones.
 pub const RANDOM_SCENES: u64 = 200;
+/// And how many random scenes of shapes after those.
+pub const RANDOM_SHAPES: u64 = 100;
 
 type Cam = (CameraView, f32, f32, [f32; 2]);
 
@@ -608,6 +611,102 @@ footprint = [2, 2]
 block = { height = 64, color = "#3060c0", top = "#80d0f0" }
 "##;
 
+/// Shapes: every kind of `[[shape]]` at every turn of its own, alone and on
+/// each other (a roof on walls with a chimney standing in it, a cone on a
+/// cylinder, wedges as a lean-to and as ramps), flat boxes in rows and side
+/// by side like a road, a tile on a cylinder's top, a sprite and a label
+/// standing on shapes, shapes wall to wall with each other and with a
+/// block, one in the air, one disabled.
+const SHAPES: &str = r##"
+[ground]
+size = [9, 8]
+
+[[entity]]
+name = "house"
+pos = [0, 0]
+footprint = [2, 2]
+shape = [{ kind = "box", at = [0.125, 0.125, 0], size = [1.75, 1.75, 1.25], color = "#e8d8b0" }, { kind = "roof", at = [0, 0, 1.25], size = [2, 2, 0.875], color = "#b5523b" }, { kind = "box", at = [1.25, 0.375, 1.25], size = [0.25, 0.25, 1], color = "#7a6a5a" }]
+
+[[entity]]
+name = "tree"
+pos = [3, 0]
+shape = [{ kind = "cylinder", at = [0.375, 0.375, 0], size = [0.25, 0.25, 0.5], color = "#7a5a3a" }, { kind = "cone", at = [0.125, 0.125, 0.5], size = [0.75, 0.75, 1.25], color = "#3f8a3f" }]
+
+[[entity]]
+name = "mill"
+pos = [5, 0]
+footprint = [2, 2]
+shape = [{ kind = "box", at = [0, 0, 0], size = [1, 2, 1], color = "#c9b38a" }, { kind = "roof", at = [0, 0, 1], size = [1, 2, 0.5], color = "#8b5a3c", turn = 90 }, { kind = "cylinder", at = [1, 0.5, 0], size = [1, 1, 2], color = "#c8c8c8" }, { kind = "cone", at = [0.875, 0.375, 2], size = [1.25, 1.25, 0.75], color = "#5a6ea0" }]
+allow = ["W0208"]
+
+[[entity]]
+name = "well"
+pos = [8, 0]
+shape = [{ kind = "cylinder", at = [0.125, 0.125, 0], size = [0.75, 0.75, 0.375], color = "#9a9a9a" }]
+
+[[entity]]
+name = "water"
+pos = [8, 0, 0.375]
+tile = { color = "#3a7ac0" }
+
+[[entity]]
+name = "ramps"
+pos = [0, 3]
+footprint = [2, 2]
+shape = [{ kind = "wedge", size = [1, 1, 0.5], color = "#c0a060" }, { kind = "wedge", at = [1, 0, 0], size = [1, 1, 0.75], color = "#b89858", turn = 90 }, { kind = "wedge", at = [0, 1, 0], size = [1, 1, 1], color = "#a08040", turn = 180 }, { kind = "wedge", at = [1, 1, 0], size = [1, 1, 0.25], color = "#98783c", turn = 270 }]
+
+[[entity]]
+name = "workshop"
+pos = [3, 2]
+footprint = [2, 3]
+shape = [{ kind = "box", size = [2, 3, 1], color = "#b07a4a" }, { kind = "wedge", at = [0, 0, 1], size = [2, 3, 0.75], color = "#70564a", turn = 270 }, { kind = "cylinder", at = [1.375, 2.25, 0.5], size = [0.375, 0.375, 1.75], color = "#5a5a5a" }]
+
+[[entity]]
+name = "roofs"
+pos = [6, 3]
+footprint = [3, 1]
+shape = [{ kind = "roof", size = [1, 1, 0.5], color = "#b5523b" }, { kind = "roof", at = [1, 0, 0], size = [1, 1, 1], color = "#b5523b", turn = 90 }, { kind = "roof", at = [2, 0.25, 0], size = [1, 0.5, 0.25], color = "#8b2f2f", turn = 180 }]
+
+[[entity]]
+name = "farm"
+pos = [6, 5]
+footprint = [3, 3]
+shape = [{ kind = "box", at = [0, 0, 0], size = [1.5, 1, 0.75], color = "#a03c2c" }, { kind = "roof", at = [0, 0, 0.75], size = [1.5, 1, 0.5], color = "#5a3a2a" }, { kind = "box", at = [0.125, 1.25, 0], size = [2.75, 0.25, 0.125], color = "#7a9a3a" }, { kind = "box", at = [0.125, 1.75, 0], size = [2.75, 0.25, 0.125], color = "#c8b040" }, { kind = "box", at = [0.125, 2.25, 0], size = [2.75, 0.25, 0.125], color = "#7a9a3a" }, { kind = "box", at = [0.125, 2.625, 0], size = [2.75, 0.25, 0.0625], color = "#6a4a2a" }]
+
+[[entity]]
+cells = [[0, 6], [1, 6], [2, 6], [2, 7]]
+shape = [{ kind = "box", size = [1, 1, 0.0625], color = "#8a8478" }]
+
+[[entity]]
+name = "bridge"
+pos = [3, 6]
+footprint = [2, 1]
+shape = [{ kind = "wedge", size = [0.5, 1, 0.25], color = "#9a7a52" }, { kind = "box", at = [0.5, 0, 0], size = [1, 1, 0.25], color = "#9a7a52" }, { kind = "wedge", at = [1.5, 0, 0], size = [0.5, 1, 0.25], color = "#9a7a52", turn = 180 }, { kind = "box", at = [0.5, 0, 0.25], size = [1, 0.125, 0.25], color = "#6a4a2a" }, { kind = "box", at = [0.5, 0.875, 0.25], size = [1, 0.125, 0.25], color = "#6a4a2a" }]
+
+[[entity]]
+name = "crate"
+pos = [5, 6]
+block = { height = 0.25, color = "#a05a2c" }
+
+[[entity]]
+name = "hut"
+pos = [4, 7]
+shape = [{ kind = "box", size = [1, 1, 0.75], color = "#a05a2c" }, { kind = "cone", at = [0, 0, 0.75], size = [1, 1, 0.5], color = "#6a3a2a" }]
+sprite = { shape = "circle", color = "#ffe060", size = [12, 12] }
+label = { text = "Hut", offset = [0, -14] }
+
+[[entity]]
+name = "lamp"
+pos = [0, 7, 0.5]
+shape = [{ kind = "box", at = [0.25, 0.25, 0], size = [0.5, 0.5, 0.5], color = "#f0e080" }, { kind = "cone", at = [0.25, 0.25, 0.5], size = [0.5, 0.5, 0.25], color = "#404040" }]
+
+[[entity]]
+name = "gone"
+pos = [1, 7]
+enabled = false
+shape = [{ kind = "cylinder", size = [1, 1, 3], color = "#ff00ff" }]
+"##;
+
 /// Found by random scenes, each with the camera it was found under. Small
 /// copies of what went wrong, so that it stays right.
 ///
@@ -706,6 +805,7 @@ pub fn all(root: &Path) -> Result<Vec<Scene>, String> {
     rule(&mut out, "cards below their anchor", CARDS_BELOW, &CAMERAS, false)?;
     rule(&mut out, "cards on a floor", CARDS_ON_A_FLOOR, &CAMERAS, false)?;
     rule(&mut out, "see-through", SEE_THROUGH, &CAMERAS, false)?;
+    rule(&mut out, "shapes", SHAPES, &CAMERAS, false)?;
     rule(&mut out, "2D layer", OVERLAY, &[CAMERAS[0], CAMERAS[6]], false)?;
     rule(&mut out, "disabled", DISABLED, &[CAMERAS[0], CAMERAS[2], CAMERAS[5]], true)?;
     let near = [(PER, 0.0, 4.0, [0.0, 0.0]), (PER, 123.0, 8.0, [0.0, 0.0]), (PER, 0.0, 1.0, [0.0, 0.0])];
@@ -717,6 +817,9 @@ pub fn all(root: &Path) -> Result<Vec<Scene>, String> {
     }
     for seed in 1..=RANDOM_SCENES {
         out.push(random(seed)?);
+    }
+    for seed in 1..=RANDOM_SHAPES {
+        out.push(random_shapes(seed)?);
     }
     Ok(out)
 }
@@ -899,10 +1002,12 @@ pub fn random(seed: u64) -> Result<Scene, String> {
     }
 }
 
-/// In the iso view: do two boxes share an upright edge that the reference
+/// In the iso view: do two solids share an upright edge that the reference
 /// puts exactly on a column of pixel centers? Along such a column two sides
-/// of different boxes have the same depth, and the reference's picture is
-/// decided by how their corners were snapped (the top of this file).
+/// of different solids have the same depth, and the reference's picture is
+/// decided by how their corners were snapped (the top of this file). A solid
+/// is a box, or one shape of a model: a shape has an upright edge wherever
+/// two of its corners stand one above the other.
 pub fn upright_tie(list: &RenderList) -> bool {
     let proj = Projector::new(&list.view, &list.camera);
     let w = proj.rows()[3];
@@ -910,18 +1015,223 @@ pub fn upright_tie(list: &RenderList) -> bool {
         // In perspective an upright edge is not one column of the picture.
         return false;
     }
-    // Each corner column of each box: where it is in the world, and the sub-pixel step it is drawn at.
-    let mut corners = Vec::new();
-    for inst in list.instances.iter().filter(|i| i.enabled && i.mesh == Mesh::Box) {
+    // Each upright edge of each solid: where it is in the world, and the sub-pixel step it is drawn at.
+    let mut edges = Vec::new();
+    let mut edge = |x: f64, y: f64, z: f64| {
+        let h = proj.hom([x, y, z], 0);
+        edges.push((x.to_bits(), y.to_bits(), to_fixed(h[0] / h[3])));
+    };
+    let models: Vec<_> = list.models.iter().map(|m| bake(m, &list.light)).collect();
+    for inst in list.instances.iter().filter(|i| i.enabled) {
         let (p, s) = (inst.pos.map(f64::from), inst.size.map(f64::from));
-        for corner in 0..4 {
-            let x = p[0] + if corner & 1 != 0 { s[0] } else { 0.0 };
-            let y = p[1] + if corner & 2 != 0 { s[1] } else { 0.0 };
-            let h = proj.hom([x, y, p[2]], 0);
-            corners.push((x.to_bits(), y.to_bits(), to_fixed(h[0] / h[3])));
+        match inst.mesh {
+            Mesh::Box => {
+                for corner in 0..4 {
+                    let x = p[0] + if corner & 1 != 0 { s[0] } else { 0.0 };
+                    let y = p[1] + if corner & 2 != 0 { s[1] } else { 0.0 };
+                    edge(x, y, p[2]);
+                }
+            }
+            Mesh::Model(n) => {
+                let model = &models[n as usize];
+                for solid in &model.solids {
+                    let points = &model.points[solid.points.start as usize..solid.points.end as usize];
+                    let mut columns: Vec<[u32; 2]> = points.iter().map(|q| [q[0].to_bits(), q[1].to_bits()]).collect();
+                    columns.sort_unstable();
+                    // The columns two or more of its corners are on, each once.
+                    let mut k = 0;
+                    while k < columns.len() {
+                        let same = columns[k..].iter().take_while(|c| **c == columns[k]).count();
+                        if same > 1 {
+                            let [x, y] = columns[k].map(|bits| f32::from_bits(bits) as f64);
+                            edge(p[0] + x, p[1] + y, p[2]);
+                        }
+                        k += same;
+                    }
+                }
+            }
+            Mesh::Flat => {}
         }
     }
-    corners.sort_unstable();
+    edges.sort_unstable();
     // A pixel center is half a pixel, 128 steps, past a whole pixel.
-    corners.windows(2).any(|c| (c[0].0, c[0].1) == (c[1].0, c[1].1) && c[0].2.rem_euclid(256) == 128)
+    edges.windows(2).any(|c| (c[0].0, c[0].1) == (c[1].0, c[1].1) && c[0].2.rem_euclid(256) == 128)
+}
+
+/// A random scene of shapes under a random camera, the same for the same
+/// seed: a ground, and on cells of their own (a footprint of one to nine)
+/// things built of `[[shape]]` lists: one shape somewhere in the footprint;
+/// walls with a roof, a wedge, a cone, a cylinder or a box on them, some with
+/// a chimney standing in the roof; rows of flat boxes; a cylinder with a cone
+/// on it; one shape in each cell. Of every kind, at every turn, sizes in
+/// eighths of a cell, some in the air, some disabled, some with a tile on a
+/// level top or with a sprite or a label standing on them, and some blocks
+/// between. No two shapes of a list have upright sides in one plane that
+/// overlap (W0209), and the camera is never where two solids tie along an
+/// upright edge (the top of this file).
+pub fn random_shapes(seed: u64) -> Result<Scene, String> {
+    use rwgpuengine_core::rng::Rng;
+    let mut rng = Rng::new(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x5348_4150_4553);
+    let size = rng.range_i32(5, 9);
+    let mut scene = format!("[ground]\nsize = [{size}, {size}]\n");
+    let color = |rng: &mut Rng| format!("\"#{:06x}\"", rng.next_u32() & 0xff_ffff);
+    // Eighths of a cell, as a file writes them.
+    let e = |n: i32| format!("{}", n as f32 / 8.0);
+    let kinds = ["box", "roof", "wedge", "cylinder", "cone"];
+    let shape = |rng: &mut Rng, kind: &str, at: [i32; 3], sz: [i32; 3]| {
+        format!(
+            "{{ kind = \"{kind}\", at = [{}, {}, {}], size = [{}, {}, {}], color = {}, turn = {} }}",
+            e(at[0]),
+            e(at[1]),
+            e(at[2]),
+            e(sz[0]),
+            e(sz[1]),
+            e(sz[2]),
+            color(rng),
+            rng.below(4) * 90
+        )
+    };
+    let mut taken = vec![false; (size * size) as usize];
+    for k in 0..rng.range_i32(5, 12) {
+        let (x, y) = (rng.range_i32(0, size - 1), rng.range_i32(0, size - 1));
+        let (w, h) = (rng.range_i32(1, 3).min(size - x), rng.range_i32(1, 3).min(size - y));
+        let cells = |f: &mut dyn FnMut(usize)| {
+            for cy in y..y + h {
+                for cx in x..x + w {
+                    f((cy * size + cx) as usize);
+                }
+            }
+        };
+        let mut free = true;
+        cells(&mut |c| free &= !taken[c]);
+        if !free {
+            continue;
+        }
+        cells(&mut |c| taken[c] = true);
+        let z = [0, 0, 0, 0, 2, 4][rng.below(6) as usize];
+        let enabled = if rng.below(8) == 0 { "enabled = false\n" } else { "" };
+        let footprint = if w * h == 1 { String::new() } else { format!("footprint = [{w}, {h}]\n") };
+        scene.push_str(&format!("\n[[entity]]\nname = \"e{k}\"\npos = [{x}, {y}, {}]\n{enabled}{footprint}", e(z)));
+        let (w8, h8) = (8 * w, 8 * h);
+        let mut list: Vec<String> = Vec::new();
+        // The height of a level top a tile can lie on, if the thing has one.
+        let mut level_top = None;
+        let mut height = 0;
+        match rng.below(8) {
+            0 => {
+                let high = rng.range_i32(2, 16);
+                scene.push_str(&format!("block = {{ height = {}, color = {} }}\n", e(high), color(&mut rng)));
+                level_top = Some(high);
+                height = high;
+            }
+            1 | 2 => {
+                // One shape, somewhere in the footprint.
+                let kind = kinds[rng.below(5) as usize];
+                let (sx, sy) = (rng.range_i32(2, w8), rng.range_i32(2, h8));
+                let at = [rng.range_i32(0, w8 - sx), rng.range_i32(0, h8 - sy), 0];
+                height = rng.range_i32(1, 20);
+                list.push(shape(&mut rng, kind, at, [sx, sy, height]));
+                level_top = matches!(kind, "box" | "cylinder").then_some(height);
+            }
+            3 | 4 => {
+                // Walls with something on them, each set in from the footprint or not.
+                let (i, j) = (rng.range_i32(0, 1), rng.range_i32(0, 2));
+                let walls = rng.range_i32(2, 16);
+                list.push(shape(&mut rng, "box", [i, i, 0], [w8 - 2 * i, h8 - 2 * i, walls]));
+                let kind = kinds[rng.below(5) as usize];
+                let top = rng.range_i32(1, 12);
+                list.push(shape(&mut rng, kind, [j, j, walls], [w8 - 2 * j, h8 - 2 * j, top]));
+                height = walls + top;
+                level_top = matches!(kind, "box" | "cylinder").then_some(height);
+                // A chimney standing in a roof, a step in from every wall.
+                let room = i.max(j) + 1;
+                if kind == "roof" && rng.below(2) == 0 {
+                    let at = [rng.range_i32(room, w8 - room - 2), rng.range_i32(room, h8 - room - 2), walls];
+                    height += 3;
+                    list.push(shape(&mut rng, "box", at, [2, 2, top + 3]));
+                }
+            }
+            5 => {
+                // Rows of flat boxes, like a field.
+                let thick = rng.range_i32(1, 2);
+                let mut row = 1;
+                while row + 2 < h8 {
+                    list.push(shape(&mut rng, "box", [1, row, 0], [w8 - 2, 2, thick]));
+                    row += 4;
+                }
+                height = thick;
+            }
+            6 => {
+                // A round tower with a cone on it, as wide or wider.
+                let i = rng.range_i32(0, 2);
+                let across = w8.min(h8) - 2 * i;
+                let tower = rng.range_i32(4, 20);
+                list.push(shape(&mut rng, "cylinder", [i, i, 0], [across, across, tower]));
+                let over = rng.range_i32(0, 1).min(i);
+                let cap = rng.range_i32(2, 12);
+                list.push(shape(
+                    &mut rng,
+                    "cone",
+                    [i - over, i - over, tower],
+                    [across + 2 * over, across + 2 * over, cap],
+                ));
+                height = tower + cap;
+            }
+            _ => {
+                // A shape of its own in each cell of the footprint, or none.
+                for cy in 0..h {
+                    for cx in 0..w {
+                        if rng.below(3) == 0 {
+                            continue;
+                        }
+                        let (a, b) = (rng.range_i32(0, 4), rng.range_i32(0, 4));
+                        let sz = [rng.range_i32(2, 8 - a), rng.range_i32(2, 8 - b), rng.range_i32(1, 16)];
+                        let kind = kinds[rng.below(5) as usize];
+                        list.push(shape(&mut rng, kind, [8 * cx + a, 8 * cy + b, 0], sz));
+                        height = height.max(sz[2]);
+                    }
+                }
+            }
+        }
+        if !list.is_empty() {
+            scene.push_str(&format!("shape = [{}]\n", list.join(", ")));
+        }
+        match rng.below(6) {
+            0 => scene.push_str(&format!("label = {{ text = \"S{k}\", color = {} }}\n", color(&mut rng))),
+            1 => scene.push_str(&format!(
+                "sprite = {{ shape = \"circle\", color = {}, size = [{}, {}] }}\n",
+                color(&mut rng),
+                rng.range_i32(8, 30),
+                rng.range_i32(8, 40)
+            )),
+            _ => {}
+        }
+        // Something flat on its level top, as large as the footprint.
+        if let Some(top) = level_top.filter(|_| rng.below(3) == 0) {
+            scene.push_str(&format!(
+                "\n[[entity]]\nname = \"t{k}\"\npos = [{x}, {y}, {}]\n{footprint}tile = {{ color = {} }}\n",
+                e(z + top),
+                color(&mut rng)
+            ));
+        }
+        let _ = height;
+    }
+    let view = if rng.below(2) == 0 { ISO } else { PER };
+    let mut cam: Cam = (
+        view,
+        rng.below(3600) as f32 / 10.0,
+        [0.5, 0.75, 1.0, 1.25, 1.6, 2.0, 3.0][rng.below(7) as usize],
+        [rng.range_i32(-8, 8) as f32 / 4.0, rng.range_i32(-8, 8) as f32 / 4.0],
+    );
+    let disabled = rng.below(4) == 0;
+    loop {
+        let mut out = Vec::new();
+        rule(&mut out, &format!("random shapes {seed}"), &scene, &[cam], disabled)?;
+        let scene = out.remove(0);
+        if !upright_tie(&scene.list) {
+            return Ok(scene);
+        }
+        // The one undefined thing (the top of this file): look from a tenth of a degree further round.
+        cam.1 = (cam.1 * 10.0 + 1.0).round() % 3600.0 / 10.0;
+    }
 }

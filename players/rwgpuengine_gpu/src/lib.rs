@@ -29,9 +29,11 @@ mod pack;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use rwgpuengine_render::{Instance, Rect, RenderList};
+use rwgpuengine_render::{Instance, Light, Model, Rect, RenderList};
 
-use pack::{COLUMNS_BYTES, GLOBALS_BYTES, Glass, INSTANCE_BYTES, SHAPE_BYTES};
+use pack::{
+    COLUMNS_BYTES, GLOBALS_BYTES, Glass, INSTANCE_BYTES, MODEL_INSTANCE_BYTES, MODEL_VERTEX_BYTES, SHAPE_BYTES,
+};
 
 /// The exact wgpu this crate is written against.
 pub use wgpu;
@@ -133,12 +135,18 @@ pub struct Stats {
     /// Were the corner columns of the iso view computed and sent again (the
     /// camera or the instances changed)?
     pub uploaded_columns: bool,
+    /// Were the models baked and sent again (a shape list in the picture is
+    /// new, or the light changed)?
+    pub uploaded_models: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Pipe {
     Side,
     Level,
+    /// The faces of models (`[[shape]]` lists): the same two rules.
+    ModelSide,
+    ModelLevel,
     Card,
     Overlay,
     SideGlass,
@@ -188,6 +196,23 @@ impl Growing {
     }
 }
 
+/// The bindings every pipeline has: the globals, and the models' corner columns.
+fn bind_globals(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    globals: &wgpu::Buffer,
+    columns: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: columns.as_entire_binding() },
+        ],
+    })
+}
+
 fn buffer(device: &wgpu::Device, size: u64, usage: wgpu::BufferUsages) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor { label: None, size, usage, mapped_at_creation: false })
 }
@@ -211,6 +236,7 @@ pub struct Renderer {
     /// their depth differently in the iso view).
     pipes: Vec<(Pipe, Option<bool>, wgpu::RenderPipeline)>,
     globals: wgpu::Buffer,
+    globals_layout: wgpu::BindGroupLayout,
     globals_bind: wgpu::BindGroup,
     prev_layout: wgpu::BindGroupLayout,
     sides: wgpu::Buffer,
@@ -223,7 +249,14 @@ pub struct Renderer {
     shapes: Growing,
     target: Option<Target>,
     /// The instances on the GPU, and the list they were made from.
-    held: Option<(Vec<Instance>, pack::Instances)>,
+    held: Option<(Vec<Instance>, pack::Instances, pack::ModelInstances)>,
+    /// The models on the GPU as meshes, and what they were baked from.
+    models: Option<(Vec<Model>, Light, pack::Models)>,
+    model_vertices: Growing,
+    model_instances: Growing,
+    /// The iso view: every corner column of every instance of a model (a
+    /// storage buffer: how many an instance has depends on its model).
+    model_columns: Growing,
     blit: Blit,
     stats: Stats,
 }
@@ -244,18 +277,20 @@ impl Renderer {
             label: Some("rwgpuengine_gpu"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
+        let buffer_entry =
+            |binding: u32, visibility: wgpu::ShaderStages, ty: wgpu::BufferBindingType| wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility,
+                ty: wgpu::BindingType::Buffer { ty, has_dynamic_offset: false, min_binding_size: None },
+                count: None,
+            };
         let globals_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
+            entries: &[
+                buffer_entry(0, wgpu::ShaderStages::VERTEX_FRAGMENT, wgpu::BufferBindingType::Uniform),
+                // The models' corner columns, read by their vertex shader.
+                buffer_entry(1, wgpu::ShaderStages::VERTEX, wgpu::BufferBindingType::Storage { read_only: true }),
+            ],
         });
         let prev_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -299,6 +334,27 @@ impl Renderer {
             wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 72, shader_location: 6 },
         ];
         let columns = [wgpu::VertexAttribute { format: wgpu::VertexFormat::Sint32x4, offset: 0, shader_location: 6 }];
+        let model_corner = [
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Uint8x4, offset: 12, shader_location: 1 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Uint8x4, offset: 16, shader_location: 2 },
+        ];
+        let model_instance = [
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 3 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Uint32, offset: 12, shader_location: 4 },
+        ];
+        let model_buffers = [
+            Some(wgpu::VertexBufferLayout {
+                array_stride: MODEL_VERTEX_BYTES as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &model_corner,
+            }),
+            Some(wgpu::VertexBufferLayout {
+                array_stride: MODEL_INSTANCE_BYTES as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &model_instance,
+            }),
+        ];
         let mesh_buffers = [
             Some(wgpu::VertexBufferLayout {
                 array_stride: 4,
@@ -340,6 +396,11 @@ impl Renderer {
         let make = |pipe: Pipe, vs: &str, fs: &str, fs_x: &str, mesh: bool, in_world: bool| {
             let glass = pipe.glass();
             let fs = if glass && exact { fs_x } else { fs };
+            let buffers: &[Option<wgpu::VertexBufferLayout>] = match pipe {
+                Pipe::ModelSide | Pipe::ModelLevel => &model_buffers,
+                _ if mesh => &mesh_buffers,
+                _ => &shape_buffers,
+            };
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(fs),
                 layout: Some(if glass && exact { &with_prev } else { &plain }),
@@ -347,7 +408,7 @@ impl Renderer {
                     module: &module,
                     entry_point: Some(vs),
                     compilation_options: Default::default(),
-                    buffers: if mesh { &mesh_buffers } else { &shape_buffers },
+                    buffers,
                 },
                 primitive: wgpu::PrimitiveState {
                     // The reference's faces are clockwise on the screen.
@@ -386,6 +447,7 @@ impl Renderer {
         // Sides store their depth differently in the iso view.
         let mut pipes = vec![
             (Pipe::Level, None, make(Pipe::Level, "vs_mesh", "fs_level", "fs_level_x", true, true)),
+            (Pipe::ModelLevel, None, make(Pipe::ModelLevel, "vs_model", "fs_level", "fs_level_x", true, true)),
             (Pipe::Card, None, make(Pipe::Card, "vs_shape", "fs_card", "fs_card_x", false, true)),
             (Pipe::Overlay, None, make(Pipe::Overlay, "vs_shape", "fs_overlay", "fs_overlay_x", false, false)),
             (Pipe::LevelGlass, None, make(Pipe::LevelGlass, "vs_mesh", "fs_level", "fs_level_x", true, true)),
@@ -399,15 +461,13 @@ impl Renderer {
         for iso in [false, true] {
             let (side, side_x) = if iso { ("fs_side_iso", "fs_side_iso_x") } else { ("fs_side", "fs_side_x") };
             pipes.push((Pipe::Side, Some(iso), make(Pipe::Side, "vs_mesh", side, side_x, true, true)));
+            pipes.push((Pipe::ModelSide, Some(iso), make(Pipe::ModelSide, "vs_model", side, side_x, true, true)));
             pipes.push((Pipe::SideGlass, Some(iso), make(Pipe::SideGlass, "vs_mesh", side, side_x, true, true)));
         }
 
         let globals = buffer(device, GLOBALS_BYTES as u64, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
-        let globals_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &globals_layout,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() }],
-        });
+        let model_columns = Growing::new(device, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST);
+        let globals_bind = bind_globals(device, &globals_layout, &globals, &model_columns.buffer);
         let vertex = wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST;
         let mesh = |faces: std::ops::Range<usize>| {
             let bytes = pack::mesh(faces);
@@ -459,6 +519,7 @@ impl Renderer {
             options,
             pipes,
             globals,
+            globals_layout,
             globals_bind,
             prev_layout,
             sides: mesh(0..4),
@@ -469,6 +530,10 @@ impl Renderer {
             shapes: Growing::new(device, vertex),
             target: None,
             held: None,
+            models: None,
+            model_vertices: Growing::new(device, vertex),
+            model_instances: Growing::new(device, vertex),
+            model_columns,
             blit: Blit {
                 module: blit_module,
                 layout: blit_layout,
@@ -554,26 +619,44 @@ impl Renderer {
         self.target(device, list.view.width, list.view.height);
         let mut stats = Stats::default();
 
-        if self.held.as_ref().is_none_or(|(of, _)| *of != list.instances) {
+        // The models as meshes: baked again only when a shape list in the
+        // picture is new (or the light changed), which is rare.
+        if self.models.as_ref().is_none_or(|(of, light, _)| *of != list.models || *light != list.light) {
+            let packed = pack::models(&list.models, &list.light);
+            self.model_vertices.write(device, queue, &packed.vertices);
+            self.models = Some((list.models.clone(), list.light, packed));
+            stats.uploaded_models = true;
+        }
+        let meshes = &self.models.as_ref().expect("just set").2;
+        if stats.uploaded_models || self.held.as_ref().is_none_or(|(of, _, _)| *of != list.instances) {
             let packed = pack::instances(&list.instances);
             self.instances.write(device, queue, &packed.bytes);
-            self.held = Some((list.instances.clone(), packed));
+            let of_models = pack::model_instances(&list.instances, meshes);
+            self.model_instances.write(device, queue, &of_models.bytes);
+            self.held = Some((list.instances.clone(), packed, of_models));
             stats.uploaded_instances = true;
         }
-        let solid = &self.held.as_ref().expect("just set").1;
+        let (_, solid, of_models) = self.held.as_ref().expect("just set");
         let view = pack::View::new(list);
         let iso = view.iso();
         // The corner columns of the iso view depend on the camera: sent when
         // it or the instances changed. In perspective they are not read.
         let fresh = self.columns.reserve(device, (solid.order.len() * COLUMNS_BYTES) as u64);
+        // The models' columns are bound with the globals: a new buffer needs a new binding.
+        let fresh_for_models = self.model_columns.reserve(device, of_models.columns as u64 * 4);
+        if fresh_for_models {
+            self.globals_bind = bind_globals(device, &self.globals_layout, &self.globals, &self.model_columns.buffer);
+        }
         let seen = Some((list.view, list.camera));
         if iso && self.options.columns == Columns::Reference {
-            if fresh || stats.uploaded_instances || self.columns_for != seen {
+            if fresh || fresh_for_models || stats.uploaded_instances || self.columns_for != seen {
                 self.columns.write(device, queue, &pack::columns(&list.instances, solid, &view.proj));
+                let of = pack::model_columns(&list.instances, of_models, meshes, &view.proj);
+                self.model_columns.write(device, queue, &of);
                 self.columns_for = seen;
                 stats.uploaded_columns = true;
             }
-        } else if fresh {
+        } else if fresh || fresh_for_models {
             self.columns_for = None;
         }
         queue.write_buffer(&self.globals, 0, &pack::globals(list, &view, &self.options));
@@ -594,6 +677,15 @@ impl Renderer {
         if !solid.boxes.is_empty() {
             first.push(cmd(Pipe::Level, 0..12, solid.boxes.clone()));
             first.push(cmd(Pipe::Side, 0..24, solid.boxes.clone()));
+        }
+        // Each model's instances in one draw of its level faces and one of the rest.
+        for (model, instances) in &of_models.runs {
+            let mesh = &meshes.meshes[*model as usize];
+            for (pipe, vertices) in [(Pipe::ModelLevel, &mesh.levels), (Pipe::ModelSide, &mesh.sides)] {
+                if !vertices.is_empty() {
+                    first.push(cmd(pipe, vertices.clone(), instances.clone()));
+                }
+            }
         }
         if !shapes.cards.is_empty() {
             first.push(cmd(Pipe::Card, 0..6, shapes.cards.clone()));
@@ -684,6 +776,10 @@ impl Renderer {
                             pass.set_vertex_buffer(0, self.levels.slice(..));
                             pass.set_vertex_buffer(1, self.instances.buffer.slice(..));
                             pass.set_vertex_buffer(2, self.columns.buffer.slice(..));
+                        }
+                        Pipe::ModelSide | Pipe::ModelLevel => {
+                            pass.set_vertex_buffer(0, self.model_vertices.buffer.slice(..));
+                            pass.set_vertex_buffer(1, self.model_instances.buffer.slice(..));
                         }
                         _ => pass.set_vertex_buffer(0, self.shapes.buffer.slice(..)),
                     }

@@ -31,6 +31,9 @@ struct Globals {
 }
 
 @group(0) @binding(0) var<uniform> g: Globals;
+// Iso: the pixel column of every corner of every instance of a model, in
+// 1/256 of a pixel, computed and snapped as the reference does (`vs_model`).
+@group(0) @binding(1) var<storage, read> columns: array<i32>;
 // The picture so far, for see-through colors (the `_x` fragment shaders).
 @group(1) @binding(0) var prev: texture_2d<f32>;
 
@@ -146,6 +149,38 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
     }
     o.color = shade(face, select(v.color, v.top, face >= 4u));
     o.plane = vec2<f32>(v.pos.z + c.z * v.size.z, 0.0);
+    o.rank = v.extra.x;
+    o.depth = dot(g.zrow, vec4<f32>(world, 1.0));
+    return o;
+}
+
+// Models: the solids of a `[[shape]]` list as one mesh, an instance for
+// each entity. The CPU bakes the mesh with the reference's own code, so a
+// corner is where the reference has it and a face has the color the
+// reference gives it under the light; the fragment shaders are the boxes'.
+
+struct ModelIn {
+    // A corner, from the instance's place.
+    @location(0) pos: vec3<f32>,
+    // Its face's color under the light.
+    @location(1) color: vec4<u32>,
+    // x: the rank of a level face. y, z: the corner's column, low and high byte.
+    @location(2) extra: vec4<u32>,
+    // The instance: where it stands, and its first column in `columns`.
+    @location(3) at: vec3<f32>,
+    @location(4) first: u32,
+}
+
+@vertex
+fn vs_model(v: ModelIn) -> MeshOut {
+    let world = (v.at - g.origin.xyz) + v.pos;
+    var o: MeshOut;
+    o.clip = g.clip * vec4<f32>(world, 1.0);
+    if (g.flags.x & ISO_COLUMNS) != 0u {
+        o.clip.x = f32(columns[v.first + v.extra.y + 256u * v.extra.z]) * (g.frame.x / 256.0) - 1.0;
+    }
+    o.color = v.color;
+    o.plane = vec2<f32>(v.at.z + v.pos.z, 0.0);
     o.rank = v.extra.x;
     o.depth = dot(g.zrow, vec4<f32>(world, 1.0));
     return o;

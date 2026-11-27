@@ -13,5 +13,9 @@ rwgpuengine_core.workspace = true
 rwgpuengine_render.workspace = true
 wgpu.workspace = true
 
+[dev-dependencies]
+# For the tests' shapes and cameras; the renderer itself reads the render list.
+rwgpuengine_data.workspace = true
+
 [lints]
 workspace = true
