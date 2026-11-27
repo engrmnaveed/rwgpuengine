@@ -402,3 +402,14 @@ fn more_taps_in_a_frame_than_the_limit_are_not_picked_and_say_so() {
     let run = run_playtest(&vfs, "tests/t.toml", Box::new(DataOnly)).unwrap();
     assert_eq!(run.failures.iter().map(|d| d.code).collect::<Vec<_>>(), ["E0305"]);
 }
+
+#[test]
+fn a_playtest_checks_each_frame_its_own_tables_in_file_order() {
+    // Written out of frame order: two fail at frame 2, one at frame 5.
+    let test = "[test]\nframes = 6\n\n[[expect]]\nframe = 5\nentity = \"w0\"\nenabled = false\n\n[[expect]]\nframe = 2\nentity = \"w1\"\nenabled = false\n\n[[expect]]\nframe = 2\nentity = \"w3\"\nenabled = false\n\n[[expect]]\nentity = \"w0\"\nenabled = true\n";
+    let vfs = project(&town(4), &[("tests/t.toml", test)]);
+    let run = run_playtest(&vfs, "tests/t.toml", Box::new(DataOnly)).unwrap();
+    let failed: Vec<&str> = run.failures.iter().map(|d| d.message.split('`').nth(1).unwrap_or("")).collect();
+    assert_eq!(failed, ["w1", "w3", "w0"]);
+    assert_eq!(run.expects_checked, 4);
+}

@@ -46,15 +46,24 @@ pub fn run_playtest(vfs: &Vfs, path: &str, game: Box<dyn Game>) -> Result<Playte
     let mut failures = Vec::new();
     let mut shots = Vec::new();
     let mut checked = 0;
+    // By frame, and within a frame in file order: each frame looks at its
+    // own tables only. One after the last frame is never reached.
+    let mut expects: Vec<(u64, &ExpectDef)> = def.expects.iter().map(|e| (e.frame.unwrap_or(frames), e)).collect();
+    expects.sort_by_key(|e| e.0);
+    let mut wanted: Vec<(u64, &ShotDef)> = def.shots.iter().map(|s| (s.frame.unwrap_or(frames), s)).collect();
+    wanted.sort_by_key(|s| s.0);
+    let (mut next_expect, mut next_shot) = (0, 0);
     loop {
         let f = session.frame();
-        for exp in def.expects.iter().filter(|e| e.frame.unwrap_or(frames) == f) {
+        while let Some(&(_, exp)) = expects.get(next_expect).filter(|e| e.0 == f) {
+            next_expect += 1;
             checked += 1;
             if let Some(d) = check_expect(&session, &def, exp, f) {
                 failures.push(d);
             }
         }
-        for shot in def.shots.iter().filter(|s| s.frame.unwrap_or(frames) == f) {
+        while let Some(&(_, shot)) = wanted.get(next_shot).filter(|s| s.0 == f) {
+            next_shot += 1;
             let (frame, report) = session.render();
             shots.push(ShotCapture { def: shot.clone(), frame_no: f, frame, report });
         }

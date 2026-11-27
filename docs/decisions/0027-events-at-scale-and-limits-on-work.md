@@ -248,8 +248,12 @@ per actor), its projection 10.8 ms (11.4), the pixels and owners at 640 × 480 1
 - **A world without a ground** has its array over the cells its entities cover when it is built (at most 16
   cells an entity). Actors that walk far from there are in the sorted map again: the town without a ground
   rises from 1.2 to 1.7 ms over 100 steps.
-- `Script::at` still reads the whole input script every step: 0.13 ms a step for 20,000 inputs. It is bounded
-  by the playtest's size, which piece 3 limits at load.
+- `rwgpu test` looks a playtest's `[[expect]]` and `[[shot]]` tables up by frame; before, every frame read all
+  of them (20,000 expectations over 3,000 frames: 70 → 40 ms in all). The script still reads every
+  `[[input]]` each step: 10 us a step for 20,000 inputs. An index of the inputs was built three ways (sorted
+  places, one sort for both lists, a map from frame to places): each answered what the scan answers on 300
+  random scripts, and each made the web module 8,046 to 11,949 bytes larger. Not kept: the gain is at most
+  10 us a step, and piece 3 limits the tables at load.
 
 ## Not done
 
