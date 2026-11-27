@@ -26,7 +26,8 @@
 //!                       window.
 //! ```
 //!
-//! `render-bench` is internal: `budgets` runs it as a release build.
+//! `render-bench` and `sim-step` are internal: `budgets` runs them as release
+//! builds.
 //! `sim-bench` times one simulation step in generated worlds of 1,000 to
 //! 50,000 entities; run it as a release build
 //! (`cargo run --release -p xtask -- sim-bench`).
@@ -69,13 +70,14 @@ fn main() -> ExitCode {
         "pages" => pages(rest),
         "render-bench" => render_bench(),
         "sim-bench" => sim_bench::run(rest),
+        "sim-step" => sim_bench::budget_step_us().map(|us| println!("{us}")),
         "gpu" => gpu(rest),
         _ => {
             eprintln!(
                 "usage: cargo xtask <ci | repo-check | dist [--agent] | web | web-player | smoke | budgets | \
                  docs [--check] | wasm-check | export-check | pages [--out DIR] [--base /PATH/] | \
                  gpu [--fast | --study | --window] [-- <options of players/gpu_check>] | \
-                 sim-bench [town | plates | wired | build ...] [N ...] [--steps S]>"
+                 sim-bench [town | plates | wired | build ...] [N ...] [--steps S] [--all]>"
             );
             return ExitCode::from(2);
         }
@@ -702,6 +704,21 @@ fn budgets() -> Result {
     r.add("time.render_frame_us", render_us, b.time("render_frame_us"));
     r.add("time.paint_frame_us", paint_us, b.time("paint_frame_us"));
     r.add("time.reference_town_frame_us", town_us, b.time("reference_town_frame_us"));
+
+    step("simulation step (release, native)");
+    let out = dist::release_command(
+        &machine,
+        &root(),
+        &["run", "--release", "--quiet", "--package", "xtask", "--", "sim-step"],
+    )
+    .output()
+    .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(format!("sim-step failed: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let sim_us: i64 = text.trim().parse().map_err(|_| format!("sim-step: expected a number, got `{}`", text.trim()))?;
+    r.add("time.sim_step_us", sim_us, b.time("sim_step_us"));
 
     let smoke_ms = smoke()?;
     r.add("time.smoke_chain_ms", smoke_ms as i64, b.time("smoke_chain_ms"));

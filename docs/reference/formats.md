@@ -370,7 +370,7 @@ A check at `frame`. Entity state (`entity` with `pos`/`enabled`/`solid`/`props`/
 | `text` | string | — | Expected label text as shown, with placeholders filled in (`"Coins: 3/3"`). |
 | `prefab` | name | — | Without `event`: count the enabled entities made from this prefab (placed or spawned), optionally only those at `pos`, checked with `count` (at least one when absent). With `event`: only count events about the prefab: its spawns, refused spawns (`blocked`) and skipped spawns, and events whose subject is a copy of it (`event = "skipped", prefab = "barn"` = barn spawns stopped by a `when`). |
 | `count` | integer ≥ 0 | — | With `prefab`: exactly this many. `count = 0` with `pos` asserts nothing of that prefab stands there. |
-| `event` | input \| tap \| tap_miss \| moved \| blocked \| trigger \| signal \| action \| skipped \| spawned \| counted \| error \| custom | — | Count events of this kind that happened before `frame`. |
+| `event` | input \| tap \| tap_miss \| moved \| blocked \| trigger \| signal \| action \| skipped \| spawned \| counted \| error \| custom \| omitted | — | Count events of this kind that happened before `frame`. |
 | `other` | name | — | With `event`: only events whose other party is this entity (the blocker of `blocked`, the actor of `trigger`, the emitter of `action`). |
 | `signal` | name | — | With `event`: only count events about this signal. |
 | `reason` | solid \| actor \| edge \| area \| cooldown \| push \| terrain \| occupied \| funds | — | With `event = "blocked"`: only count refusals for this reason (e.g. `solid`, not `cooldown`; `push` = a pushable could not be pushed; `terrain`/`occupied`/`edge` = a spawn could not be placed; `funds` = it could not be paid for). |
@@ -418,7 +418,22 @@ picture taken after a move is.
 **Step order.** Each step: input (taps resolve to the topmost enabled entity drawn under the point and
 emit `tapped`; a tap that hits no entity but lands on a ground cell makes the ground emit `tapped`, if a
 `[[connect]] from = "ground"` listens), movers, patrols, wanderers, Rust game systems, triggers, then signal
-dispatch through `[[connect]]` tables. A step that dispatches more than 1000 signals is cut off (E0301).
+dispatch through `[[connect]]` tables.
+
+**Limits on work.** A step that reaches one of these stops there: the signals still queued are dropped, an
+`error` event says what was cut off, and `rwgpu run`, `inspect`, `shot` and `test` report the code as an
+error. Every other step runs as before.
+
+| limit | number | checked | code | what happens |
+|---|---|---|---|---|
+| signals per step | 1000 | step | E0301 | Signals dispatched in one step. The rest of the step's signals are dropped: usually a loop of connections. |
+| actions per step | 10000 | step | E0302 | `[[connect]]` actions run or skipped in one step. The step stops at the next one and drops the signals still queued: one signal can reach many connections with many actions each. |
+| count changes per step | 10000 | step | E0303 | `counts` props changed in one step. The step stops there and drops the signals still queued; the next step brings the remaining counts up to date. |
+| entities in a world | 1000000 | step | E0304 | Entities a world may hold, spawned ones included (no entity is ever removed). A spawn beyond it is not placed; the step stops there and drops the signals still queued. |
+| taps per step | 256 | step | E0305 | Taps applied in one step, from a playtest or a player. The first ones are applied in order; the rest are not looked at. |
+| events of one kind per step | 256 | events | — | `moved`, `blocked` (for a move), `trigger` and `custom` events written in one step, per kind. The rest are counted, one `omitted` event per kind says how many, and the entities a run watches (`--watch NAME`) have all of theirs written. Every other kind is bounded by the step's limits and always written. |
+| events kept | 100000 | events | — | Events the log keeps. When it is full, the oldest half is dropped and counted (`events_dropped`); ask for an earlier frame (`--frame`, `--since`) to see them. |
+
 
 **Actors and blocking.** Entities with `mover`, `patrol` or `wander` are actors. A move is refused when
 the target cell is outside the ground, holds an enabled `solid` entity, or holds another enabled actor.
@@ -487,6 +502,13 @@ any prop. `add`/`set` cannot change it.
 
 **Events.** Every step logs what happened and what was refused, with a sentence and structured fields.
 Read them with `rwgpu inspect --events` or `rwgpu run --events`; `rwgpu explain events` prints this table.
+In a step with more than 256 `moved` events (or `blocked` events of moves, `trigger` or `custom` events),
+the first 256 of that kind are written and the others counted: an `omitted` event at the end of the step
+says how many, and `event_counts` counts every event that happened, written or not (`events_omitted` the
+ones not written). Watching writes everything about an entity whatever the count: `--watch NAME` on
+`rwgpu run` and `rwgpu inspect`, `inspect --entity NAME --events`, and a playtest for the entities its
+`[[expect]]` tables name. A replay is deterministic, so running again with a watch gives the detail of any
+step. Other kinds are always written: the limits above bound them.
 
 Every event has `frame` (the step that produced it: `[N]` happened in step N, so it is part of the state from frame N + 1), `kind`, `entity` (the subject), `other` (if any) and `message`.
 
@@ -503,8 +525,9 @@ Every event has `frame` (the step that produced it: `[N]` happened in step N, so
 | `skipped` | the target (none for `spawn`) | the emitter | signal, action, prop, prefab, cell, when (each condition, held, seen); stopped_by | A connection's signal arrived, but a `when` condition did not hold, so nothing was done. The message names the first failing condition and what was seen. One event per action of an `actions` list; an action after a `spawn` that could not be placed is skipped too (`stopped_by = "refused spawn"`). |
 | `spawned` | the new entity | the emitter of the signal (none for a ground tap) | prefab, cell, cells; paid (entity, prop, amount, before, after) with a `cost` | A `spawn` action placed a new copy of `prefab` with its back corner on `cell`, covering `cells`. It gets the next free id (`#N (prefab)` in messages) and emits `spawned` if a [[connect]] listens (`from_prefab`). |
 | `counted` | the entity whose `counts` prop changed | — | prop, prefab, before, after | A `counts` prop now has a new number of enabled `prefab` copies, because a copy was spawned, disabled or enabled. The message says which; the entity then emits `changed` if a [[connect]] listens (once when several of its counts change together). |
-| `error` | the emitter | — | code, signal | A runtime error, such as more than 1000 signals in one step (E0301). |
+| `error` | the emitter | — | code, signal | A step reached one of the engine's limits and stopped there: more than 1000 signals (E0301) or 10000 actions (E0302) in one step, 10000 count changes (E0303), a spawn beyond 1000000 entities (E0304), more than 256 taps (E0305); or a spawn of a prefab the world does not have (E0201). The message says what was cut off; `rwgpu run` reports the code as a diagnostic. |
 | `custom` | set by game code | set by game code | set by game code | Logged by Rust game code. |
+| `omitted` | — | — | of, count, written | More than 256 `moved`, `blocked` (for a move), `trigger` or `custom` events happened in one step: the first 256 of that kind (`of`) were written and `count` more were counted, not written. Logged at the end of the step, once per kind. The entities a run watches (`--watch NAME` on `rwgpu run` and `rwgpu inspect`, or `inspect --entity NAME --events`) have all of their events written. |
 
 
 **Drawing.** The world is drawn in 3D: what is nearer the camera hides what is behind it, whatever the

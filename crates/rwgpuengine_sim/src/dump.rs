@@ -171,18 +171,31 @@ pub fn ground_json(world: &World) -> Json {
     j
 }
 
-/// Summary fields shared by `run` and `inspect`.
+/// Summary fields shared by `run` and `inspect`. `event_counts` is every
+/// event that happened, written or not; `events_omitted` (counted, not
+/// written: over a step's budget, ADR 0027) and `events_dropped` (written,
+/// then dropped from a full log) are there only when they are not zero.
 pub fn world_summary(world: &World) -> Json {
-    let counts = world.events.counts();
-    let mut by_kind = Json::object();
-    for (k, n) in counts {
-        by_kind.set(k.name(), n);
-    }
-    Json::object()
+    let by_kind = |counts: Vec<(crate::EventKind, u64)>| {
+        let mut j = Json::object();
+        for (k, n) in counts {
+            j.set(k.name(), n);
+        }
+        j
+    };
+    let mut out = Json::object()
         .with("frame", world.frame)
         .with("seed", world.seed)
         .with("state_hash", hash::hex(world.state_hash()))
         .with("entities", world.entities.len())
         .with("enabled", world.entities.iter().filter(|e| e.enabled).count())
-        .with("event_counts", by_kind)
+        .with("event_counts", by_kind(world.events.counts()));
+    let omitted = world.events.omitted();
+    if !omitted.is_empty() {
+        out.set("events_omitted", by_kind(omitted));
+    }
+    if world.events.dropped() > 0 {
+        out.set("events_dropped", world.events.dropped());
+    }
+    out
 }

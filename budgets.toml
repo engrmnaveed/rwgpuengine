@@ -61,6 +61,13 @@ paint_frame_us = 200
 # render-bench` builds the town). The limit is the 3D proposal's; measured
 # about 5.5 ms on an Apple M5 Pro.
 reference_town_frame_us = 20_000
+# One simulation step of a town of 50,000 wanderers on every other cell of a
+# 448 x 448 ground, each trying one cell a step, with events written as a game
+# writes them by default (ADR 0027; `cargo xtask sim-bench town` builds the
+# town): the median of 200 steps. The limit is the 3D proposal's (section 5).
+# Measured 1.0 to 1.1 ms on an Apple M5 Pro; with every event written, as
+# before ADR 0027, it was 14 ms.
+sim_step_us = 2_000
 
 [tablet]
 # Cold start of the web player on a mid-range tablet. Needs a device to

@@ -423,7 +423,7 @@ fn the_oracle_s_small_worlds_pass_with_every_answer_checked() {
         assert!(world.check_against_scans(true));
         let reached = case.run(&mut world);
         let pin = crate::oracle::PINS.iter().find(|p| p.0 == case.name).expect("a pin");
-        assert_eq!((reached.state, reached.trace, reached.events), (pin.1, pin.2, pin.3), "{}", case.name);
+        assert_eq!((reached.state, reached.trace, reached.events), (pin.1, pin.2, pin.4), "{}", case.name);
         world.verify_index().unwrap_or_else(|why| panic!("{}: {why}", case.name));
     }
 }

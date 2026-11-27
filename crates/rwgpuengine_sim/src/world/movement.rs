@@ -48,21 +48,25 @@ impl World {
 
     /// Move one cell. An entity with a mover pushes a pushable standing in
     /// the way, if the cell beyond it is free. Every refusal is logged with
-    /// its reason.
+    /// its reason. A move and a refusal are events of the per-actor kinds:
+    /// their sentence is built only when the step's budget (or a watch)
+    /// writes them; the outcome never depends on it.
     pub fn try_move(&mut self, id: EntityId, dx: i32, dy: i32, cause: &str) -> bool {
         let Some(e) = self.get(id) else { return false };
         let from = e.cell();
         let to = [from[0] + dx, from[1] + dy];
-        let who = e.describe();
         let can_push = e.mover.is_some();
-        let base = Json::object().with("cause", cause).with("from", from).with("to", to);
+        let base = || Json::object().with("cause", cause).with("from", from).with("to", to);
         if let Some([w, h]) = self.outside(to) {
-            let msg = format!(
-                "{who} could not move {cause} from {} to {}: outside the {w}x{h} ground",
-                fmt_cell(from),
-                fmt_cell(to)
-            );
-            self.log(EventKind::Blocked, Some(id), None, msg, base.with("reason", "edge"));
+            if self.wants(EventKind::Blocked, Some(id), None) {
+                let msg = format!(
+                    "{} could not move {cause} from {} to {}: outside the {w}x{h} ground",
+                    self.describe(id),
+                    fmt_cell(from),
+                    fmt_cell(to)
+                );
+                self.write(EventKind::Blocked, Some(id), None, msg, base().with("reason", "edge"));
+            }
             return false;
         }
         let (blocker, more) = self.blockers(to, id);
@@ -72,49 +76,69 @@ impl World {
             && self.entities[crate_id as usize].pushable
         {
             let beyond = [to[0] + dx, to[1] + dy];
-            let what = self.describe(crate_id);
             let stuck = match self.outside(beyond) {
-                Some([w, h]) => Some((None, format!("outside the {w}x{h} ground"), "edge")),
-                None => self.blocker_at(beyond, crate_id).map(|(b, reason)| {
-                    let kind = if self.entities[b as usize].pushable { "another pushable" } else { reason };
-                    (Some(b), format!("blocked by {kind} {}", self.describe(b)), reason)
-                }),
+                Some(size) => Some(Stuck::Edge(size)),
+                None => self.blocker_at(beyond, crate_id).map(|(b, reason)| Stuck::By(b, reason)),
             };
-            if let Some((by, why, reason)) = stuck {
-                let msg = format!(
-                    "{who} could not move {cause} from {} to {}: {what} cannot be pushed to {}, {why}",
-                    fmt_cell(from),
-                    fmt_cell(to),
-                    fmt_cell(beyond)
-                );
-                let data = base.with("reason", "push").with("beyond", beyond).with("push_blocked", reason);
-                let data = match by {
-                    Some(b) => data.with("push_blocked_by", self.get(b).map(Entity::label)),
-                    None => data,
-                };
-                self.log(EventKind::Blocked, Some(id), Some(crate_id), msg, data);
+            if let Some(stuck) = stuck {
+                if self.wants(EventKind::Blocked, Some(id), Some(crate_id)) {
+                    let (by, why, reason) = match stuck {
+                        Stuck::Edge([w, h]) => (None, format!("outside the {w}x{h} ground"), "edge"),
+                        Stuck::By(b, reason) => {
+                            let kind = if self.entities[b as usize].pushable { "another pushable" } else { reason };
+                            (Some(b), format!("blocked by {kind} {}", self.describe(b)), reason)
+                        }
+                    };
+                    let msg = format!(
+                        "{} could not move {cause} from {} to {}: {} cannot be pushed to {}, {why}",
+                        self.describe(id),
+                        fmt_cell(from),
+                        fmt_cell(to),
+                        self.describe(crate_id),
+                        fmt_cell(beyond)
+                    );
+                    let data = base().with("reason", "push").with("beyond", beyond).with("push_blocked", reason);
+                    let data = match by {
+                        Some(b) => data.with("push_blocked_by", self.get(b).map(Entity::label)),
+                        None => data,
+                    };
+                    self.write(EventKind::Blocked, Some(id), Some(crate_id), msg, data);
+                }
                 return false;
             }
             self.put(crate_id, beyond);
-            let msg = format!("{what} was pushed {cause} from {} to {} by {who}", fmt_cell(to), fmt_cell(beyond));
-            let data = Json::object().with("cause", "pushed").with("from", to).with("to", beyond).with("by", id);
-            self.log(EventKind::Moved, Some(crate_id), Some(id), msg, data);
+            if self.wants(EventKind::Moved, Some(crate_id), Some(id)) {
+                let msg = format!(
+                    "{} was pushed {cause} from {} to {} by {}",
+                    self.describe(crate_id),
+                    fmt_cell(to),
+                    fmt_cell(beyond),
+                    self.describe(id)
+                );
+                let data = Json::object().with("cause", "pushed").with("from", to).with("to", beyond).with("by", id);
+                self.write(EventKind::Moved, Some(crate_id), Some(id), msg, data);
+            }
         } else if let Some((blocker, reason)) = blocker {
-            let pushable = self.entities[blocker as usize].pushable;
-            let what = if pushable { "pushable" } else { reason };
-            let note = if pushable && !can_push { " (only entities with a mover push)" } else { "" };
-            let msg = format!(
-                "{who} could not move {cause} from {} to {}: blocked by {what} {}{note}",
-                fmt_cell(from),
-                fmt_cell(to),
-                self.describe(blocker)
-            );
-            self.log(EventKind::Blocked, Some(id), Some(blocker), msg, base.with("reason", reason));
+            if self.wants(EventKind::Blocked, Some(id), Some(blocker)) {
+                let pushable = self.entities[blocker as usize].pushable;
+                let what = if pushable { "pushable" } else { reason };
+                let note = if pushable && !can_push { " (only entities with a mover push)" } else { "" };
+                let msg = format!(
+                    "{} could not move {cause} from {} to {}: blocked by {what} {}{note}",
+                    self.describe(id),
+                    fmt_cell(from),
+                    fmt_cell(to),
+                    self.describe(blocker)
+                );
+                self.write(EventKind::Blocked, Some(id), Some(blocker), msg, base().with("reason", reason));
+            }
             return false;
         }
         self.put(id, to);
-        let msg = format!("{who} moved {cause} from {} to {}", fmt_cell(from), fmt_cell(to));
-        self.log(EventKind::Moved, Some(id), None, msg, base);
+        if self.wants(EventKind::Moved, Some(id), None) {
+            let msg = format!("{} moved {cause} from {} to {}", self.describe(id), fmt_cell(from), fmt_cell(to));
+            self.write(EventKind::Moved, Some(id), None, msg, base());
+        }
         true
     }
 
@@ -132,7 +156,7 @@ impl World {
                 if let Some(m) = self.entities.0[id as usize].mover.as_mut() {
                     m.cooldown = step;
                 }
-            } else if input.pressed.contains(dir) {
+            } else if input.pressed.contains(dir) && self.wants(EventKind::Blocked, Some(id), None) {
                 let who = self.describe(id);
                 let msg = format!(
                     "{who} ignored '{}': still waiting {cooldown} frame(s) after its last move (mover.step_frames = {step})",
@@ -140,7 +164,7 @@ impl World {
                 );
                 let data =
                     Json::object().with("cause", dir.name()).with("reason", "cooldown").with("frames_left", cooldown);
-                self.log(EventKind::Blocked, Some(id), None, msg, data);
+                self.write(EventKind::Blocked, Some(id), None, msg, data);
             }
         }
     }
@@ -194,6 +218,9 @@ impl World {
             if let Some([lo, hi]) = area
                 && (to[0] < lo[0] || to[1] < lo[1] || to[0] > hi[0] || to[1] > hi[1])
             {
+                if !self.wants(EventKind::Blocked, Some(id), None) {
+                    continue;
+                }
                 let msg = format!(
                     "{} stayed: {} is outside its wander area {}..{}",
                     self.describe(id),
@@ -203,12 +230,20 @@ impl World {
                 );
                 let data =
                     Json::object().with("cause", "wander").with("reason", "area").with("from", cell).with("to", to);
-                self.log(EventKind::Blocked, Some(id), None, msg, data);
+                self.write(EventKind::Blocked, Some(id), None, msg, data);
                 continue;
             }
             self.try_move(id, dx, dy, "wander");
         }
     }
+}
+
+/// Why a pushable could not be pushed.
+enum Stuck {
+    /// The cell beyond is outside a ground of this size.
+    Edge([i32; 2]),
+    /// The cell beyond holds this blocker, for this reason.
+    By(EntityId, &'static str),
 }
 
 fn advance(p: &mut Patrol) {

@@ -14,9 +14,9 @@ pub mod events;
 pub mod input;
 pub mod world;
 
-pub use events::{EVENT_DOCS, Event, EventDoc, EventKind, EventLog, events_markdown};
+pub use events::{EVENT_DOCS, Event, EventDoc, EventKind, EventLog, Watch, events_markdown};
 pub use input::{ActionSet, InputFrame, Tap};
-pub use world::{Condition, Connection, Entity, EntityId, NoSystems, Systems, World};
+pub use world::{Condition, Connection, Entity, EntityId, LimitHit, NoSystems, Systems, World};
 
 /// Rebuild probe for `cargo xtask budgets`: changing this env var makes
 /// cargo recompile this crate (and its dependents) exactly as an edit would,
@@ -28,5 +28,7 @@ pub const REBUILD_PROBE: Option<&str> = option_env!("RWGPU_REBUILD_PROBE");
 mod equivalence;
 #[cfg(test)]
 mod oracle;
+#[cfg(test)]
+mod scale_tests;
 #[cfg(test)]
 mod tests;

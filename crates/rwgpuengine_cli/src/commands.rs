@@ -174,6 +174,14 @@ fn to_project_rel(loc: &Located, path: &str) -> String {
     }
 }
 
+/// `--watch a,b,#12,moved`: what the event log writes in full (ADR 0027).
+/// Set before the first step.
+fn watch_arg(p: &Parsed, session: &mut Session, loc: &Located) -> Result<(), Outcome> {
+    let Some(list) = p.value("--watch") else { return Ok(()) };
+    let names: Vec<&str> = list.split(',').map(str::trim).filter(|n| !n.is_empty()).collect();
+    session.watch(&names).map_err(|d| Outcome::failed(vec![d]).with_root(&loc.root))
+}
+
 fn frame_arg(p: &Parsed, name: &str, session: &Session, default: u64) -> Result<u64, Outcome> {
     Ok(p.number(name).map_err(Outcome::usage)?.or(session.script_frames()).unwrap_or(default))
 }
@@ -207,6 +215,9 @@ pub fn run(p: &Parsed, games: &GameFactory) -> Outcome {
             }
         },
     };
+    if let Err(o) = watch_arg(p, &mut session, &loc) {
+        return o;
+    }
     // (cell, first frame, last frame): consecutive frames on the same cell.
     let mut spans: Vec<([i32; 2], u64, u64)> = Vec::new();
     let mut record = |session: &Session| {
@@ -232,7 +243,12 @@ pub fn run(p: &Parsed, games: &GameFactory) -> Outcome {
     }
     let mut o = Outcome::new(true).with_root(&loc.root);
     o.diagnostics = session.warnings.clone();
+    o.diagnostics.extend(session.limit_diagnostics());
     o.data = session.summary();
+    let watched = session.watched();
+    if !watched.is_empty() {
+        o.data.set("watch", watched.iter().map(|w| Json::from(w.as_str())).collect::<Vec<_>>());
+    }
     if every.is_some() {
         o.data.set("hash_trace", trace.clone());
     }
@@ -248,6 +264,9 @@ pub fn run(p: &Parsed, games: &GameFactory) -> Outcome {
     o.line(format!("  entities    {} ({} enabled)", w.entities.len(), w.entities.iter().filter(|e| e.enabled).count()));
     let counts: Vec<String> = w.events.counts().iter().map(|(k, n)| format!("{} {n}", k.name())).collect();
     o.line(format!("  events      {}", if counts.is_empty() { "none".into() } else { counts.join(", ") }));
+    for line in event_cuts(&session) {
+        o.line(line);
+    }
     for t in &trace {
         o.line(format!(
             "  frame {:>6}  {}",
@@ -274,6 +293,30 @@ pub fn run(p: &Parsed, games: &GameFactory) -> Outcome {
         }
     }
     o.settle()
+}
+
+/// The lines `run` adds when events were counted and not written, or
+/// dropped from a full log: how many, and how to see them.
+fn event_cuts(session: &Session) -> Vec<String> {
+    let w = &session.world;
+    let mut out = Vec::new();
+    let omitted: Vec<String> = w.events.omitted().iter().map(|(k, n)| format!("{} {n}", k.name())).collect();
+    if !omitted.is_empty() {
+        out.push(format!(
+            "  omitted     {} (counted, not written: the first {} of a kind are written each step; \
+             --watch NAME writes all of an entity's events)",
+            omitted.join(", "),
+            rwgpuengine_core::limits::EVENTS_PER_KIND_PER_STEP.value
+        ));
+    }
+    if w.events.dropped() > 0 {
+        out.push(format!(
+            "  dropped     {} (the log keeps the last {} events; run fewer --frames to see earlier ones)",
+            w.events.dropped(),
+            rwgpuengine_core::limits::EVENT_LOG.value
+        ));
+    }
+    out
 }
 
 pub fn shot(p: &Parsed, games: &GameFactory) -> Outcome {
@@ -306,6 +349,7 @@ pub fn shot(p: &Parsed, games: &GameFactory) -> Outcome {
 
     let mut o = Outcome::new(true).with_root(&loc.root);
     o.diagnostics = session.warnings.clone();
+    o.diagnostics.extend(session.limit_diagnostics());
     o.diagnostics.extend(report.issues.iter().cloned());
     o.data = Json::object()
         .with("path", display_path(&out_path))
@@ -436,6 +480,17 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
         Ok(v) => v.unwrap_or(0),
         Err(d) => return Outcome::usage(d),
     };
+    if let Err(o) = watch_arg(p, &mut session, &loc) {
+        return o;
+    }
+    // The events of the entity asked about are all written.
+    if p.has("--events")
+        && let Some(name) = p.value("--entity")
+        && session.world.find(name).is_some()
+        && let Err(d) = session.watch(&[name])
+    {
+        return Outcome::failed(vec![d]).with_root(&loc.root);
+    }
     session.run_to(frame);
     if let Some(name) = p.value("--entity")
         && session.world.find(name).is_none()
@@ -472,6 +527,7 @@ pub fn inspect(p: &Parsed, games: &GameFactory) -> Outcome {
     let data = session.inspect(&opts);
     let mut o = Outcome::new(true).with_root(&loc.root);
     o.diagnostics = session.warnings.clone();
+    o.diagnostics.extend(session.limit_diagnostics());
     o.line(format!(
         "frame {} of {} (seed {}, state {})",
         session.frame(),
@@ -766,8 +822,24 @@ pub fn explain(p: &Parsed) -> Outcome {
     };
     let mut o = Outcome::new(true);
     if topic == "limits" || topic == "limit" {
-        o.data = Json::object().with("topic", "limits").with("kind", "limits").with("text", docs::LIMITS_MD);
-        o.text = format!("# Limits in rwgpu {}\n\n{}", rwgpuengine_core::ENGINE_VERSION, docs::LIMITS_MD);
+        let text = docs::limits_md();
+        let numbers: Vec<Json> = rwgpuengine_core::limits::ALL
+            .iter()
+            .map(|l| {
+                Json::object()
+                    .with("name", l.name)
+                    .with("value", l.value)
+                    .with("checked", l.applies.name())
+                    .with("code", l.code.map(|c| c.code))
+                    .with("doc", l.doc)
+            })
+            .collect();
+        o.data = Json::object()
+            .with("topic", "limits")
+            .with("kind", "limits")
+            .with("text", text.as_str())
+            .with("numbers", numbers);
+        o.text = format!("# Limits in rwgpu {}\n\n{text}", rwgpuengine_core::ENGINE_VERSION);
         return o;
     }
     if topic == "events" || topic == "event" {

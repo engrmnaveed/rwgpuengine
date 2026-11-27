@@ -14,13 +14,18 @@
 //!
 //! The worlds are built from definitions, not from scene text: the loader's
 //! checks do not scale yet, and this measures the step.
+//!
+//! Events are written as a game runs by default (ADR 0027): the first 256 of
+//! each per-actor kind in a step, the rest counted. `--all` writes every
+//! event, as the engine did before. `events/step` is what happened,
+//! `written/step` what the log wrote.
 
 use std::time::Instant;
 
 use rwgpuengine_core::hash;
 use rwgpuengine_core::rng::Rng;
 use rwgpuengine_data::{ConnectDef, ConnectFrom, EntityDef, SceneDef, SceneLoader, Vfs};
-use rwgpuengine_sim::{InputFrame, NoSystems, Tap, World};
+use rwgpuengine_sim::{InputFrame, NoSystems, Tap, Watch, World};
 
 use crate::Result;
 
@@ -193,6 +198,7 @@ struct Row {
     median_ms: f64,
     fastest_ms: f64,
     events_per_step: f64,
+    written_per_step: f64,
     hash: u64,
     /// Bytes the world's index holds at the end.
     index_bytes: usize,
@@ -200,14 +206,18 @@ struct Row {
 
 /// Step a world `steps` times (or, without a number, for about two seconds
 /// and at least five steps) and time each step.
-fn measure(kind: &str, n: usize, steps: Option<u32>) -> Result<Row> {
+fn measure(kind: &str, n: usize, steps: Option<u32>, all: bool) -> Result<Row> {
     let (def, seed) = scene(kind, n)?;
     let size = def.ground.as_ref().map(|g| g.size).unwrap_or([1, 1]);
     let mut world = World::new(&def, seed);
+    if all {
+        world.events.set_watch(Watch::everything());
+    }
     let mut taps = Rng::new(seed ^ 0xbead);
     let mut times: Vec<f64> = Vec::new();
     let mut total = 0.0;
-    let events_before = world.events.len() as u64 + world.events.dropped();
+    let written_before = world.events.len() as u64 + world.events.dropped();
+    let events_before = world.events.happened();
     loop {
         let done = times.len() as u32;
         match steps {
@@ -236,7 +246,8 @@ fn measure(kind: &str, n: usize, steps: Option<u32>) -> Result<Row> {
         total += ms;
         times.push(ms);
     }
-    let events = world.events.len() as u64 + world.events.dropped() - events_before;
+    let written = world.events.len() as u64 + world.events.dropped() - written_before;
+    let events = world.events.happened() - events_before;
     let steps = times.len() as u32;
     times.sort_by(|a, b| a.total_cmp(b));
     Ok(Row {
@@ -247,12 +258,57 @@ fn measure(kind: &str, n: usize, steps: Option<u32>) -> Result<Row> {
         median_ms: times[times.len() / 2],
         fastest_ms: times[0],
         events_per_step: events as f64 / steps.max(1) as f64,
+        written_per_step: written as f64 / steps.max(1) as f64,
         hash: world.state_hash(),
         index_bytes: world.index_stats().bytes,
     })
 }
 
-/// `cargo xtask sim-bench [town|plates|wired|build ...] [N ...] [--steps S]`.
+/// Write the town of [`town`] as a project folder, each wanderer named
+/// `walker_<i>`: the world of ADR 0027's worked example, for `rwgpu run` and
+/// `rwgpu inspect`. The same cells and seed as the town measured here.
+fn write_town(n: usize, dir: &std::path::Path) -> Result {
+    let side = side_for(n);
+    let mut scene = format!("[scene]\nname = \"Town of {n}\"\nseed = 7\n\n[ground]\nsize = [{side}, {side}]\n");
+    for i in 0..n {
+        let (x, y) = (2 * (i % (side / 2)), 2 * (i / (side / 2)));
+        scene.push_str(&format!(
+            "\n[[entity]]\nname = \"walker_{i}\"\npos = [{x}, {y}]\nwander = {{ step_frames = 1 }}\n"
+        ));
+    }
+    let project = format!(
+        "[project]\nname = \"town-{n}\"\nengine = \"0.1\"\nmain_scene = \"scenes/main.toml\"\n\n[sim]\ntick_rate = 60\nseed = 7\n"
+    );
+    std::fs::create_dir_all(dir.join("scenes")).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("rwgpu.toml"), project).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("scenes/main.toml"), scene).map_err(|e| e.to_string())?;
+    println!("wrote {} ({n} wanderers on a {side} x {side} ground)", dir.display());
+    Ok(())
+}
+
+/// The `time.sim_step_us` budget: microseconds for one step of the town of
+/// 50,000 wanderers, events as a game writes them by default; the median of
+/// 200 steps after 20. Meant for a release build (`budgets` runs it so).
+pub fn budget_step_us() -> Result<i64> {
+    let (def, seed) = town(50_000)?;
+    let mut world = World::new(&def, seed);
+    let input = InputFrame::default();
+    for _ in 0..20 {
+        world.tick(&input, &mut NoSystems);
+    }
+    let mut times: Vec<u128> = (0..200)
+        .map(|_| {
+            let start = Instant::now();
+            world.tick(&input, &mut NoSystems);
+            start.elapsed().as_micros()
+        })
+        .collect();
+    times.sort_unstable();
+    Ok(times[times.len() / 2] as i64)
+}
+
+/// `cargo xtask sim-bench [town|plates|wired|build ...] [N ...] [--steps S] [--all]`,
+/// or `sim-bench town N --write DIR` to write that town as a project.
 /// Without names it measures all four worlds; without numbers, at 1,000,
 /// 5,000, 20,000 and 50,000. `--steps` fixes the number of steps, so that
 /// two engines can be compared at the same frame: the state hash printed
@@ -264,9 +320,15 @@ pub fn run(args: &[String]) -> Result {
     let mut kinds: Vec<String> = Vec::new();
     let mut sizes: Vec<usize> = Vec::new();
     let mut steps = None;
+    let mut all = false;
+    let mut write = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
-        if a == "--steps" {
+        if a == "--write" {
+            write = Some(it.next().ok_or("--write needs a folder")?);
+        } else if a == "--all" {
+            all = true;
+        } else if a == "--steps" {
             let v = it.next().ok_or("--steps needs a number")?;
             steps = Some(v.parse::<u32>().map_err(|e| format!("--steps {v}: {e}"))?);
         } else if let Ok(n) = a.replace('_', "").parse::<usize>() {
@@ -275,6 +337,13 @@ pub fn run(args: &[String]) -> Result {
             kinds.push(a.clone());
         }
     }
+    if let Some(dir) = write {
+        let (["town"], &[n]) = (kinds.iter().map(String::as_str).collect::<Vec<_>>().as_slice(), sizes.as_slice())
+        else {
+            return Err("--write writes one town: `sim-bench town N --write DIR`".into());
+        };
+        return write_town(n, std::path::Path::new(dir));
+    }
     if kinds.is_empty() {
         kinds = KINDS.iter().map(|k| k.to_string()).collect();
     }
@@ -282,15 +351,25 @@ pub fn run(args: &[String]) -> Result {
         sizes = SIZES.to_vec();
     }
     println!("an entity is {} bytes", std::mem::size_of::<rwgpuengine_sim::Entity>());
+    println!("events: {}", if all { "every one written (--all)" } else { "as a game writes them by default" });
     println!(
-        "{:<7} {:>8} {:>9} {:>6} {:>12} {:>12} {:>10} {:>12} {:>10}  state hash at the last frame",
-        "world", "n", "entities", "steps", "median ms", "fastest ms", "ns per n", "events/step", "index KB"
+        "{:<7} {:>8} {:>9} {:>6} {:>12} {:>12} {:>10} {:>12} {:>13} {:>10}  state hash at the last frame",
+        "world",
+        "n",
+        "entities",
+        "steps",
+        "median ms",
+        "fastest ms",
+        "ns per n",
+        "events/step",
+        "written/step",
+        "index KB"
     );
     for kind in &kinds {
         for &n in &sizes {
-            let r = measure(kind, n, steps)?;
+            let r = measure(kind, n, steps, all)?;
             println!(
-                "{:<7} {:>8} {:>9} {:>6} {:>12.4} {:>12.4} {:>10.1} {:>12.0} {:>10.0}  {}",
+                "{:<7} {:>8} {:>9} {:>6} {:>12.4} {:>12.4} {:>10.1} {:>12.0} {:>13.0} {:>10.0}  {}",
                 r.kind,
                 r.n,
                 r.entities,
@@ -299,6 +378,7 @@ pub fn run(args: &[String]) -> Result {
                 r.fastest_ms,
                 r.median_ms * 1e6 / r.n as f64,
                 r.events_per_step,
+                r.written_per_step,
                 r.index_bytes as f64 / 1024.0,
                 hash::hex(r.hash)
             );

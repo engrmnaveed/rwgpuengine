@@ -37,6 +37,13 @@ const JSON: Flag = flag("--json", None, "Print one JSON object on stdout instead
 const INPUT: Flag =
     flag("--input", Some("FILE"), "Drive the scene with a playtest's [[input]] (and use its scene and seed).");
 const SEED: Flag = flag("--seed", Some("N"), "Override the random seed.");
+const WATCH: Flag = flag(
+    "--watch",
+    Some("NAMES"),
+    "Write every event of these, however many happen: entity names or #ID, event kinds (moved, blocked, trigger), \
+     or `all`; comma-separated. Past 256 events of one of those kinds in a step, the others are counted, not \
+     written.",
+);
 
 const WEB_PLAYER: Flag = flag(
     "--web-player",
@@ -157,6 +164,7 @@ pub static COMMANDS: &[Command] = &[
             INPUT,
             SEED,
             flag("--events", None, "Include the event log."),
+            WATCH,
             flag("--hash-every", Some("N"), "Record the state hash every N frames (to find where two runs diverge)."),
             flag(
                 "--track",
@@ -166,10 +174,14 @@ pub static COMMANDS: &[Command] = &[
             JSON,
         ],
         details: "Deterministic: the same files, input and seed always give the same state hash, on every \
-                  platform. No window and no GPU are used.",
+                  platform. No window and no GPU are used. In a step with more than 256 `moved`, `blocked`, \
+                  `trigger` or `custom` events (a large world), the first 256 of each kind are written, the others \
+                  counted, and an `omitted` event says how many; `--watch NAME` writes all of an entity's. A step \
+                  that reaches a limit on work (`rwgpu explain limits`) is reported with the limit's code.",
         examples: &[
             "rwgpu run --frames 300",
             "rwgpu run tests/walkthrough.toml --events",
+            "rwgpu run --frames 38 --watch walker_17 --events",
             "rwgpu run --frames 120 --track guard",
             "rwgpu run scenes/garden.toml --input tests/walkthrough.toml --json",
         ],
@@ -210,10 +222,15 @@ pub static COMMANDS: &[Command] = &[
             flag("--frame", Some("N"), "Frame to inspect. Default: the playtest's last frame, else 0."),
             INPUT,
             SEED,
-            flag("--entity", Some("NAME"), "Only this entity (and, with --events, its events)."),
+            flag(
+                "--entity",
+                Some("NAME"),
+                "Only this entity (and, with --events, its events, every one of them written).",
+            ),
             flag("--component", Some("NAME"), "Only entities with this component (sprite, trigger, ...)."),
             flag("--events", None, "Include the event log: what happened and what was refused, and why."),
             flag("--since", Some("N"), "With --events: only events from frame N on."),
+            WATCH,
             flag(
                 "--place",
                 Some("PREFAB[@X,Y]"),

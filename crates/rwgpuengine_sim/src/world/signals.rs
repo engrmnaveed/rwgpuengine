@@ -4,7 +4,12 @@
 use rwgpuengine_core::json::Json;
 use rwgpuengine_data::CondTest;
 
+use std::rc::Rc;
+
+use rwgpuengine_core::limits::{ACTIONS_PER_STEP, SIGNALS_PER_STEP};
+
 use super::actions::ActCtx;
+use super::counting::Stale;
 use super::wiring::{Condition, Connection};
 use super::{Entity, EntityId, SIGNAL_LIMIT, World, fmt_cell, scan};
 use crate::events::EventKind;
@@ -97,9 +102,11 @@ impl World {
 
     pub(super) fn dispatch_signals(&mut self) {
         // Custom systems may have enabled or disabled copies.
-        self.refresh_counts("");
+        self.refresh_counts("", Stale::All);
         let mut dispatched = 0;
-        while let Some(Pending { emitter, signal, cell, reason }) = self.pending.pop_front() {
+        while !self.work.cut
+            && let Some(Pending { emitter, signal, cell, reason }) = self.pending.pop_front()
+        {
             dispatched += 1;
             if dispatched > SIGNAL_LIMIT {
                 let msg = format!(
@@ -107,18 +114,14 @@ impl World {
                      This is usually a loop of connections (E0301)",
                     self.source_name(emitter)
                 );
-                self.log(
-                    EventKind::Error,
-                    emitter,
-                    None,
-                    msg,
-                    Json::object().with("code", "E0301").with("signal", signal.as_str()),
-                );
-                self.pending.clear();
+                let data = Json::object().with("code", "E0301").with("signal", signal.as_str());
+                self.cut_step(&SIGNALS_PER_STEP, emitter, None, msg, data);
                 break;
             }
-            let targets: Vec<Connection> =
-                self.listeners(emitter, &signal).iter().map(|i| self.connections[*i as usize].clone()).collect();
+            // Shared, not copied: the connections never change.
+            let connections = Rc::clone(&self.connections);
+            let targets: Vec<&Connection> =
+                self.listeners(emitter, &signal).iter().map(|i| &connections[*i as usize]).collect();
             let source = self.source_name(emitter);
             let msg = if targets.is_empty() {
                 let hint = match emitter.and_then(|id| self.get(id)) {
@@ -139,9 +142,12 @@ impl World {
             if let Some(r) = reason {
                 data.set("reason", r);
             }
-            self.log(EventKind::Signal, emitter, None, msg, data);
+            self.write(EventKind::Signal, emitter, None, msg, data);
             for c in targets {
-                self.run_connection(&c, emitter, &signal, cell, reason);
+                if self.work.cut {
+                    break;
+                }
+                self.run_connection(c, emitter, &signal, cell, reason);
             }
         }
     }
@@ -180,8 +186,27 @@ impl World {
         let n = c.actions.len();
         let mut stopped: Option<String> = None;
         for (i, a) in c.actions.iter().enumerate() {
+            if self.work.cut {
+                return;
+            }
             // In a list, each message says which item it is.
             let via = if n > 1 { format!("{via}; action {} of {n}", i + 1) } else { via.clone() };
+            if self.work.actions >= ACTIONS_PER_STEP.get() {
+                let (to, target) = self.act_target(a, emitter);
+                let limit = ACTIONS_PER_STEP.value;
+                let what = match &a.prop {
+                    Some(prop) => format!("{} {prop}", a.action.name()),
+                    None => a.action.name().to_string(),
+                };
+                let msg = format!(
+                    "more than {limit} actions in one frame (stopped at {target} {what}, {via}); dropping the rest \
+                     of this frame's signals. Usually connections that feed each other through 'changed' (E0302)"
+                );
+                let data = Json::object().with("code", "E0302").with("signal", signal).with("action", a.action.name());
+                self.cut_step(&ACTIONS_PER_STEP, to, emitter, msg, data);
+                return;
+            }
+            self.work.actions += 1;
             let item = (n > 1).then_some(i + 1);
             let ctx = ActCtx { emitter, signal, cell, via: &via, when: &when_json, held: &held, item };
             match failed.as_ref().or(stopped.as_ref()) {

@@ -106,6 +106,7 @@ pub fn formats_body(h: &str) -> String {
 /// How the pieces behave at runtime: frames, coordinates, signals, events.
 pub fn semantics_markdown(h: &str) -> String {
     let event_table = rwgpuengine_sim::events_markdown();
+    let limits_table = rwgpuengine_core::limits::markdown();
     format!(
         r#"
 {h} Runtime rules
@@ -137,7 +138,13 @@ picture taken after a move is.
 **Step order.** Each step: input (taps resolve to the topmost enabled entity drawn under the point and
 emit `tapped`; a tap that hits no entity but lands on a ground cell makes the ground emit `tapped`, if a
 `[[connect]] from = "ground"` listens), movers, patrols, wanderers, Rust game systems, triggers, then signal
-dispatch through `[[connect]]` tables. A step that dispatches more than 1000 signals is cut off (E0301).
+dispatch through `[[connect]]` tables.
+
+**Limits on work.** A step that reaches one of these stops there: the signals still queued are dropped, an
+`error` event says what was cut off, and `rwgpu run`, `inspect`, `shot` and `test` report the code as an
+error. Every other step runs as before.
+
+{limits_table}
 
 **Actors and blocking.** Entities with `mover`, `patrol` or `wander` are actors. A move is refused when
 the target cell is outside the ground, holds an enabled `solid` entity, or holds another enabled actor.
@@ -206,6 +213,13 @@ any prop. `add`/`set` cannot change it.
 
 **Events.** Every step logs what happened and what was refused, with a sentence and structured fields.
 Read them with `rwgpu inspect --events` or `rwgpu run --events`; `rwgpu explain events` prints this table.
+In a step with more than 256 `moved` events (or `blocked` events of moves, `trigger` or `custom` events),
+the first 256 of that kind are written and the others counted: an `omitted` event at the end of the step
+says how many, and `event_counts` counts every event that happened, written or not (`events_omitted` the
+ones not written). Watching writes everything about an entity whatever the count: `--watch NAME` on
+`rwgpu run` and `rwgpu inspect`, `inspect --entity NAME --events`, and a playtest for the entities its
+`[[expect]]` tables name. A replay is deterministic, so running again with a watch gives the detail of any
+step. Other kinds are always written: the limits above bound them.
 
 {event_table}
 
@@ -251,7 +265,7 @@ pub fn errors_markdown() -> String {
 pub fn project_agents_md(project_name: &str) -> String {
     let v = rwgpuengine_core::ENGINE_VERSION;
     let example = EXAMPLE_DOC.replace("{scene}", EXAMPLE_SCENE).replace("{test}", EXAMPLE_PLAYTEST);
-    let limits = LIMITS_MD;
+    let limits = limits_md();
     let mut out = format!(
         r##"# AGENTS.md — {project_name}
 
@@ -269,7 +283,10 @@ for rwgpu {v} (`rwgpu docs --agents` prints the version you have installed).
 3. `rwgpu test` — runs every playtest: scripted input, `[[expect]]` checks and reference screenshots.
 4. Investigate instead of guessing:
    - `rwgpu inspect --input tests/X.toml --frame N --events --entity NAME` — world state and the event log
-     (every move, refusal, trigger, signal and action, each with a reason).
+     (every move, refusal, trigger, signal and action, each with a reason). In a large world, a step writes
+     the first 256 moves, refusals of moves and plate events of each kind and counts the rest (an `omitted`
+     event says how many); `--entity NAME --events`, or `--watch NAME` on `run` and `inspect`, writes all of
+     one entity's.
    - `rwgpu shot --input tests/X.toml --report` — writes a PNG and lists what is drawn where, what is
      hidden and what is off-screen.
    - `rwgpu run --input tests/X.toml --events` — run headless and print the state hash and events.
@@ -673,6 +690,17 @@ Behaviours worth knowing:
   does not count.
 - A tap on bare ground is a miss (`tap_miss`, with the `cell`) unless a `[[connect]] from = "ground"` listens.
 "##;
+
+/// [`LIMITS_MD`] and the numbers the engine holds a running game to
+/// (`rwgpuengine_core::limits`): what AGENTS.md and `rwgpu explain limits` print.
+pub fn limits_md() -> String {
+    format!(
+        "{LIMITS_MD}\nNumbers a running game is held to. A step that reaches one stops there with a diagnostic of \
+         its code and an `error` event that says what was cut off; `rwgpu run` and `rwgpu test` fail with it. The \
+         event log's two numbers are not errors: what they leave out is counted.\n\n{}",
+        rwgpuengine_core::limits::markdown()
+    )
+}
 
 #[cfg(test)]
 mod tests {

@@ -110,7 +110,7 @@ pub const CONNECT_ACTIONS: &[&str] = &["enable", "disable", "toggle", "add", "se
 /// Kinds of entries in the event log.
 pub const EVENT_KINDS: &[&str] = &[
     "input", "tap", "tap_miss", "moved", "blocked", "trigger", "signal", "action", "skipped", "spawned", "counted",
-    "error", "custom",
+    "error", "custom", "omitted",
 ];
 pub const SPRITE_SHAPES: &[&str] = &["circle", "rect", "diamond"];
 pub const PATROL_MODES: &[&str] = &["loop", "pingpong"];

@@ -162,7 +162,7 @@
             "description": "With `prefab`: exactly this many. `count = 0` with `pos` asserts nothing of that prefab stands there."
           },
           "event": {
-            "enum": ["input", "tap", "tap_miss", "moved", "blocked", "trigger", "signal", "action", "skipped", "spawned", "counted", "error", "custom"],
+            "enum": ["input", "tap", "tap_miss", "moved", "blocked", "trigger", "signal", "action", "skipped", "spawned", "counted", "error", "custom", "omitted"],
             "description": "Count events of this kind that happened before `frame`."
           },
           "other": {

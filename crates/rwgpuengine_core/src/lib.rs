@@ -7,6 +7,7 @@
 //! - [`diag`]: diagnostics with stable codes, file/line/column and fix hints,
 //!   rendered rustc-style for humans or as JSON for agents.
 //! - [`codes`]: the registry of every stable diagnostic code (`rwgpu explain`).
+//! - [`limits`]: the engine's limits on work and on the event log, in one table.
 //! - [`rng`]: seeded PCG32, identical on every platform.
 //! - [`hash`]: FNV-1a 64 for state and image hashes.
 //! - [`color`]: RGBA8 colors and hex parsing.
@@ -18,6 +19,7 @@ pub mod color;
 pub mod diag;
 pub mod hash;
 pub mod json;
+pub mod limits;
 pub mod math;
 pub mod rng;
 pub mod text;

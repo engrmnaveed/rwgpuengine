@@ -1,8 +1,10 @@
 //! Placement: whether a prefab fits on the ground, and `spawn`.
 
 use rwgpuengine_core::json::Json;
+use rwgpuengine_core::limits::ENTITIES;
 use rwgpuengine_data::{EntityDef, footprint_cells};
 
+use super::counting::Stale;
 use super::entity::make_entity;
 use super::signals::Pending;
 use super::wiring::Cost;
@@ -97,9 +99,20 @@ impl World {
         let Some(template) = self.template(prefab).cloned() else {
             let msg = format!("could not spawn '{prefab}' at {} ({via}): no such prefab", fmt_cell(at));
             let data = Json::object().with("code", "E0201").with("prefab", prefab);
-            self.log(EventKind::Error, None, emitter, msg, data);
+            self.write(EventKind::Error, None, emitter, msg, data);
             return false;
         };
+        if self.entities.len() >= self.max_entities {
+            let msg = format!(
+                "'{prefab}' was not spawned at {} ({via}): the world holds {} entities, the most it may; dropping \
+                 the rest of this frame's signals. Usually a spawn that runs every frame or a chain of spawns (E0304)",
+                fmt_cell(at),
+                self.entities.len()
+            );
+            let data = Json::object().with("code", "E0304").with("prefab", prefab).with("at", at);
+            self.cut_step(&ENTITIES, None, emitter, msg, data);
+            return false;
+        }
         let placed = match self.can_afford(cost, at) {
             Err(r) => Err(r),
             Ok(()) => self.can_place(prefab, at),
@@ -126,7 +139,7 @@ impl World {
                     msg.push_str(&format!("; {} emits 'refused'", self.source_name(emitter)));
                     data.set("signal", "refused");
                 }
-                self.log(EventKind::Blocked, None, r.by, msg, data);
+                self.write(EventKind::Blocked, None, r.by, msg, data);
                 if listened {
                     self.pending.push_back(Pending {
                         emitter,
@@ -166,9 +179,9 @@ impl World {
                     payer_changed = Some(k.entity);
                 }
                 let msg = format!("{who} was spawned at {} ({via}){paid}{when}", fmt_cell(at));
-                self.log(EventKind::Spawned, Some(id), emitter, msg, data);
+                self.write(EventKind::Spawned, Some(id), emitter, msg, data);
                 if !self.entities[id as usize].counts.is_empty() {
-                    self.counters.push(id);
+                    self.add_counter(id);
                 }
                 if self.is_listened(Some(id), "spawned") {
                     self.emit(id, "spawned");
@@ -180,7 +193,7 @@ impl World {
                     self.emit(p, "changed");
                 }
                 let why = format!("{who} was spawned");
-                self.refresh_counts(&why);
+                self.refresh_counts(&why, Stale::Prefab(Some(prefab), Some(id)));
                 true
             }
         }

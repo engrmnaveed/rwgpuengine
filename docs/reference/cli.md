@@ -76,15 +76,17 @@ Flags:
   --input FILE       Drive the scene with a playtest's [[input]] (and use its scene and seed).
   --seed N           Override the random seed.
   --events           Include the event log.
+  --watch NAMES      Write every event of these, however many happen: entity names or #ID, event kinds (moved, blocked, trigger), or `all`; comma-separated. Past 256 events of one of those kinds in a step, the others are counted, not written.
   --hash-every N     Record the state hash every N frames (to find where two runs diverge).
   --track NAME       Print the cells an entity occupies, with frame ranges (timing puzzles, patrols).
   --json             Print one JSON object on stdout instead of text.
 
-Deterministic: the same files, input and seed always give the same state hash, on every platform. No window and no GPU are used.
+Deterministic: the same files, input and seed always give the same state hash, on every platform. No window and no GPU are used. In a step with more than 256 `moved`, `blocked`, `trigger` or `custom` events (a large world), the first 256 of each kind are written, the others counted, and an `omitted` event says how many; `--watch NAME` writes all of an entity's. A step that reaches a limit on work (`rwgpu explain limits`) is reported with the limit's code.
 
 Examples:
   rwgpu run --frames 300
   rwgpu run tests/walkthrough.toml --events
+  rwgpu run --frames 38 --watch walker_17 --events
   rwgpu run --frames 120 --track guard
   rwgpu run scenes/garden.toml --input tests/walkthrough.toml --json
 ```
@@ -131,10 +133,11 @@ Flags:
   --frame N          Frame to inspect. Default: the playtest's last frame, else 0.
   --input FILE       Drive the scene with a playtest's [[input]] (and use its scene and seed).
   --seed N           Override the random seed.
-  --entity NAME      Only this entity (and, with --events, its events).
+  --entity NAME      Only this entity (and, with --events, its events, every one of them written).
   --component NAME   Only entities with this component (sprite, trigger, ...).
   --events           Include the event log: what happened and what was refused, and why.
   --since N          With --events: only events from frame N on.
+  --watch NAMES      Write every event of these, however many happen: entity names or #ID, event kinds (moved, blocked, trigger), or `all`; comma-separated. Past 256 events of one of those kinds in a step, the others are counted, not written.
   --place PREFAB[@X,Y] Can I build here? With a cell: whether a `spawn` of PREFAB fits there at this frame, and why not. Without: every cell where it fits. Prints only that answer (add --entity for the table).
   --json             Print one JSON object on stdout instead of text.
 

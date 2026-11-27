@@ -8,7 +8,7 @@ use rwgpuengine_core::codes;
 use rwgpuengine_core::diag::Diagnostic;
 use rwgpuengine_data::{ExpectDef, PlaytestDef, ShotDef, Vfs};
 use rwgpuengine_render::{Frame, FrameReport};
-use rwgpuengine_sim::EventKind;
+use rwgpuengine_sim::{EventKind, Watch};
 
 use crate::session::{Game, Session, SessionConfig};
 
@@ -41,6 +41,7 @@ pub fn run_playtest(vfs: &Vfs, path: &str, game: Box<dyn Game>) -> Result<Playte
     let cfg = SessionConfig { script: Some(path.to_string()), ..SessionConfig::default() };
     let mut session = Session::load(vfs, &cfg, game)?;
     let def = session.playtest.clone().expect("playtest session");
+    session.world.events.set_watch(watched_by(&session, &def));
     let frames = def.frames;
     let mut failures = Vec::new();
     let mut shots = Vec::new();
@@ -62,6 +63,7 @@ pub fn run_playtest(vfs: &Vfs, path: &str, game: Box<dyn Game>) -> Result<Playte
         }
         session.step(&Default::default());
     }
+    failures.extend(session.limit_diagnostics());
     Ok(PlaytestRun {
         name: def.name.clone(),
         path: def.path.clone(),
@@ -74,6 +76,26 @@ pub fn run_playtest(vfs: &Vfs, path: &str, game: Box<dyn Game>) -> Result<Playte
         shots,
         warnings: session.warnings.clone(),
     })
+}
+
+/// What a playtest's expectations ask about, written in full whatever the
+/// step's budget (ADR 0027): every entity an `[[expect]]` names, and the kind
+/// of an `event` expectation that names no entity. Expectations then count
+/// every event they ask for, at any scale.
+fn watched_by(session: &Session, def: &PlaytestDef) -> Watch {
+    let mut watch = Watch::default();
+    for exp in &def.expects {
+        let named: Vec<u32> =
+            [&exp.entity, &exp.other].into_iter().flatten().filter_map(|n| session.world.find(n)).collect();
+        named.iter().for_each(|id| watch.entity(*id));
+        if let Some(kind) = exp.event.as_deref().and_then(EventKind::parse)
+            && exp.entity.is_none()
+            && exp.other.is_none()
+        {
+            watch.kind(kind);
+        }
+    }
+    watch
 }
 
 fn fmt_pos(p: [f32; 3]) -> String {

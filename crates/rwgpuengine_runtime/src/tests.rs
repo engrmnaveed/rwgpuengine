@@ -307,3 +307,98 @@ fn a_scene_can_start_turned_zoomed_and_in_perspective() {
     let d = rwgpuengine_data::check_project(&vfs).diagnostics;
     assert!(d.len() == 1 && d[0].message.contains("exactly one of `press`, `hold`, `tap` or `camera`"), "{d:#?}");
 }
+
+/// A project in memory: rwgpu.toml, one scene, prefabs and playtests.
+fn project(scene: &str, files: &[(&str, &str)]) -> Vfs {
+    let mut vfs = Vfs::new();
+    vfs.insert(
+        "rwgpu.toml",
+        "[project]\nname = \"t\"\nengine = \"0.1\"\nmain_scene = \"scenes/main.toml\"\n\n[sim]\ntick_rate = 60\nseed = 1\n",
+    );
+    vfs.insert("scenes/main.toml", scene);
+    for (path, text) in files {
+        vfs.insert(*path, *text);
+    }
+    vfs
+}
+
+/// `n` wanderers on every other cell, each named `w<i>`.
+fn town(n: usize) -> String {
+    let mut side = 2;
+    while (side / 2) * (side / 2) < n {
+        side += 2;
+    }
+    let mut s = format!("[ground]\nsize = [{side}, {side}]\n");
+    for i in 0..n {
+        let (x, y) = (2 * (i % (side / 2)), 2 * (i / (side / 2)));
+        s.push_str(&format!("\n[[entity]]\nname = \"w{i}\"\npos = [{x}, {y}]\nwander = {{ step_frames = 1 }}\n"));
+    }
+    s
+}
+
+#[test]
+fn a_playtest_counts_every_event_its_expectations_ask_about_at_any_scale() {
+    // The last of 2,000 wanderers: past the step's budget, its moves are not
+    // written by default. The playtest watches what it names.
+    let scene = town(2_000);
+    let vfs = project(&scene, &[]);
+    let mut all = Session::load(&vfs, &SessionConfig::default(), Box::new(DataOnly)).unwrap();
+    all.watch(&["all"]).unwrap();
+    all.run_to(30);
+    let id = all.world.find("w1999").unwrap();
+    let moves = all.world.events.about(id).filter(|e| e.kind == rwgpuengine_sim::EventKind::Moved).count();
+    let mut plain = Session::load(&vfs, &SessionConfig::default(), Box::new(DataOnly)).unwrap();
+    plain.run_to(30);
+    assert_eq!(plain.world.events.about(id).count(), 0, "not written by default");
+    assert!(moves > 5);
+    let test = format!(
+        "[test]\nframes = 30\n\n[[expect]]\nevent = \"moved\"\nentity = \"w1999\"\nat_least = {moves}\nat_most = {moves}\n\n[[expect]]\nevent = \"blocked\"\nat_least = 1\n"
+    );
+    let vfs = project(&scene, &[("tests/t.toml", &test)]);
+    let run = run_playtest(&vfs, "tests/t.toml", Box::new(DataOnly)).unwrap();
+    assert!(run.failures.is_empty(), "{:#?}", run.failures);
+    assert_eq!(run.expects_checked, 2);
+}
+
+#[test]
+fn watch_takes_names_ids_kinds_and_all() {
+    let vfs = project(&town(4), &[]);
+    let mut s = Session::load(&vfs, &SessionConfig::default(), Box::new(DataOnly)).unwrap();
+    s.watch(&["w1", "#3", "blocked"]).unwrap();
+    assert_eq!(s.watched(), ["w1", "w3", "blocked"]);
+    s.watch(&["all"]).unwrap();
+    assert!(s.world.events.watch().all);
+    let e = s.watch(&["w9"]).unwrap_err();
+    assert_eq!(e.code, "E0202");
+    assert_eq!(e.hint.as_deref(), Some("did you mean `w0`?"));
+    assert_eq!(s.watch(&["#40"]).unwrap_err().code, "E0202");
+}
+
+#[test]
+fn a_game_that_reaches_a_limit_fails_its_playtest_with_the_limit_code() {
+    // A plate entered in step 0 starts a loop that runs 100 adds a signal.
+    let mut scene = String::from(
+        "[ground]\nsize = [4, 4]\n\n[[entity]]\nname = \"walker\"\npos = [0, 0]\npatrol = { path = [[0, 0], [1, 0]], step_frames = 1 }\n\n[[entity]]\nname = \"plate\"\npos = [1, 0]\ntile = {}\ntrigger = {}\n\n[[entity]]\nname = \"hud\"\nprops = { n = 0, p = 0 }\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\nto = \"hud\"\naction = \"add\"\nprop = \"n\"\n",
+    );
+    let acts = vec!["{ action = \"add\", to = \"hud\", prop = \"p\" }"; 100].join(", ");
+    scene.push_str(&format!("\n[[connect]]\nfrom = \"hud\"\nsignal = \"changed\"\nactions = [{acts}]\n"));
+    let vfs = project(&scene, &[("tests/t.toml", "[test]\nframes = 4\n")]);
+    let run = run_playtest(&vfs, "tests/t.toml", Box::new(DataOnly)).unwrap();
+    let codes: Vec<&str> = run.failures.iter().map(|d| d.code).collect();
+    assert_eq!(codes, ["E0302"]);
+    let d = &run.failures[0];
+    assert!(d.message.starts_with("step 0: more than 10000 actions in one frame"), "{}", d.message);
+    assert!(d.hint.as_deref().unwrap().contains("rwgpu inspect --input tests/t.toml --frame 1 --since 0 --events"));
+    assert!(d.notes.iter().any(|n| n.contains("2 steps reached it, the last one step 2")), "{:?}", d.notes);
+}
+
+#[test]
+fn more_taps_in_a_frame_than_the_limit_are_not_picked_and_say_so() {
+    let mut test = String::from("[test]\nframes = 2\n");
+    for i in 0..300 {
+        test.push_str(&format!("\n[[input]]\nframe = 1\ntap = [{}, 100]\n", i));
+    }
+    let vfs = project(&town(4), &[("tests/t.toml", &test)]);
+    let run = run_playtest(&vfs, "tests/t.toml", Box::new(DataOnly)).unwrap();
+    assert_eq!(run.failures.iter().map(|d| d.code).collect::<Vec<_>>(), ["E0305"]);
+}

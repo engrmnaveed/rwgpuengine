@@ -6,6 +6,7 @@ use rwgpuengine_core::codes;
 use rwgpuengine_core::diag::Diagnostic;
 use rwgpuengine_core::hash;
 use rwgpuengine_core::json::Json;
+use rwgpuengine_core::limits::TAPS_PER_STEP;
 use rwgpuengine_core::text::did_you_mean;
 use rwgpuengine_data::{
     CameraMove, InputDef, InputKind, PlaytestDef, ProjectDef, SceneDef, SceneLoader, Vfs, load_playtest, load_project,
@@ -14,7 +15,7 @@ use rwgpuengine_render::{
     Camera, Frame, FrameReport, Painter, Projected, Projector, RenderList, View, build_report, list, pick, project,
     render,
 };
-use rwgpuengine_sim::{ActionSet, InputFrame, Systems, World, dump};
+use rwgpuengine_sim::{ActionSet, EventKind, InputFrame, Systems, Tap, World, dump};
 
 /// Rust game code plugged into a session (ADR 0006: data first, code
 /// where data runs out). Systems run every step after the built-ins.
@@ -203,8 +204,14 @@ impl Session {
         let resolved = if taps.is_empty() {
             Vec::new()
         } else {
+            // The world applies the first taps up to its limit and says how
+            // many more came (E0305); those are not picked.
             let seen = self.projected(true);
-            taps.iter().map(|&(x, y)| pick::pick(&seen, x, y)).collect()
+            let most = TAPS_PER_STEP.get();
+            taps.iter()
+                .enumerate()
+                .map(|(i, &(x, y))| if i < most { pick::pick(&seen, x, y) } else { Tap { x, y, ..Tap::default() } })
+                .collect()
         };
         let input = InputFrame {
             pressed: pressed.union(live.pressed),
@@ -212,6 +219,78 @@ impl Session {
             taps: resolved,
         };
         self.world.tick(&input, self.game.as_mut());
+    }
+
+    /// Name what the event log writes in full from now on (ADR 0027): each
+    /// name is an entity's name, `#ID`, an event kind (`moved`, `blocked`,
+    /// ...) or `all`. An entity of that name wins over a kind. Set it before
+    /// stepping: what was not written is not written later. `Err` is an E0202
+    /// for a name that is none of these.
+    pub fn watch(&mut self, names: &[&str]) -> Result<(), Diagnostic> {
+        let mut watch = self.world.events.watch().clone();
+        for &name in names {
+            if let Some(id) = self.world.find(name) {
+                watch.entity(id);
+            } else if let Some(id) = name.strip_prefix('#').and_then(|n| n.parse::<u32>().ok()) {
+                if self.world.get(id).is_none() {
+                    let n = self.world.entities.len();
+                    return Err(Diagnostic::new(&codes::UNKNOWN_ENTITY, format!("no entity #{id} to watch"))
+                        .hint(format!("ids are 0 to {} at frame 0", n.saturating_sub(1))));
+                }
+                watch.entity(id);
+            } else if let Some(kind) = EventKind::parse(name) {
+                watch.kind(kind);
+            } else if name == "all" {
+                watch.all = true;
+            } else {
+                let names: Vec<String> = self.world.entities.iter().filter_map(|e| e.name.clone()).collect();
+                let known = names.iter().map(String::as_str).chain(EventKind::ALL.iter().map(|k| k.name()));
+                let hint = did_you_mean(name, known).unwrap_or_else(|| {
+                    "watch an entity by name or `#ID`, an event kind (moved, blocked, trigger), or `all`".into()
+                });
+                return Err(
+                    Diagnostic::new(&codes::UNKNOWN_ENTITY, format!("no entity named `{name}` to watch")).hint(hint)
+                );
+            }
+        }
+        self.world.events.set_watch(watch);
+        Ok(())
+    }
+
+    /// The names of what the log writes in full, as `watch` takes them.
+    pub fn watched(&self) -> Vec<String> {
+        let w = self.world.events.watch();
+        let mut out: Vec<String> = if w.all { vec!["all".into()] } else { Vec::new() };
+        for &id in w.entities() {
+            out.push(self.world.get(id).and_then(|e| e.name.clone()).unwrap_or_else(|| format!("#{id}")));
+        }
+        out.extend(w.kinds().iter().map(|k| k.name().to_string()));
+        out
+    }
+
+    /// One diagnostic for each limit on work the world reached while it ran
+    /// (`rwgpuengine_core::limits`): what it cut off, and where to look.
+    pub fn limit_diagnostics(&self) -> Vec<Diagnostic> {
+        let input = self.playtest.as_ref().map(|p| format!(" --input {}", p.path)).unwrap_or_default();
+        let mut out = Vec::new();
+        for hit in self.world.limits_hit() {
+            let Some(code) = hit.limit.code else { continue };
+            // The event's sentence, without the code the diagnostic shows.
+            let what = hit.message.trim_end_matches(&format!(" ({})", code.code));
+            let mut d =
+                Diagnostic::new(code, format!("step {}: {what}", hit.first)).in_file(&self.scene.path).hint(format!(
+                    "see that step: `rwgpu inspect{input} --frame {} --since {} --events`; `rwgpu explain {}`",
+                    hit.first + 1,
+                    hit.first,
+                    code.code
+                ));
+            d = d.note(format!("the limit is {} {} (`rwgpu explain limits`)", hit.limit.value, hit.limit.name));
+            if hit.steps > 1 {
+                d = d.note(format!("{} steps reached it, the last one step {}", hit.steps, hit.last));
+            }
+            out.push(d);
+        }
+        out
     }
 
     /// Step until `frame` (no-op if already there or past it).

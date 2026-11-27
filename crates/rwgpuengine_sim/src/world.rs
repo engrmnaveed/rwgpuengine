@@ -13,8 +13,10 @@
 //! answered by looking at everything, as the definition the index is held to.
 
 use std::collections::{BTreeMap, VecDeque};
+use std::rc::Rc;
 
 use rwgpuengine_core::json::Json;
+use rwgpuengine_core::limits::{self, Limit};
 use rwgpuengine_core::rng::Rng;
 use rwgpuengine_data::{EntityDef, GroundDef, SceneDef};
 
@@ -41,6 +43,7 @@ pub use index::IndexStats;
 pub use placement::Refusal;
 pub use wiring::{Act, Condition, Connection, Cost, Source, Target};
 
+use counting::Stale;
 use entity::make_entity;
 use index::{Index, Kind};
 use signals::Pending;
@@ -50,8 +53,31 @@ use wiring::Routes;
 /// given scene file, so they can be used in scripts and tests.
 pub type EntityId = u32;
 
-/// Maximum signals dispatched in one step before it is treated as a loop.
-pub const SIGNAL_LIMIT: usize = 1000;
+/// Maximum signals dispatched in one step before it is treated as a loop
+/// ([`limits::SIGNALS_PER_STEP`]; the engine's limits are all there).
+pub const SIGNAL_LIMIT: usize = limits::SIGNALS_PER_STEP.value as usize;
+
+/// A limit of [`limits`] that a running world reached.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LimitHit {
+    pub limit: &'static Limit,
+    /// The first step that reached it, and the last.
+    pub first: u64,
+    pub last: u64,
+    /// How many steps reached it.
+    pub steps: u64,
+    /// What the first one cut off (the `error` event's message).
+    pub message: String,
+}
+
+/// The work done so far in the current step, against the step's limits.
+#[derive(Clone, Debug, Default)]
+struct Work {
+    actions: usize,
+    count_changes: usize,
+    /// A limit was reached: the step dispatches nothing more.
+    cut: bool,
+}
 
 /// Game-specific systems written in Rust. They run every step after the
 /// built-in behaviors and before triggers and signal dispatch.
@@ -78,7 +104,8 @@ pub struct World {
     /// The ground with its terrain (placement rules read it).
     pub ground: Option<GroundDef>,
     /// The scene's `[[connect]]` tables, in file order ([`World::connections`]).
-    connections: Vec<Connection>,
+    /// Shared, so that dispatching a signal does not copy them.
+    connections: Rc<[Connection]>,
     pub events: EventLog,
     /// Prefabs that `spawn` actions place (their `prefab` is the name).
     pub templates: Vec<EntityDef>,
@@ -86,6 +113,16 @@ pub struct World {
     names: BTreeMap<String, EntityId>,
     /// Entities with `counts` props (derived; not hashed).
     counters: Vec<EntityId>,
+    /// For each prefab that `counts` props count, the entities with such a
+    /// prop, in id order (derived; not hashed).
+    counted_by: BTreeMap<String, Vec<EntityId>>,
+    /// The work of this step so far.
+    work: Work,
+    /// The limits reached so far, in the order first reached.
+    limits_hit: Vec<LimitHit>,
+    /// [`limits::ENTITIES`]; lower in tests, which cannot step a million
+    /// entities in a debug build.
+    max_entities: usize,
     /// Where the entities are and what they are, for the rules (derived; not hashed).
     index: Index,
     /// Which connections listen to which signal (derived; not hashed).
@@ -118,17 +155,23 @@ impl World {
             entities: Entities(entities),
             bounds,
             ground: scene.ground.clone(),
-            connections,
+            connections: connections.into(),
             events: EventLog::default(),
             templates,
             pending: VecDeque::new(),
             names,
             counters: Vec::new(),
+            counted_by: BTreeMap::new(),
+            work: Work::default(),
+            limits_hit: Vec::new(),
+            max_entities: limits::ENTITIES.get(),
             check: false,
         };
-        world.counters = scan::ids_with(&world.entities, |e| !e.counts.is_empty());
+        for id in scan::ids_with(&world.entities, |e| !e.counts.is_empty()) {
+            world.add_counter(id);
+        }
         // Count props start at the scene's numbers, without events.
-        for (id, prop, _, _, n) in world.count_changes() {
+        for (id, prop, _, _, n) in world.count_changes(Stale::All) {
             world.set_count(id, &prop, n);
         }
         // Initial trigger occupancy, without emitting: a plate that starts
@@ -165,6 +208,55 @@ impl World {
     /// The scene's `[[connect]]` tables with their names resolved, in file order.
     pub fn connections(&self) -> &[Connection] {
         &self.connections
+    }
+
+    /// Lower the entity limit, for a test.
+    #[cfg(test)]
+    pub(crate) fn limit_entities(&mut self, n: usize) {
+        self.max_entities = n;
+    }
+
+    /// The limits this world has reached, in the order first reached: each
+    /// stopped a step there (`rwgpu run` reports them as diagnostics).
+    pub fn limits_hit(&self) -> &[LimitHit] {
+        &self.limits_hit
+    }
+
+    /// A step reached `limit`: write the `error` event that says what was
+    /// cut off, drop the signals still queued, and dispatch nothing more in
+    /// this step.
+    pub(super) fn cut_step(
+        &mut self,
+        limit: &'static Limit,
+        entity: Option<EntityId>,
+        other: Option<EntityId>,
+        message: String,
+        data: Json,
+    ) {
+        self.reached(limit, &message);
+        self.write(EventKind::Error, entity, other, message, data);
+        self.pending.clear();
+        self.work.cut = true;
+    }
+
+    /// Remember that this step reached `limit`.
+    pub(super) fn reached(&mut self, limit: &'static Limit, message: &str) {
+        let frame = self.frame;
+        match self.limits_hit.iter_mut().find(|h| h.limit == limit) {
+            Some(h) => {
+                if h.last != frame {
+                    h.last = frame;
+                    h.steps += 1;
+                }
+            }
+            None => self.limits_hit.push(LimitHit {
+                limit,
+                first: frame,
+                last: frame,
+                steps: 1,
+                message: message.to_string(),
+            }),
+        }
     }
 
     /// Tell the index that entity `id` changed in any way.
@@ -237,8 +329,56 @@ impl World {
         self.get(id).map_or_else(|| format!("#{id}"), Entity::describe)
     }
 
-    /// Append an event for the current frame.
+    /// Append an event for the current frame, for Rust game code. Events of
+    /// the per-actor kinds (`moved`, `blocked`, `trigger`, `custom`) count
+    /// against the step's budget for their kind: past it they are counted,
+    /// not written, unless the log's [`Watch`](crate::Watch) covers them.
+    /// [`World::log_with`] builds the message only when it is written.
     pub fn log(
+        &mut self,
+        kind: EventKind,
+        entity: Option<EntityId>,
+        other: Option<EntityId>,
+        message: String,
+        data: Json,
+    ) {
+        if Self::per_actor(kind) && !self.wants(kind, entity, other) {
+            return;
+        }
+        self.write(kind, entity, other, message, data);
+    }
+
+    /// [`World::log`], with the message and fields built by `build` only if
+    /// the event is written.
+    pub fn log_with(
+        &mut self,
+        kind: EventKind,
+        entity: Option<EntityId>,
+        other: Option<EntityId>,
+        build: impl FnOnce(&World) -> (String, Json),
+    ) {
+        if Self::per_actor(kind) && !self.wants(kind, entity, other) {
+            return;
+        }
+        let (message, data) = build(self);
+        self.write(kind, entity, other, message, data);
+    }
+
+    fn per_actor(kind: EventKind) -> bool {
+        matches!(kind, EventKind::Moved | EventKind::Blocked | EventKind::Trigger | EventKind::Custom)
+    }
+
+    /// Will an event of a per-actor kind about `entity` (and `other`) be
+    /// written in this step? If not, it has been counted: build nothing. If
+    /// so, build it and [`World::write`] it. Ask once per event: each yes
+    /// takes a place in the step's budget.
+    pub(super) fn wants(&mut self, kind: EventKind, entity: Option<EntityId>, other: Option<EntityId>) -> bool {
+        self.events.admit(self.frame, kind, entity, other)
+    }
+
+    /// Append an event that has been admitted, or of a kind that is always
+    /// written.
+    pub(super) fn write(
         &mut self,
         kind: EventKind,
         entity: Option<EntityId>,
@@ -254,6 +394,7 @@ impl World {
     /// systems, triggers, then signal dispatch. The order is part of the
     /// determinism contract (docs/architecture.md#the-step).
     pub fn tick(&mut self, input: &InputFrame, systems: &mut dyn Systems) {
+        self.work = Work::default();
         self.apply_input(input);
         self.run_movers(input);
         self.run_patrols();
@@ -261,6 +402,7 @@ impl World {
         systems.tick(self, input);
         self.run_triggers();
         self.dispatch_signals();
+        self.events.close_step();
         #[cfg(debug_assertions)]
         if let Err(why) = self.verify_index() {
             panic!("the cell index is not what the entities say after step {}: {why}", self.frame);

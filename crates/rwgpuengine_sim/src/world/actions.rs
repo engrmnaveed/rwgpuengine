@@ -4,6 +4,7 @@
 use rwgpuengine_core::json::Json;
 use rwgpuengine_data::{ConnectAction, PropValue};
 
+use super::counting::Stale;
 use super::wiring::{Act, Target};
 use super::{EntityId, World, fmt_cell};
 use crate::dump::prop_json;
@@ -24,7 +25,7 @@ pub(super) struct ActCtx<'a> {
 
 impl World {
     /// The action's target (`None` for spawn) and how messages name it.
-    fn act_target(&self, a: &Act, emitter: Option<EntityId>) -> (Option<EntityId>, String) {
+    pub(super) fn act_target(&self, a: &Act, emitter: Option<EntityId>) -> (Option<EntityId>, String) {
         let to = match a.to {
             Target::Entity(id) => Some(id),
             Target::Emitter => emitter,
@@ -69,7 +70,7 @@ impl World {
             format!("{target} {} skipped ({}): {why}", a.action.name(), ctx.via)
         };
         // For spawn the subject is nothing yet; the emitter is the other party.
-        self.log(EventKind::Skipped, to, ctx.emitter, msg, data);
+        self.write(EventKind::Skipped, to, ctx.emitter, msg, data);
     }
 
     /// Apply one action. Returns false only for a `spawn` that could not be placed.
@@ -121,7 +122,7 @@ impl World {
         if !ctx.held.is_empty() {
             msg.push_str(&format!("; when {} held", ctx.held.join(", ")));
         }
-        self.log(EventKind::Action, Some(to), ctx.emitter, msg, data);
+        self.write(EventKind::Action, Some(to), ctx.emitter, msg, data);
         // A prop change makes its owner emit `changed`, if anything listens.
         if prop_changed && self.is_listened(Some(to), "changed") {
             self.emit(to, "changed");
@@ -129,7 +130,8 @@ impl World {
         if enabled_changed {
             let now = if self.get(to).is_some_and(|e| e.enabled) { "enabled" } else { "disabled" };
             let why = format!("{} was {now}", self.describe(to));
-            self.refresh_counts(&why);
+            let prefab = self.get(to).and_then(|e| e.prefab.clone());
+            self.refresh_counts(&why, Stale::Prefab(prefab.as_deref(), None));
         }
         true
     }

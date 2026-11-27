@@ -9,6 +9,14 @@
 //! updated to make a test pass; a pin that cannot be kept is a finding for
 //! the owner (ADR 0005).
 //!
+//! Each world is run twice. Once with every event written (`Watch::everything`):
+//! that run reaches the three numbers of the scanning engine, so every sentence
+//! is still the one it wrote. And once as a game runs by default, with the
+//! per-step budget of the per-actor kinds (ADR 0027): the same two state
+//! numbers, and the fourth number, the events then written. It differs from
+//! the third only in the worlds where more than 256 events of one of those
+//! kinds happen in a step, and it was recorded with the budget.
+//!
 //! The worlds are made to ask every question often: blocked moves, pushes,
 //! plates and pads, spawns with costs and refusals, entities disabled and
 //! enabled again, counts, signals with several actions, taps on entities and
@@ -22,7 +30,7 @@ use rwgpuengine_core::json::Json;
 use rwgpuengine_core::rng::Rng;
 use rwgpuengine_data::{Action, SceneLoader, Vfs};
 
-use crate::events::EventKind;
+use crate::events::{EventKind, Watch};
 use crate::input::{InputFrame, Tap};
 use crate::world::{NoSystems, Systems, World};
 
@@ -927,34 +935,40 @@ pub fn cases(large: bool) -> Vec<Case> {
     }
 }
 
-/// What the scanning engine reached: (world, state, trace, events).
-pub const PINS: &[(&str, u64, u64, u64)] = &[
-    ("town-200", 0xbcb126c911ec1d60, 0x8d652fd907881576, 0x7605128bf2fddbd9),
-    ("plates-150", 0x033840459082a5dc, 0x90874438d6209ce2, 0xfb6de082c3b231e6),
-    ("crowd-20x16", 0x4bd97066a674eac8, 0x223d0d5c779240c6, 0x6a3d0aee7a6159a4),
-    ("packed-16x16", 0x24483a11f3272468, 0xd5f71786a3bad9c7, 0xdd6cddf453a8fa1b),
-    ("builder-24x24", 0xdb54e65991485080, 0xa25a275ca8d124c9, 0xb209d5b3c794ac0c),
-    ("open-160", 0x8364a5353f6c9ac3, 0x791716c5ec6277d9, 0x4a3bf61b113c5409),
-    ("meddled-20x16", 0x2587b976e351e3fb, 0x6d60e6bce3571e66, 0xacf5968ef5ad207a),
-    ("meddled-open-120", 0x4f8c9fea183e405b, 0x225c0721e91695ec, 0xec7cf70bedc3b01b),
-    ("town-1000", 0x6401405746d706dd, 0x0a01a8ce660b000c, 0xef1b96f2d3965445),
-    ("town-5000", 0xb691b266267e088e, 0xe521215e038f6cdc, 0x08c19a6be2e71201),
-    ("plates-2000", 0x14fcf0235f82b130, 0xa131cee1a94e3029, 0x77f63e2bc2b7f453),
-    ("crowd-64x48", 0x62f53a447330d2fa, 0x01422db5b36663a0, 0x89ed56267a82db17),
-    ("crowd-100x100", 0xab50569fd41ae6da, 0xccd9d2b83f033dbc, 0x1c8f6b13ab4048a3),
-    ("packed-48x48", 0x047b563e868f1544, 0x2722758a61bcd388, 0xbe5471d4af222841),
-    ("builder-96x96", 0xd51702604af84a36, 0xeaab256787678238, 0x74acc7bdd0f71447),
-    ("open-3000", 0xe293c0bab798f7a1, 0x4b32556fa9593828, 0xf8b4f5d3d93bdd88),
-    ("meddled-64x48", 0x82e88958898d2a30, 0xc2901092676e3c56, 0xf48d5d5970d75e28),
+/// What the scanning engine reached: (world, state, trace, events), and the
+/// events written by default, with the per-step budget (ADR 0027).
+pub const PINS: &[(&str, u64, u64, u64, u64)] = &[
+    ("town-200", 0xbcb126c911ec1d60, 0x8d652fd907881576, 0x7605128bf2fddbd9, 0x7605128bf2fddbd9),
+    ("plates-150", 0x033840459082a5dc, 0x90874438d6209ce2, 0xfb6de082c3b231e6, 0xfb6de082c3b231e6),
+    ("crowd-20x16", 0x4bd97066a674eac8, 0x223d0d5c779240c6, 0x6a3d0aee7a6159a4, 0x6a3d0aee7a6159a4),
+    ("packed-16x16", 0x24483a11f3272468, 0xd5f71786a3bad9c7, 0xdd6cddf453a8fa1b, 0xdd6cddf453a8fa1b),
+    ("builder-24x24", 0xdb54e65991485080, 0xa25a275ca8d124c9, 0xb209d5b3c794ac0c, 0xb209d5b3c794ac0c),
+    ("open-160", 0x8364a5353f6c9ac3, 0x791716c5ec6277d9, 0x4a3bf61b113c5409, 0x4a3bf61b113c5409),
+    ("meddled-20x16", 0x2587b976e351e3fb, 0x6d60e6bce3571e66, 0xacf5968ef5ad207a, 0xacf5968ef5ad207a),
+    ("meddled-open-120", 0x4f8c9fea183e405b, 0x225c0721e91695ec, 0xec7cf70bedc3b01b, 0xec7cf70bedc3b01b),
+    ("town-1000", 0x6401405746d706dd, 0x0a01a8ce660b000c, 0xef1b96f2d3965445, 0xf6c61d739509aa1f),
+    ("town-5000", 0xb691b266267e088e, 0xe521215e038f6cdc, 0x08c19a6be2e71201, 0xc9f87916f33740eb),
+    ("plates-2000", 0x14fcf0235f82b130, 0xa131cee1a94e3029, 0x77f63e2bc2b7f453, 0x091ec32267266d09),
+    ("crowd-64x48", 0x62f53a447330d2fa, 0x01422db5b36663a0, 0x89ed56267a82db17, 0x89ed56267a82db17),
+    ("crowd-100x100", 0xab50569fd41ae6da, 0xccd9d2b83f033dbc, 0x1c8f6b13ab4048a3, 0x116ecfb67635d345),
+    ("packed-48x48", 0x047b563e868f1544, 0x2722758a61bcd388, 0xbe5471d4af222841, 0xbe5471d4af222841),
+    ("builder-96x96", 0xd51702604af84a36, 0xeaab256787678238, 0x74acc7bdd0f71447, 0x74acc7bdd0f71447),
+    ("open-3000", 0xe293c0bab798f7a1, 0x4b32556fa9593828, 0xf8b4f5d3d93bdd88, 0xeee8c4eadb5ca88f),
+    ("meddled-64x48", 0x82e88958898d2a30, 0xc2901092676e3c56, 0xf48d5d5970d75e28, 0xf48d5d5970d75e28),
 ];
 
 fn check(cases: Vec<Case>) {
     for case in cases {
+        let pin = PINS.iter().find(|p| p.0 == case.name).unwrap_or_else(|| panic!("{}: no pin", case.name));
+        let mut world = case.world();
+        world.events.set_watch(Watch::everything());
+        let reached = case.run(&mut world);
+        let want = Reached { state: pin.1, trace: pin.2, events: pin.3 };
+        assert_eq!(reached, want, "{}: not what the scanning engine reached, every event written", case.name);
         let mut world = case.world();
         let reached = case.run(&mut world);
-        let pin = PINS.iter().find(|p| p.0 == case.name).unwrap_or_else(|| panic!("{}: no pin", case.name));
-        let want = Reached { state: pin.1, trace: pin.2, events: pin.3 };
-        assert_eq!(reached, want, "{}: not what the scanning engine reached", case.name);
+        let want = Reached { state: pin.1, trace: pin.2, events: pin.4 };
+        assert_eq!(reached, want, "{}: not what the engine reaches by default", case.name);
     }
 }
 
@@ -976,10 +990,17 @@ fn large_worlds_reach_what_the_scanning_engine_reached() {
 fn print_pins() {
     let large = std::env::var("ORACLE_LARGE").is_ok();
     for case in cases(large) {
+        let mut all = case.world();
+        all.events.set_watch(Watch::everything());
+        let every = case.run(&mut all);
         let mut world = case.world();
         let start = world.entities.len();
         let r = case.run(&mut world);
-        println!("    (\"{}\", 0x{:016x}, 0x{:016x}, 0x{:016x}),", case.name, r.state, r.trace, r.events);
+        assert_eq!((every.state, every.trace), (r.state, r.trace), "{}: what is written changed the world", case.name);
+        println!(
+            "    (\"{}\", 0x{:016x}, 0x{:016x}, 0x{:016x}, 0x{:016x}),",
+            case.name, r.state, r.trace, every.events, r.events
+        );
         let mut reasons: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
         for e in world.events.all() {
             let reason = e.data.get("reason").and_then(|r| r.as_str()).unwrap_or("");

@@ -45,24 +45,28 @@ impl World {
             let (on_enter, on_exit) = (trigger.def.on_enter.clone(), trigger.def.on_exit.clone());
             let cell = self.entities[id as usize].cell();
             if was.is_empty() && !now.is_empty() {
-                let msg = format!(
-                    "{} at {} was entered by {}; it emits '{on_enter}'",
-                    self.describe(id),
-                    fmt_cell(cell),
-                    self.describe(now[0])
-                );
-                let data = Json::object().with("signal", on_enter.as_str()).with("by", now[0]);
-                self.log(EventKind::Trigger, Some(id), Some(now[0]), msg, data);
+                if self.wants(EventKind::Trigger, Some(id), Some(now[0])) {
+                    let msg = format!(
+                        "{} at {} was entered by {}; it emits '{on_enter}'",
+                        self.describe(id),
+                        fmt_cell(cell),
+                        self.describe(now[0])
+                    );
+                    let data = Json::object().with("signal", on_enter.as_str()).with("by", now[0]);
+                    self.write(EventKind::Trigger, Some(id), Some(now[0]), msg, data);
+                }
                 self.emit(id, &on_enter);
             } else if !was.is_empty() && now.is_empty() {
-                let msg = format!(
-                    "{} at {} was left by {}; it emits '{on_exit}'",
-                    self.describe(id),
-                    fmt_cell(cell),
-                    self.describe(was[0])
-                );
-                let data = Json::object().with("signal", on_exit.as_str()).with("by", was[0]);
-                self.log(EventKind::Trigger, Some(id), Some(was[0]), msg, data);
+                if self.wants(EventKind::Trigger, Some(id), Some(was[0])) {
+                    let msg = format!(
+                        "{} at {} was left by {}; it emits '{on_exit}'",
+                        self.describe(id),
+                        fmt_cell(cell),
+                        self.describe(was[0])
+                    );
+                    let data = Json::object().with("signal", on_exit.as_str()).with("by", was[0]);
+                    self.write(EventKind::Trigger, Some(id), Some(was[0]), msg, data);
+                }
                 self.emit(id, &on_exit);
             }
         }

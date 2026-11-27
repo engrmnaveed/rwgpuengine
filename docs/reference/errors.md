@@ -35,6 +35,10 @@ Codes are stable: never renumbered or reused. `E` codes are errors (the command 
 | [W0206](#w0206) | `actor-in-solid` | Actor starts inside a solid entity |
 | [W0207](#w0207) | `unsupported-char` | Label text has characters the font cannot draw |
 | [E0301](#e0301) | `signal-limit` | Too many signals in one frame |
+| [E0302](#e0302) | `action-limit` | Too many actions in one frame |
+| [E0303](#e0303) | `count-limit` | Too many count changes in one frame |
+| [E0304](#e0304) | `entity-limit` | Too many entities in the world |
+| [E0305](#e0305) | `tap-limit` | Too many taps in one frame |
 | [W0301](#w0301) | `offscreen` | Entity is drawn entirely off-screen |
 | [W0302](#w0302) | `occluded` | Sprite is mostly hidden |
 | [W0303](#w0303) | `clipped` | Entity is partly off-screen |
@@ -381,6 +385,65 @@ means a loop: A's signal enables B, whose signal toggles A, and so on.
 
 Fix: run `rwgpu inspect --events` and look at the `signal` events for the
 repeating chain.
+
+## E0302
+
+**Too many actions in one frame** (`action-limit`, error)
+
+More than 10000 `[[connect]]` actions ran (or were skipped by their `when`) in
+a single frame. The step stopped there: the signals still queued were dropped,
+and an `error` event names the action it stopped at. One signal can reach many
+connections, each with an `actions` list, and every `add` or `set` that changes
+a prop can emit `changed` again: a few connections that feed each other reach
+thousands of actions within the 1000 signals a frame allows (E0301).
+
+Fix: run `rwgpu inspect --frame N --events` at the frame the diagnostic names
+and look at which connection repeats. Listen to a narrower signal, add a `when`
+that stops the chain, or keep the actions that feed each other apart.
+`rwgpu explain limits` lists every limit.
+
+## E0303
+
+**Too many count changes in one frame** (`count-limit`, error)
+
+More than 10000 `counts` props changed in a single frame. Each spawn, enable,
+disable or toggle of a copy changes every `counts` prop that counts its prefab,
+so many counters times many changes grows fast (a prefab that counts its own
+copies and spawns more of itself does it in a few frames). The step stopped
+there: the signals still queued were dropped, the counts not yet brought up to
+date are brought up to date by the next frame, and an `error` event names the
+prefab.
+
+Fix: keep `counts` on a few entities (a HUD or a job card), not on the copies
+being counted. `rwgpu explain limits` lists every limit.
+
+## E0304
+
+**Too many entities in the world** (`entity-limit`, error)
+
+A `spawn` would make the world hold more than 1000000 entities. Entities are
+never removed (a disabled one keeps its id), so a spawn that runs every frame,
+or a chain where every new copy spawns more (`from_prefab` on `spawned`), grows
+the world until memory runs out. The step stopped at that spawn: nothing was
+placed and the signals still queued were dropped. Every later frame that tries
+to spawn stops there too.
+
+Fix: run `rwgpu run --frames N` and read `entities` to see how fast the world
+grows; give the spawn a `cost` or a `when` that ends it, or `disable` copies and
+`enable` them again instead of spawning new ones. `rwgpu explain limits` lists
+every limit.
+
+## E0305
+
+**Too many taps in one frame** (`tap-limit`, error)
+
+More than 256 taps arrived for a single frame (from a playtest's `[[input]]`
+tables, or from a player). The first 256 were applied in order; the rest were
+not looked at, and an `error` event says how many. Each tap is resolved
+against the drawn frame, so their number decides how long a frame takes.
+
+Fix: spread the taps over several frames (`frame = N`).
+`rwgpu explain limits` lists every limit.
 
 ## W0301
 
