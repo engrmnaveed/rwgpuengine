@@ -27,6 +27,9 @@
 //! ```
 //!
 //! `render-bench` is internal: `budgets` runs it as a release build.
+//! `sim-bench` times one simulation step in generated worlds of 1,000 to
+//! 50,000 entities; run it as a release build
+//! (`cargo run --release -p xtask -- sim-bench`).
 
 // xtask measures wall-clock time on purpose (budgets); the determinism ban
 // on Instant::now applies to the engine, not to dev tooling.
@@ -38,6 +41,7 @@ use std::time::Instant;
 
 mod dist;
 mod repo;
+mod sim_bench;
 mod town;
 mod web;
 
@@ -64,12 +68,14 @@ fn main() -> ExitCode {
         "export-check" => export_check(),
         "pages" => pages(rest),
         "render-bench" => render_bench(),
+        "sim-bench" => sim_bench::run(rest),
         "gpu" => gpu(rest),
         _ => {
             eprintln!(
                 "usage: cargo xtask <ci | repo-check | dist [--agent] | web | web-player | smoke | budgets | \
                  docs [--check] | wasm-check | export-check | pages [--out DIR] [--base /PATH/] | \
-                 gpu [--fast | --study | --window] [-- <options of players/gpu_check>]>"
+                 gpu [--fast | --study | --window] [-- <options of players/gpu_check>] | \
+                 sim-bench [town | plates | wired | build ...] [N ...] [--steps S]>"
             );
             return ExitCode::from(2);
         }

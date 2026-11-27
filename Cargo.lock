@@ -280,6 +280,7 @@ dependencies = [
  "rwgpuengine_data",
  "rwgpuengine_render",
  "rwgpuengine_runtime",
+ "rwgpuengine_sim",
 ]
 
 [[package]]
