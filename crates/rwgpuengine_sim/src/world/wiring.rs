@@ -148,12 +148,12 @@ pub(super) struct Routes {
     /// (signal, where it listens, the connection's place in the file),
     /// sorted: the connections of one signal from one place are a run, in
     /// file order.
-    routes: Vec<(u32, From, u32)>,
+    routes: Vec<(u32, Place, u32)>,
 }
 
 /// Where a connection listens, with names as numbers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum From {
+enum Place {
     Ground,
     Entity(EntityId),
     Prefab(u32),
@@ -172,14 +172,14 @@ fn numbered(names: &mut BTreeMap<String, u32>, name: &str) -> u32 {
 impl Routes {
     pub fn build(connections: &[Connection]) -> Routes {
         let (mut signals, mut prefabs) = (BTreeMap::new(), BTreeMap::new());
-        let mut routes: Vec<(u32, From, u32)> = connections
+        let mut routes: Vec<(u32, Place, u32)> = connections
             .iter()
             .enumerate()
             .map(|(i, c)| {
                 let from = match &c.from {
-                    Source::Ground => From::Ground,
-                    Source::Entity(id) => From::Entity(*id),
-                    Source::Prefab(p) => From::Prefab(numbered(&mut prefabs, p)),
+                    Source::Ground => Place::Ground,
+                    Source::Entity(id) => Place::Entity(*id),
+                    Source::Prefab(p) => Place::Prefab(numbered(&mut prefabs, p)),
                 };
                 (numbered(&mut signals, &c.signal), from, i as u32)
             })
@@ -189,7 +189,7 @@ impl Routes {
     }
 
     /// The connections of `signal` that listen to `from`, in file order.
-    fn run(&self, signal: u32, from: From) -> &[(u32, From, u32)] {
+    fn run(&self, signal: u32, from: Place) -> &[(u32, Place, u32)] {
         let start = self.routes.partition_point(|r| (r.0, r.1) < (signal, from));
         let len = self.routes[start..].partition_point(|r| (r.0, r.1) == (signal, from));
         &self.routes[start..start + len]
@@ -197,13 +197,13 @@ impl Routes {
 
     /// The two runs a signal from an entity can reach: the connections from
     /// that entity, and those from its prefab. For the ground, one run.
-    fn runs(&self, emitter: Option<EntityId>, prefab: Option<&str>, signal: &str) -> [&[(u32, From, u32)]; 2] {
+    fn runs(&self, emitter: Option<EntityId>, prefab: Option<&str>, signal: &str) -> [&[(u32, Place, u32)]; 2] {
         let Some(&signal) = self.signals.get(signal) else { return [&[], &[]] };
         match emitter {
-            None => [self.run(signal, From::Ground), &[]],
+            None => [self.run(signal, Place::Ground), &[]],
             Some(e) => [
-                self.run(signal, From::Entity(e)),
-                prefab.and_then(|p| self.prefabs.get(p)).map_or(&[], |p| self.run(signal, From::Prefab(*p))),
+                self.run(signal, Place::Entity(e)),
+                prefab.and_then(|p| self.prefabs.get(p)).map_or(&[], |p| self.run(signal, Place::Prefab(*p))),
             ],
         }
     }
