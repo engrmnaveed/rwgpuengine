@@ -556,7 +556,7 @@ block = { height = 2 }
 #[test]
 fn the_painter_gives_the_reference_pixels() {
     let mut painter = Painter::new();
-    for scene in [SCENE, EVERYTHING] {
+    for scene in [SCENE, EVERYTHING, SHAPES] {
         for (view, turn, zoom) in cameras() {
             let stage = setup(scene).with(view, turn, zoom);
             // With and without disabled items in the list: both skip them.
@@ -604,7 +604,7 @@ fn the_painter_overwrites_whatever_the_buffer_held() {
 fn a_tap_hits_what_its_pixel_shows() {
     // For every camera, picking agrees with the picture pixel by pixel: the
     // entity or ground cell that owns a pixel is what a tap there gets.
-    for scene in [SCENE, EVERYTHING] {
+    for scene in [SCENE, EVERYTHING, SHAPES] {
         for (view, turn, zoom) in cameras() {
             let stage = setup(scene).with(view, turn, zoom);
             let (seen, frame, _) = stage.render();
@@ -1043,4 +1043,144 @@ fn boxes_whose_height_is_not_a_whole_pixel_are_drawn_at_their_height() {
     assert_eq!(frame.pixel(x, y - 1).to_hex(), "#ffffff");
     assert_ne!(frame.pixel(x, y).to_hex(), "#ffffff");
     assert_eq!(seen.bounds_of(stage.world.find("box").unwrap()).xywh()[3], 32 + 39);
+}
+
+// ---------------------------------------------------------------------------
+// Shapes: `[[shape]]` lists, drawn as models
+
+/// Every kind of shape: a house (a box, a roof turned a quarter, a chimney),
+/// a tree, a tower with a tile on its top, wedges turned each way, a hut
+/// with a label and a sprite on it, and a block beside them.
+const SHAPES: &str = r##"
+[ground]
+size = [6, 6]
+
+[[entity]]
+name = "house"
+pos = [0, 0]
+footprint = [2, 2]
+shape = [{ kind = "box", at = [0.125, 0.125, 0], size = [1.75, 1.75, 1], color = "#e8d8b0" }, { kind = "roof", at = [0, 0, 1], size = [2, 2, 0.75], color = "#b5523b", turn = 90 }, { kind = "box", at = [1.25, 0.5, 1], size = [0.25, 0.25, 1], color = "#7a6a5a" }]
+
+[[entity]]
+name = "tree"
+pos = [3, 0]
+shape = [{ kind = "cylinder", at = [0.375, 0.375, 0], size = [0.25, 0.25, 0.5], color = "#7a5a3a" }, { kind = "cone", at = [0.125, 0.125, 0.5], size = [0.75, 0.75, 1.25], color = "#3f8a3f" }]
+
+[[entity]]
+name = "tower"
+pos = [5, 0]
+shape = [{ kind = "cylinder", size = [1, 1, 1.5], color = "#c8c8c8" }]
+
+[[entity]]
+name = "lid"
+pos = [5, 0, 1.5]
+tile = { color = "#5a6ea0" }
+
+[[entity]]
+name = "ramps"
+pos = [0, 3]
+footprint = [2, 2]
+shape = [{ kind = "wedge", size = [1, 1, 0.5], color = "#c0a060" }, { kind = "wedge", at = [1, 0, 0], size = [1, 1, 0.75], color = "#c0a060", turn = 90 }, { kind = "wedge", at = [0, 1, 0], size = [1, 1, 1], color = "#a08040", turn = 180 }, { kind = "wedge", at = [1, 1, 0], size = [1, 1, 0.25], color = "#a08040", turn = 270 }]
+
+[[entity]]
+name = "hut"
+pos = [3, 3]
+shape = [{ kind = "box", size = [1, 1, 0.75], color = "#a05a2c" }, { kind = "roof", at = [0, 0, 0.75], size = [1, 1, 0.5], color = "#6a3a2a" }]
+sprite = { shape = "circle", color = "#ffe060", size = [12, 12] }
+label = { text = "Hut" }
+
+[[entity]]
+name = "crate"
+pos = [5, 4]
+block = { height = 0.75, color = "#a05a2c" }
+"##;
+
+#[test]
+fn a_box_shape_is_drawn_as_a_block_is() {
+    // The same solids written both ways give the same picture, pixel for
+    // pixel, under every camera: a block is the first shape.
+    let ground = "[ground]\nsize = [5, 5]\n";
+    let rest = "\n[[entity]]\nname = \"mat\"\npos = [1, 1, 1.5]\ntile = { color = \"#00c060\" }\n\n[[entity]]\nname = \"hero\"\npos = [2, 3]\nsprite = { color = \"#ff0000\", size = [16, 24] }\n";
+    let blocks = "\n[[entity]]\nname = \"house\"\npos = [1, 1]\nfootprint = [2, 1]\nblock = { height = 1.5, color = \"#b5651d\" }\n\n[[entity]]\nname = \"low\"\npos = [3, 3]\nblock = { height = 0.4, color = \"#80868f\" }\n\n[[entity]]\nname = \"up\"\npos = [0, 4, 2]\nblock = { height = 0.5, color = \"#c04040\" }\n";
+    let shapes = "\n[[entity]]\nname = \"house\"\npos = [1, 1]\nfootprint = [2, 1]\nshape = [{ kind = \"box\", size = [2, 1, 1.5], color = \"#b5651d\" }]\n\n[[entity]]\nname = \"low\"\npos = [3, 3]\nshape = [{ kind = \"box\", size = [1, 1, 0.4], color = \"#80868f\" }]\n\n[[entity]]\nname = \"up\"\npos = [0, 4, 2]\nshape = [{ kind = \"box\", size = [1, 1, 0.5], color = \"#c04040\" }]\n";
+    for (view, turn, zoom) in cameras() {
+        let as_blocks = setup(&format!("{ground}{blocks}{rest}")).with(view, turn, zoom);
+        let as_shapes = setup(&format!("{ground}{shapes}{rest}")).with(view, turn, zoom);
+        let (a, b) = (render(&as_blocks.seen(false)), render(&as_shapes.seen(false)));
+        let first = a.rgba.iter().zip(&b.rgba).position(|(x, y)| x != y).map(|i| ((i / 4) % 320, i / 4 / 320));
+        assert_eq!(first, None, "{view:?} {turn} {zoom}: the first different pixel (x, y)");
+        // And the same pixels belong to the same entities.
+        let owner = |stage: &Stage, frame: &Frame| -> Vec<Option<u32>> {
+            let seen = stage.seen(false);
+            frame.owner.iter().map(|o| o.checked_sub(1).and_then(|i| seen.items[i as usize].entity)).collect()
+        };
+        assert!(owner(&as_blocks, &a) == owner(&as_shapes, &b), "{view:?} {turn} {zoom}: owners");
+    }
+}
+
+#[test]
+fn the_report_names_an_entity_s_shapes_one_by_one() {
+    let stage = setup(SHAPES);
+    let (seen, frame, report) = stage.render();
+    let of = |name: &str| report.entities.iter().find(|e| e.label == name).unwrap_or_else(|| panic!("{name}"));
+    let house = of("house");
+    // Its parts are its shapes' kinds, each once; its shapes are listed in the order of the file.
+    assert_eq!(house.parts, ["box", "roof"]);
+    let kinds: Vec<&str> = house.shapes.iter().map(|s| s.0).collect();
+    assert_eq!(kinds, ["box", "roof", "box"]);
+    // The walls are partly under the eaves; the roof and the chimney are not covered by
+    // anything else, and the chimney's foot is inside the roof.
+    let (walls, roof, chimney) = (house.shapes[0], house.shapes[1], house.shapes[2]);
+    assert!(walls.2 > 0 && walls.2 < walls.1, "{walls:?}");
+    assert!(roof.2 > 1000 && roof.2 < roof.1, "{roof:?}: the chimney stands in it");
+    assert!(chimney.2 > 0 && chimney.2 < chimney.1, "{chimney:?}");
+    // Every pixel that shows the house is one of its shapes'.
+    assert_eq!(house.visible_px, walls.2 + roof.2 + chimney.2);
+    assert_eq!((of("tree").parts.clone(), of("ramps").parts.clone()), (vec!["cylinder", "cone"], vec!["wedge"]));
+    assert_eq!(of("ramps").shapes.len(), 4);
+    // A block has no shapes, and the JSON says `shapes` only where there are some.
+    assert!(of("crate").shapes.is_empty());
+    let json = report.to_json(&stage.world);
+    let entry = |name: &str| {
+        let all = json.get("entities").and_then(|e| e.as_array()).expect("entities");
+        all.iter().find(|e| e.get("entity").and_then(|n| n.as_str()) == Some(name)).expect("the entity").clone()
+    };
+    assert_eq!(entry("crate").get("shapes"), None);
+    let tree = entry("tree");
+    assert_eq!(tree.pointer("shapes/1/kind").and_then(|k| k.as_str()), Some("cone"));
+    assert_eq!(tree.pointer("shapes/1/visible_px").and_then(|k| k.as_i64()), Some(of("tree").shapes[1].2 as i64));
+    // A tap on a shape hits its entity, and the tap point of an entity is on it.
+    let roof_px = stage.px(1.0, 1.0, 1.75);
+    let house_id = stage.world.find("house").expect("the house");
+    assert_eq!(pick(&seen, roof_px[0] as f32 + 0.5, roof_px[1] as f32 + 0.5).hit, Some(house_id));
+    let [tx, ty] = tap_point(&seen, &frame, house_id).expect("it shows");
+    assert_eq!(pick(&seen, tx as f32 + 0.5, ty as f32 + 0.5).hit, Some(house_id));
+    // What reaches past the edge of this small frame is reported as clipped, by its name;
+    // nothing else is wrong with the picture.
+    assert!(report.issues.iter().all(|d| d.code == "W0303"), "{:#?}", report.issues);
+    assert!(report.issues.iter().any(|d| d.message.starts_with("house is partly off-screen")));
+}
+
+#[test]
+fn flat_things_and_cards_stand_on_shapes_as_on_blocks() {
+    for (view, turn, zoom) in cameras() {
+        let stage = setup(SHAPES).with(view, turn, zoom);
+        let what = format!("{view:?} {turn} {zoom}");
+        // A tile at the height of a cylinder's top lies on it: the top does not show through.
+        assert_eq!(lost_to(&stage, "lid", crate::Part::Tile, Some("tower")), 0, "{what}: the lid on the tower");
+        // A sprite and a label stand on top of their entity's shapes, where they can be seen.
+        let (_, _, report) = stage.render();
+        let hut = report.entities.iter().find(|e| e.label == "hut").expect("the hut");
+        assert!(!hut.covered_by.iter().any(|(by, _)| *by == hut.id), "{what}");
+        assert_eq!(lost_to(&stage, "hut", crate::Part::Label, Some("hut")), 0, "{what}: the label on the roof");
+    }
+    // The anchor is at the top of the box around the shapes: 0.75 + 0.5 above the ground.
+    let stage = setup(SHAPES);
+    let list = build(&stage.world, &stage.view, &stage.camera, false);
+    let hut = stage.world.find("hut").expect("the hut");
+    let card = list.cards.iter().find(|c| c.entity == hut).expect("its sprite");
+    assert_eq!(card.anchor, [3.0, 3.0, 1.25]);
+    // One model for each list, however many instances; the list compares by what it holds.
+    assert_eq!(list.models.len(), 5);
+    assert_eq!(list, build(&stage.world, &stage.view, &stage.camera, false));
 }

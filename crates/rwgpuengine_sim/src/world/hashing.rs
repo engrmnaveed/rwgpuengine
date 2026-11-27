@@ -21,6 +21,20 @@ impl World {
                 h.str(&t.name).bool(t.build);
             }
         }
+        // The shape lists, each once (none in a scene without shapes, so
+        // older scenes keep their hashes); an entity then says which is its.
+        if !self.shapes.is_empty() {
+            h.u8(0xA1).u64(self.shapes.len() as u64);
+            for list in &self.shapes {
+                h.u64(list.len() as u64);
+                for s in list.iter() {
+                    h.u8(s.kind as u8).u8(s.turn).bytes(&[s.color.r, s.color.g, s.color.b, s.color.a]);
+                    for v in s.at.iter().chain(&s.size) {
+                        h.f32(*v);
+                    }
+                }
+            }
+        }
         for e in &self.entities {
             h.u32(e.id).bool(e.enabled).bool(e.solid);
             if e.pushable {
@@ -62,6 +76,9 @@ impl World {
             }
             if let Some([x, y]) = e.screen_pos {
                 h.u8(9).f32(x).f32(y);
+            }
+            if let Some(list) = e.shapes {
+                h.u8(13).u32(list);
             }
             for (k, v) in &e.props {
                 h.str(k);

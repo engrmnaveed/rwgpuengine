@@ -70,6 +70,9 @@ pub struct Entity {
     pub counts: Vec<(String, String)>,
     /// Warning codes intended for this entity (not reported).
     pub allow: Vec<String>,
+    /// Its `[[shape]]` list, as a place in [`World::shapes`]: the entities
+    /// made from one prefab are drawn from one list.
+    pub shapes: Option<u32>,
 }
 
 impl Entity {
@@ -113,13 +116,14 @@ impl Entity {
     }
 
     /// Does it take up its cells for placement? Enabled world entities that
-    /// are drawn there (tile, block, sprite, label), solid, pushable, actors
-    /// or triggers. A data-only entity (just props) takes up nothing.
+    /// are drawn there (tile, block, shapes, sprite, label), solid, pushable,
+    /// actors or triggers. A data-only entity (just props) takes up nothing.
     pub fn takes_space(&self) -> bool {
         self.enabled
             && self.in_world()
             && (self.tile.is_some()
                 || self.block.is_some()
+                || self.shapes.is_some()
                 || self.sprite.is_some()
                 || self.label.is_some()
                 || self.trigger.is_some()
@@ -224,8 +228,9 @@ impl std::fmt::Debug for EntityMut<'_> {
     }
 }
 
-/// A runtime entity from its definition.
-pub(super) fn make_entity(id: EntityId, def: &EntityDef) -> Entity {
+/// A runtime entity from its definition. `shapes` is the place of its shape
+/// list in the world's.
+pub(super) fn make_entity(id: EntityId, def: &EntityDef, shapes: Option<u32>) -> Entity {
     Entity {
         id,
         name: def.name.clone(),
@@ -247,5 +252,6 @@ pub(super) fn make_entity(id: EntityId, def: &EntityDef) -> Entity {
         props: def.props.iter().cloned().collect(),
         counts: def.counts.clone(),
         allow: def.allow.clone(),
+        shapes,
     }
 }

@@ -109,7 +109,7 @@ pub fn semantics_markdown(h: &str) -> String {
     let event_table = rwgpuengine_sim::events_markdown();
     let limits_table = rwgpuengine_core::limits::markdown();
     format!(
-        r#"
+        r##"
 {h} Runtime rules
 
 **Frames.** The simulation advances in fixed steps (`[sim] tick_rate` per second). Frame N is the state
@@ -166,6 +166,36 @@ shows the map and legend under `ground`.
 for placement and is tapped on every covered cell. A block or tile fills the whole area; a sprite or label
 stands at the middle and is drawn with the front cell. Only things that stay put can be bigger than one
 cell.
+
+**Shapes.** A building is a list of solids, written in its prefab (or on an entity):
+
+```toml
+# prefabs/house.toml
+footprint = [2, 2]
+
+[[shape]]                  # the walls
+kind = "box"
+at = [0.125, 0.125, 0]
+size = [1.75, 1.75, 1.25]
+color = "#e8d8b0"
+
+[[shape]]                  # a gable roof on them; its ridge runs along x
+kind = "roof"
+at = [0, 0, 1.25]
+size = [2, 2, 0.9]
+color = "#b5523b"
+```
+
+Each shape fills its box, from `at` to `at + size`, counted in cells from the entity's back corner (the
+lowest x and y of its footprint, at its height). The kinds are `box`, `roof` (a gable roof), `wedge` (a ramp
+or a lean-to roof), `cylinder` and `cone`; `turn = 90` on a shape turns the solid inside its box a quarter
+turn from +x toward +y (a roof's ridge then runs along y; a wedge rises toward +x, +y, -x, -y at 0, 90, 180,
+270). Colors are flat and opaque, and each face is shaded by the light. `block` and `tile` are the two
+simplest shapes and stay as they are: a box and a flat rectangle that fill the footprint. Keep shapes inside
+the footprint (W0208), and do not put two upright sides in one plane where they overlap (W0209): set a
+chimney in from the wall, not flush with it. Every entity made from a prefab is drawn from the prefab's one
+list; `shape = [...]` on an entity replaces it. `rwgpu shot --json` lists an entity's shapes with the pixels
+each shows, and `rwgpu inspect` prints them under `shape`.
 
 **Spawning.** `action = "spawn"` with `prefab` places a new copy of the prefab where the signal happened: on
 the tapped cell for `from = "ground"`, else on the emitter's cell (its back corner there). Every covered cell
@@ -227,15 +257,18 @@ step. Other kinds are always written: the limits above bound them.
 {event_table}
 
 **Drawing.** The world is drawn in 3D: what is nearer the camera hides what is behind it, whatever the
-order in the file. A block is a box; a tile and a ground cell are flat. A flat thing lying exactly on a
-surface shows on top of it: a tile on the ground or on a block's top, a block of height 0 on a tile. A
+order in the file. A block is a box; a tile and a ground cell are flat; a `[[shape]]` list is the solids it
+names. A flat thing lying exactly on a surface shows on top of it: a tile on the ground, on a block's top
+or on the top of a shape, a block of height 0 on a tile. A
 sprite or a label is a flat picture that faces the camera and stands on its entity's standing point (on
-top of its block, if it has one): a sprite grows and shrinks with the camera like the world, text keeps its
-pixel size. See-through colors blend over what is behind them. Screen entities (`screen_pos`) are drawn
+top of its block and its shapes, if it has any): a sprite grows and shrinks with the camera like the world,
+text keeps its pixel size. See-through colors blend over what is behind them. Screen entities (`screen_pos`) are drawn
 after the whole world, in file order, and ignore the camera.
-One fixed light shades boxes: a top keeps its color, and the sides get 0.8 (+y), 0.65 (+x), 0.5 (-x) and
-0.35 (-y) of theirs, so turning the camera shows the darker sides.
-"#
+One fixed light shades every face by the way it looks: a top keeps its color, and upright sides get 0.8
+(+y), 0.65 (+x), 0.5 (-x) and 0.35 (-y) of theirs, so turning the camera shows the darker sides. A slope
+and the side of a round shape are in between: a roof's slope toward +y is as light as a top, the one toward
+-y darker, the more so the steeper it is. A cylinder and a cone have 16 flat sides.
+"##
     )
 }
 

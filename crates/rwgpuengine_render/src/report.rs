@@ -46,6 +46,9 @@ pub struct EntityReport {
     pub covered_by: Vec<(EntityId, u32)>,
     /// Label text as shown, if the entity has a label.
     pub text: Option<String>,
+    /// Its shapes, in the order of its `[[shape]]` list: (kind, pixels the
+    /// shape covers inside the frame, pixels that show it).
+    pub shapes: Vec<(&'static str, u32, u32)>,
 }
 
 /// Pixel accounting for one entity's label.
@@ -112,6 +115,7 @@ pub fn build_report(world: &World, list: &Projected, frame: &Frame) -> FrameRepo
                 clipped: false,
                 covered_by: Vec::new(),
                 text: world.get(id).and_then(|e| e.label_text()),
+                shapes: Vec::new(),
             }
         });
         if !entry.parts.contains(&item.part.name()) {
@@ -121,6 +125,9 @@ pub fn build_report(world: &World, list: &Projected, frame: &Frame) -> FrameRepo
         entry.offscreen |= item.out_of_range;
         let s = &stats[idx];
         entry.visible_px += s.visible;
+        if let Part::Shape(kind) = item.part {
+            entry.shapes.push((kind.name(), s.drawn, s.visible));
+        }
         if item.part == Part::Tile && world.get(id).is_some_and(|e| e.trigger.is_some()) {
             // What stands on any cell of the trigger does not hide it.
             let on_it = |o: usize| o < list.world_len() && world.get(id).is_some_and(|t| t.covers(list.items[o].cell));
@@ -294,7 +301,7 @@ impl FrameReport {
                             .with("pixels", *n)
                     })
                     .collect();
-                Json::object()
+                let mut j = Json::object()
                     .with("entity", r.label.as_str())
                     .with("id", r.id)
                     .with("parts", r.parts.iter().map(|p| Json::from(*p)).collect::<Vec<_>>())
@@ -306,7 +313,15 @@ impl FrameReport {
                     .with("offscreen", r.offscreen)
                     .with("clipped", r.clipped)
                     .with("covered_by", cov)
-                    .with("text", r.text.clone())
+                    .with("text", r.text.clone());
+                // What it is built of, shape by shape: a roof that shows no pixel is hidden or faces away.
+                if !r.shapes.is_empty() {
+                    let shape = |(kind, drawn, visible): &(&str, u32, u32)| {
+                        Json::object().with("kind", *kind).with("drawn_px", *drawn).with("visible_px", *visible)
+                    };
+                    j.set("shapes", r.shapes.iter().map(shape).collect::<Vec<_>>());
+                }
+                j
             })
             .collect();
         Json::object()

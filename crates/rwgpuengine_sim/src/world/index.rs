@@ -70,7 +70,8 @@ impl Fact {
 
     fn of(e: &Entity, prefab: u32) -> Fact {
         let actor = e.mover.is_some() || e.patrol.is_some() || e.wander.is_some();
-        let drawn = e.tile.is_some() || e.block.is_some() || e.sprite.is_some() || e.label.is_some();
+        let drawn =
+            e.tile.is_some() || e.block.is_some() || e.shapes.is_some() || e.sprite.is_some() || e.label.is_some();
         let body = e.screen_pos.is_none() && (drawn || e.trigger.is_some() || e.solid || e.pushable || actor);
         let bits = [
             (e.enabled, ENABLED),

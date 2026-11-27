@@ -5,7 +5,8 @@
 //! [`report::build_report`] / [`image::encode_png`].
 //!
 //! The render list is what every renderer reads: a camera, a light, solid
-//! instances, cards and a 2D layer. The reference renderer here draws it on
+//! instances (boxes, flat rectangles, and the models `[[shape]]` lists are
+//! baked into, [`model`]), cards and a 2D layer. The reference renderer here draws it on
 //! the CPU, with no GPU and no window, to identical bytes on every platform;
 //! picking ([`pick`]) and the frame report read the same projection, so what
 //! is shown, what is reported and what a tap hits cannot disagree.
@@ -18,6 +19,7 @@ pub mod draw;
 pub mod font;
 pub mod image;
 pub mod list;
+pub mod model;
 pub mod paint;
 pub mod pick;
 pub mod reference;
@@ -27,6 +29,7 @@ pub mod view;
 pub use camera::{Camera, CardPlace, FacePlanes, Projector};
 pub use draw::{DrawItem, Part, Rect, Shape};
 pub use list::{Card, CardBody, Instance, Light, Mesh, RenderList};
+pub use model::{Baked, Model, bake};
 pub use reference::{Coverage, Frame, Item, ItemStats, Painter, Projected, project, render};
 pub use report::{EntityReport, FrameReport, build_report};
 pub use view::View;

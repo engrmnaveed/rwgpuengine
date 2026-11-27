@@ -10,7 +10,9 @@
 //!
 //! 1. [`project`] takes the list to the screen: every instance becomes
 //!    triangles with corners on a 1/256 pixel grid and a depth at each
-//!    corner, every card becomes flat shapes at one depth.
+//!    corner (a box and a flat rectangle from their own faces, a model from
+//!    the faces [`bake`] gives it), every card becomes flat shapes at one
+//!    depth.
 //! 2. [`render`] fills the pixels. Solid things and cards go through a depth
 //!    buffer, so order does not matter for them; see-through ones follow, far
 //!    to near; the 2D layer is painted last. Besides colors it records which
@@ -43,6 +45,7 @@ use rwgpuengine_sim::EntityId;
 use crate::camera::{CardPlace, FacePlanes, Hom, Projector, dot4, to_fixed};
 use crate::draw::{self, Part, Rect, Shape};
 use crate::list::{Card, CardBody, Instance, Light, Mesh, RenderList};
+use crate::model::{Baked, bake};
 use crate::paint::{ceil_div, fill, solid, spans};
 use crate::view::round;
 
@@ -194,14 +197,20 @@ pub fn project(list: &RenderList) -> Projected {
         order: Vec::new(),
         world: 0,
     };
+    // The faces of every model, once for all of its instances.
+    let models: Vec<Baked> = list.models.iter().map(|m| bake(m, &list.light)).collect();
     // Both lists are in drawing order; within one entity, solid parts come first.
     let (mut i, mut c) = (0, 0);
-    let mut clip = (Vec::new(), Vec::new());
+    let mut scratch = Scratch::default();
     while i < list.instances.len() || c < list.cards.len() {
         let solid_next =
             c >= list.cards.len() || (i < list.instances.len() && list.instances[i].seq <= list.cards[c].seq);
         if solid_next {
-            out.push_instance(&proj, &planes, &list.light, &list.instances[i], &mut clip);
+            let inst = &list.instances[i];
+            match inst.mesh {
+                Mesh::Model(n) => out.push_model(&proj, &planes, inst, &models[n as usize], &mut scratch),
+                _ => out.push_instance(&proj, &planes, &list.light, inst, &mut scratch.clip),
+            }
             i += 1;
         } else {
             out.push_card(&proj, &planes, &list.cards[c]);
@@ -281,6 +290,8 @@ impl Projected {
                     self.push_face(proj, &idx.map(|i| hom[i]), face, clip);
                 }
             }
+            // A model's instances go through `push_model`.
+            Mesh::Model(_) => {}
         }
         let tris = &self.tris[start..];
         let (middle, sort) = middle_depth(proj, inst);
@@ -297,9 +308,58 @@ impl Projected {
         });
     }
 
+    /// Add an instance of a model: one item for each of its shapes, in the
+    /// order of the list. Its faces are the model's, moved to the instance.
+    #[inline(never)]
+    fn push_model(
+        &mut self,
+        proj: &Projector,
+        planes: &FacePlanes,
+        inst: &Instance,
+        model: &Baked,
+        scratch: &mut Scratch,
+    ) {
+        let base = inst.pos.map(f64::from);
+        let in_range = proj.inside(&middle_depth(proj, inst).0);
+        let rank = inst.layer.min(RANK_LYING - 2) + 1;
+        let world = |i: u32| {
+            let p = model.points[i as usize];
+            [base[0] + p[0] as f64, base[1] + p[1] as f64, base[2] + p[2] as f64]
+        };
+        for solid in &model.solids {
+            // Each corner is projected once, so faces meet without gaps.
+            scratch.corners.clear();
+            scratch.corners.extend(solid.points.clone().map(|i| proj.hom(world(i), 0)));
+            let start = self.tris.len();
+            for face in &model.faces[solid.faces.start as usize..solid.faces.end as usize] {
+                let corners = &model.corners[face.corners.start as usize..face.corners.end as usize];
+                if !proj.faces_camera(world(corners[0]), face.normal) {
+                    continue;
+                }
+                scratch.face.clear();
+                scratch.face.extend(corners.iter().map(|c| scratch.corners[(c - solid.points.start) as usize]));
+                // A level face is at the sum of two heights as a scene file would hold it.
+                let plane = face.level.and_then(|h| planes.over_pixels(inst.pos[2] + h));
+                let ranked = if face.level.is_some() { rank } else { 0 };
+                self.push_face(proj, &scratch.face, (face.color, ranked, plane), &mut scratch.clip);
+            }
+            self.items.push(Item {
+                entity: inst.entity,
+                part: Part::Shape(solid.kind),
+                cell: inst.cell,
+                enabled: inst.enabled,
+                bounds: tri_bounds(&self.tris[start..]),
+                out_of_range: !in_range && self.tris.len() == start,
+                translucent: false,
+                sort: 0.0,
+                kind: Kind::Solid { tris: (start as u32, self.tris.len() as u32) },
+            });
+        }
+    }
+
     /// Add one flat face (its color, rank and plane), cut to the camera's
     /// range if it reaches outside.
-    fn push_face(&mut self, proj: &Projector, quad: &[Hom; 4], face: Face, clip: &mut (Vec<Hom>, Vec<Hom>)) {
+    fn push_face(&mut self, proj: &Projector, quad: &[Hom], face: Face, clip: &mut (Vec<Hom>, Vec<Hom>)) {
         if quad.iter().all(|h| proj.inside(h)) {
             self.push_fan(quad, face);
             return;
@@ -460,6 +520,16 @@ pub fn middle_depth(proj: &Projector, inst: &Instance) -> (Hom, f32) {
 
 /// A face's color, its rank and, for a level face, its plane over the pixels.
 type Face = (Rgba, u8, Option<[f64; 3]>);
+
+/// Buffers `project` uses again for every instance.
+#[derive(Default)]
+struct Scratch {
+    /// A face being cut to the camera's range.
+    clip: (Vec<Hom>, Vec<Hom>),
+    /// The corners of one shape of a model, projected, and one of its faces.
+    corners: Vec<Hom>,
+    face: Vec<Hom>,
+}
 
 /// The depth along pixel row `y` of a card that lies there on its anchor's
 /// level plane; `None` where the card stands upright (above the anchor) or

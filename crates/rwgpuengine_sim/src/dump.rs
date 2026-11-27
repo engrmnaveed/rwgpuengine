@@ -52,6 +52,20 @@ pub fn entity_json(world: &World, e: &Entity) -> Json {
         }
         j.set("block", bj.with("height", num(b.height)));
     }
+    if let Some(list) = e.shapes.and_then(|n| world.shapes.get(n as usize)) {
+        let shapes: Vec<Json> = list
+            .iter()
+            .map(|s| {
+                Json::object()
+                    .with("kind", s.kind.name())
+                    .with("at", vec_json(&s.at))
+                    .with("size", vec_json(&s.size))
+                    .with("color", s.color.to_hex())
+                    .with("turn", s.turn as u32 * 90)
+            })
+            .collect();
+        j.set("shape", shapes);
+    }
     if let Some(s) = &e.sprite {
         j.set(
             "sprite",

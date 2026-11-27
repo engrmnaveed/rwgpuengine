@@ -6,7 +6,7 @@
 //! is always on top.
 
 use rwgpuengine_core::color::Rgba;
-use rwgpuengine_data::{SpriteDef, SpriteShape, font};
+use rwgpuengine_data::{ShapeKind, SpriteDef, SpriteShape, font};
 use rwgpuengine_sim::{Entity, EntityId, World};
 
 use crate::font::{glyph_index, lit};
@@ -144,6 +144,8 @@ pub enum Part {
     Ground,
     Tile,
     Block,
+    /// One shape of its `[[shape]]` list; the name is the shape's kind.
+    Shape(ShapeKind),
     Sprite,
     Label,
 }
@@ -154,6 +156,7 @@ impl Part {
             Part::Ground => "ground",
             Part::Tile => "tile",
             Part::Block => "block",
+            Part::Shape(kind) => kind.name(),
             Part::Sprite => "sprite",
             Part::Label => "label",
         }

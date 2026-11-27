@@ -7,12 +7,15 @@
 //! and picking, and a GPU renderer for players. So "what you see", "what the
 //! report says" and "what a tap hits" cannot disagree.
 //!
-//! - An [`Instance`] is a solid thing in the world: a box, or a flat
-//!   rectangle lying on a surface. Today's `block` and `tile` and the ground
-//!   cells are the first of them.
+//! - An [`Instance`] is a solid thing in the world: a box, a flat rectangle
+//!   lying on a surface, or a [`Model`]. A `block`, a `tile` and the ground
+//!   cells are boxes and rectangles; a `[[shape]]` list is a model, and every
+//!   entity with that list is an instance of it.
 //! - A [`Card`] is a flat picture that faces the camera and stands at a world
 //!   point: a world entity's `sprite` or `label`.
 //! - The overlay is the 2D layer of screen entities, drawn last.
+
+use std::sync::Arc;
 
 use rwgpuengine_core::color::Rgba;
 use rwgpuengine_data::SpriteDef;
@@ -20,6 +23,7 @@ use rwgpuengine_sim::{EntityId, World};
 
 use crate::camera::Camera;
 use crate::draw::{self, DrawItem, Part};
+use crate::model::Model;
 use crate::view::View;
 
 /// The shapes an [`Instance`] can have.
@@ -29,6 +33,10 @@ pub enum Mesh {
     Box,
     /// A rectangle at height `pos[2]`, facing up; `size[2]` is 0.
     Flat,
+    /// The model [`RenderList::models`]`[n]`, with the corner of its
+    /// footprint at `pos`. `size` is the box around it; it has no colors of
+    /// its own (they are its shapes').
+    Model(u32),
 }
 
 /// One light for the whole scene. A face whose outward unit normal is `n` is
@@ -125,6 +133,9 @@ pub struct RenderList {
     pub cards: Vec<Card>,
     /// The 2D layer of screen entities, back to front.
     pub overlay: Vec<DrawItem>,
+    /// The models the instances are of: each shape list in each footprint
+    /// and turn it is drawn in, once, in the order first drawn.
+    pub models: Vec<Model>,
 }
 
 pub const LAYER_TILE: u8 = 1;
@@ -159,6 +170,9 @@ pub fn build(world: &World, view: &View, camera: &Camera, include_disabled: bool
             }
         }
     }
+    let mut models: Vec<Model> = Vec::new();
+    // The model of each shape list at each turn, once it is in the list.
+    let mut model_of = vec![[u32::MAX; 4]; world.shapes.len()];
     let mut seq = 0;
     for e in &world.entities {
         if !draw::in_world(e) || !(e.enabled || include_disabled) {
@@ -197,8 +211,23 @@ pub fn build(world: &World, view: &View, camera: &Camera, include_disabled: bool
                 solid(Part::Block, Mesh::Flat, 0.0, b.top, b.top, LAYER_FLAT_BLOCK);
             }
         }
+        if let Some(shapes) = e.shapes.and_then(|n| world.shapes.get(n as usize)) {
+            let turn = 0;
+            let slot = &mut model_of[e.shapes.unwrap_or(0) as usize][turn as usize];
+            // The same list in another footprint is another model (rare: one more is looked for).
+            let fits = |m: &Model| Arc::ptr_eq(&m.shapes, shapes) && m.footprint == e.footprint && m.turn == turn;
+            if !models.get(*slot as usize).is_some_and(fits) {
+                *slot = models.iter().position(fits).unwrap_or_else(|| {
+                    models.push(Model { shapes: shapes.clone(), footprint: e.footprint, turn });
+                    models.len() - 1
+                }) as u32;
+            }
+            let height = models[*slot as usize].height();
+            solid(Part::Shape(shapes[0].kind), Mesh::Model(*slot), height, Rgba::WHITE, Rgba::WHITE, 0);
+            top = top.max(z + height);
+        }
         // A sprite and a label stand at the middle of the entity's footprint,
-        // on top of its block if it has one (inside it they could not be seen).
+        // on top of its block and its shapes (inside them they could not be seen).
         let anchor = [x + (fw - 1) as f32 / 2.0, y + (fh - 1) as f32 / 2.0, top];
         if let Some(s) = &e.sprite {
             // The sprite stands on the anchor: bottom edge there, centered.
@@ -239,5 +268,6 @@ pub fn build(world: &World, view: &View, camera: &Camera, include_disabled: bool
         instances,
         cards,
         overlay: draw::overlay(world, include_disabled),
+        models,
     }
 }

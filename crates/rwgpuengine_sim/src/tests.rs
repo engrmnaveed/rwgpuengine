@@ -1330,3 +1330,116 @@ fn too_little_to_pay_is_a_funds_refusal_checked_before_the_cell() {
     w.tick(&ground_tap([0, 0]), &mut NoSystems);
     assert_eq!(prop(&w, "town", "coins"), PropValue::Float(0.5));
 }
+
+// ---------------------------------------------------------------------------
+// Shape lists (ADR 0029)
+
+const SHAPED: &str = r##"
+[ground]
+size = [8, 6]
+
+[[entity]]
+name = "town"
+props = { coins = 10 }
+
+[[entity]]
+name = "first"
+prefab = "house"
+pos = [0, 0]
+
+[[entity]]
+name = "tree"
+pos = [3, 0]
+shape = [{ kind = "cylinder", at = [0.375, 0.375, 0], size = [0.25, 0.25, 0.5] }, { kind = "cone", at = [0.125, 0.125, 0.5], size = [0.75, 0.75, 1] }]
+
+[[entity]]
+prefab = "house"
+cells = [[4, 0], [6, 0]]
+
+[[entity]]
+name = "lot"
+prefab = "house"
+pos = [0, 4]
+shape = []
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "house"
+"##;
+
+const SHAPED_HOUSE: &str = "footprint = [2, 2]\n\n[[shape]]\nkind = \"box\"\nsize = [2, 2, 1.5]\ncolor = \"#b5651d\"\n\n[[shape]]\nkind = \"roof\"\nat = [0, 0, 1.5]\nsize = [2, 2, 0.75]\ncolor = \"#8b2f2f\"\nturn = 90\n";
+
+fn shaped(house: &str, scene: &str) -> World {
+    let mut vfs = Vfs::new();
+    vfs.insert("scenes/main.toml", scene);
+    vfs.insert("prefabs/house.toml", house);
+    let mut loader = SceneLoader::new(&vfs);
+    let def = loader.load_scene("scenes/main.toml").unwrap_or_else(|| panic!("{:#?}", loader.diags));
+    World::new(&def, 1)
+}
+
+#[test]
+fn the_world_holds_each_shape_list_once_and_spawned_copies_share_it() {
+    let mut w = shaped(SHAPED_HOUSE, SHAPED);
+    // The prefab's list, then the tree's own, in the order first used.
+    assert_eq!(w.shapes.len(), 2);
+    let lists: Vec<Option<u32>> = w.entities.iter().map(|e| e.shapes).collect();
+    assert_eq!(lists, [None, Some(0), Some(1), Some(0), Some(0), None]);
+    assert_eq!((w.shapes[0].len(), w.shapes[0][1].kind.name(), w.shapes[1][1].kind.name()), (2, "roof", "cone"));
+    // A copy spawned later is drawn from the same list, and the table does not grow.
+    w.tick(&ground_tap([2, 2]), &mut NoSystems);
+    assert_eq!((w.entities.len(), w.entities[6].shapes, w.shapes.len()), (7, Some(0), 2));
+    assert!(last(&w, EventKind::Spawned).contains("was spawned at (2, 2)"));
+    // What `inspect` prints names the shapes, with turns in degrees.
+    let j = crate::dump::entity_json(&w, &w.entities[6]);
+    assert_eq!(j.pointer("shape/1/kind").and_then(|k| k.as_str()), Some("roof"));
+    assert_eq!(j.pointer("shape/1/turn").and_then(|k| k.as_i64()), Some(90));
+    assert_eq!(j.pointer("shape/0/size").map(|k| k.to_compact()), Some("[2,2,1.5]".into()));
+    assert_eq!(crate::dump::entity_json(&w, &w.entities[5]).get("shape"), None);
+}
+
+#[test]
+fn an_entity_of_shapes_takes_up_its_cells() {
+    // Shapes are drawn there, so nothing can be placed on them: the tree's
+    // cell and every cell of a house refuse a spawn, the empty lot does not.
+    let mut w = shaped(SHAPED_HOUSE, SHAPED);
+    assert!(w.entities[2].takes_space() && w.entities[1].takes_space() && !w.entities[5].takes_space());
+    for (cell, by) in [([3, 0], 2), ([2, 0], 2), ([1, 1], 1), ([5, 1], 3)] {
+        let refusal = w.can_place("house", cell).expect_err("taken");
+        assert_eq!((refusal.reason, refusal.by), ("occupied", Some(by)), "{cell:?}");
+    }
+    assert!(w.can_place("house", [0, 4]).is_ok(), "an entity with `shape = []` is only data");
+    w.check_against_scans(true);
+    w.tick(&ground_tap([0, 4]), &mut NoSystems);
+    w.tick(&ground_tap([1, 4]), &mut NoSystems);
+    assert_eq!(w.entities.len(), 7, "the second tap is on the first one's house");
+    assert!(w.verify_index().is_ok());
+}
+
+#[test]
+fn shapes_are_part_of_the_state_and_a_world_without_them_hashes_as_before() {
+    let hash = |house: &str| shaped(house, SHAPED).state_hash();
+    let base = hash(SHAPED_HOUSE);
+    assert_eq!(base, hash(SHAPED_HOUSE));
+    // Every number, the kind, the color and the turn of a shape count.
+    for (from, to) in [
+        ("size = [2, 2, 1.5]", "size = [2, 2, 1.25]"),
+        ("at = [0, 0, 1.5]", "at = [0, 0.5, 1.5]"),
+        ("kind = \"roof\"", "kind = \"wedge\""),
+        ("color = \"#8b2f2f\"", "color = \"#8b2f30\""),
+        ("turn = 90", "turn = 270"),
+    ] {
+        assert!(SHAPED_HOUSE.contains(from));
+        assert_ne!(base, hash(&SHAPED_HOUSE.replace(from, to)), "{from} -> {to}");
+    }
+    // Which list an entity has counts too: the lot with the prefab's list is another world.
+    assert_ne!(base, shaped(SHAPED_HOUSE, &SHAPED.replace("shape = []\n", "")).state_hash());
+    // A world with no shape list is hashed as it was before there were any: the pinned
+    // towns of the oracle and of the examples say so; here, that the table adds nothing.
+    let plain = "footprint = [2, 2]\nblock = {}\n";
+    let without = SHAPED.replace("shape = [{ kind = \"cylinder\", at = [0.375, 0.375, 0], size = [0.25, 0.25, 0.5] }, { kind = \"cone\", at = [0.125, 0.125, 0.5], size = [0.75, 0.75, 1] }]", "sprite = {}");
+    let w = shaped(plain, &without);
+    assert!(w.shapes.is_empty() && w.entities.iter().all(|e| e.shapes.is_none()));
+}

@@ -96,7 +96,8 @@ impl World {
         held: &[&str],
     ) -> bool {
         let when = if held.is_empty() { String::new() } else { format!("; when {} held", held.join(", ")) };
-        let Some(template) = self.template(prefab).cloned() else {
+        let found = self.templates.iter().position(|t| t.prefab.as_deref() == Some(prefab));
+        let Some((template, shapes)) = found.map(|i| (self.templates[i].clone(), self.template_shapes[i])) else {
             let msg = format!("could not spawn '{prefab}' at {} ({via}): no such prefab", fmt_cell(at));
             let data = Json::object().with("code", "E0201").with("prefab", prefab);
             self.write(EventKind::Error, None, emitter, msg, data);
@@ -154,7 +155,7 @@ impl World {
                 let id = self.entities.len() as EntityId;
                 let mut def = template;
                 def.pos = [at[0] as f32, at[1] as f32, def.pos[2]];
-                self.entities.0.push(make_entity(id, &def));
+                self.entities.0.push(make_entity(id, &def, shapes));
                 self.index.enter(&self.entities[id as usize]);
                 let who = self.describe(id);
                 let cells_json: Vec<Json> = cells.iter().map(|c| Json::from(*c)).collect();

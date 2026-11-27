@@ -14,11 +14,12 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use rwgpuengine_core::json::Json;
 use rwgpuengine_core::limits::{self, Limit};
 use rwgpuengine_core::rng::Rng;
-use rwgpuengine_data::{EntityDef, GroundDef, SceneDef};
+use rwgpuengine_data::{EntityDef, GroundDef, SceneDef, ShapeDef};
 
 use crate::events::{Event, EventKind, EventLog};
 use crate::input::InputFrame;
@@ -109,6 +110,12 @@ pub struct World {
     pub events: EventLog,
     /// Prefabs that `spawn` actions place (their `prefab` is the name).
     pub templates: Vec<EntityDef>,
+    /// The `[[shape]]` lists of the scene, each once, in the order first
+    /// used: its entities' in file order, then the spawn templates'.
+    /// [`Entity::shapes`] is a place in it. Part of the world's state.
+    pub shapes: Vec<Arc<[ShapeDef]>>,
+    /// The place in `shapes` of each template's list.
+    template_shapes: Vec<Option<u32>>,
     pending: VecDeque<Pending>,
     names: BTreeMap<String, EntityId>,
     /// Entities with `counts` props (derived; not hashed).
@@ -136,13 +143,15 @@ impl World {
     pub fn new(scene: &SceneDef, seed: u64) -> World {
         let mut entities = Vec::with_capacity(scene.entities.len());
         let mut names = BTreeMap::new();
+        let mut lists = ShapeLists::new(scene.entities.iter().chain(&scene.templates));
         for (i, def) in scene.entities.iter().enumerate() {
             let id = i as EntityId;
             if let Some(n) = &def.name {
                 names.insert(n.clone(), id);
             }
-            entities.push(make_entity(id, def));
+            entities.push(make_entity(id, def, lists.place(def)));
         }
+        let template_shapes = scene.templates.iter().map(|def| lists.place(def)).collect();
         let connections = wiring::resolve(scene, &names);
         let templates = scene.templates.clone();
         let bounds = scene.ground.as_ref().map(|g| g.size);
@@ -158,6 +167,8 @@ impl World {
             connections: connections.into(),
             events: EventLog::default(),
             templates,
+            shapes: lists.lists,
+            template_shapes,
             pending: VecDeque::new(),
             names,
             counters: Vec::new(),
@@ -408,6 +419,44 @@ impl World {
             panic!("the cell index is not what the entities say after step {}: {why}", self.frame);
         }
         self.frame += 1;
+    }
+}
+
+/// The shape lists of a scene, each once. Entities made from one prefab hold
+/// the same list (the loader decodes a prefab's once), so a list is known by
+/// where it is: a table from that to its place, with no order of its own.
+struct ShapeLists {
+    lists: Vec<Arc<[ShapeDef]>>,
+    /// (where a list is, its place in `lists` + 1), or (0, 0); open
+    /// addressing, at most half full.
+    seen: Vec<(usize, u32)>,
+}
+
+impl ShapeLists {
+    fn new<'a>(defs: impl Iterator<Item = &'a EntityDef>) -> ShapeLists {
+        let with_shapes = defs.filter(|d| d.shapes.is_some()).count();
+        let size = if with_shapes == 0 { 0 } else { (with_shapes * 2).next_power_of_two() };
+        ShapeLists { lists: Vec::new(), seen: vec![(0, 0); size] }
+    }
+
+    /// The place of `def`'s list, which is added if it is new.
+    fn place(&mut self, def: &EntityDef) -> Option<u32> {
+        let list = def.shapes.as_ref()?;
+        let at = Arc::as_ptr(list) as *const ShapeDef as usize;
+        let mask = self.seen.len() - 1;
+        // Lists are at least 8 bytes apart; the low bits say nothing.
+        let mut slot = (at >> 3).wrapping_mul(0x9E37_79B9) & mask;
+        loop {
+            match self.seen[slot] {
+                (0, _) => {
+                    self.lists.push(list.clone());
+                    self.seen[slot] = (at, self.lists.len() as u32);
+                    return Some(self.lists.len() as u32 - 1);
+                }
+                (found, place) if found == at => return Some(place - 1),
+                _ => slot = (slot + 1) & mask,
+            }
+        }
     }
 }
 
