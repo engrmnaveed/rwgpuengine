@@ -50,8 +50,13 @@ pub struct Entity {
     pub prefab: Option<String>,
     pub enabled: bool,
     pub pos: [f32; 3],
-    /// Cells covered along +x and +y from `pos` ([1, 1] for most entities).
+    /// Cells covered along +x and +y from `pos` ([1, 1] for most entities),
+    /// as it stands: the footprint its file gives, the other way round after
+    /// an odd number of quarter turns.
     pub footprint: [i32; 2],
+    /// Quarter turns about the vertical, from +x toward +y (0 to 3): how far
+    /// its shapes are turned about the middle of the cells it covers.
+    pub turn: u8,
     pub solid: bool,
     /// Movers push it one cell; triggers count it; it blocks everything else.
     pub pushable: bool,
@@ -237,7 +242,8 @@ pub(super) fn make_entity(id: EntityId, def: &EntityDef, shapes: Option<u32>) ->
         prefab: def.prefab.clone(),
         enabled: def.enabled,
         pos: def.pos,
-        footprint: def.footprint,
+        footprint: def.covered(),
+        turn: def.turn,
         solid: def.solid,
         pushable: def.pushable,
         tile: def.tile,

@@ -80,6 +80,9 @@ impl World {
             if let Some(list) = e.shapes {
                 h.u8(13).u32(list);
             }
+            if e.turn != 0 {
+                h.u8(14).u8(e.turn);
+            }
             for (k, v) in &e.props {
                 h.str(k);
                 match v {

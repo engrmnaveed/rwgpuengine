@@ -449,74 +449,83 @@ impl Session {
                 ),
             );
         }
+        // The copy as a `spawn` would turn it: by the query, or as the prefab is.
+        let turn = q.turn.unwrap_or_else(|| w.template(&q.prefab).map_or(0, |t| t.turn));
+        let turned = if turn == 0 { String::new() } else { format!(", turned {}", turn as u32 * 90) };
+        let mut out = Json::object().with("prefab", q.prefab.as_str());
+        if turn != 0 {
+            out.set("turn", turn as u32 * 90);
+        }
         match q.at {
-            Some(cell) => match w.can_place(&q.prefab, cell) {
-                Ok(cells) => Json::object()
-                    .with("prefab", q.prefab.as_str())
+            Some(cell) => match w.can_place_turned(&q.prefab, cell, turn) {
+                Ok(cells) => out
                     .with("at", cell)
                     .with("ok", true)
                     .with("cells", Json::Arr(cells.into_iter().map(Json::from).collect()))
                     .with("tap", tap(cell))
-                    .with("message", format!("`{}` fits at ({}, {})", q.prefab, cell[0], cell[1])),
-                Err(r) => Json::object()
-                    .with("prefab", q.prefab.as_str())
+                    .with("message", format!("`{}` fits at ({}, {}){turned}", q.prefab, cell[0], cell[1])),
+                Err(r) => out
                     .with("at", cell)
                     .with("ok", false)
                     .with("reason", r.reason)
                     .with("cell", r.cell)
                     .with("blocked_by", r.by.and_then(|id| w.get(id)).map(rwgpuengine_sim::Entity::label))
                     .with("tap", tap(cell))
-                    .with("message", format!("`{}` does not fit at ({}, {}): {}", q.prefab, cell[0], cell[1], r.why)),
+                    .with(
+                        "message",
+                        format!("`{}` does not fit at ({}, {}){turned}: {}", q.prefab, cell[0], cell[1], r.why),
+                    ),
             },
             None => {
                 let size = w.bounds.unwrap_or([0, 0]);
                 let mut free = Vec::new();
                 for y in 0..size[1] {
                     for x in 0..size[0] {
-                        if w.can_place(&q.prefab, [x, y]).is_ok() {
+                        if w.can_place_turned(&q.prefab, [x, y], turn).is_ok() {
                             free.push(Json::object().with("cell", [x, y]).with("tap", tap([x, y])));
                         }
                     }
                 }
-                Json::object()
-                    .with("prefab", q.prefab.as_str())
-                    .with("ok", !free.is_empty())
-                    .with("count", free.len())
-                    .with("free", free)
-                    .with(
-                        "message",
-                        "cells where the prefab's back corner can go right now; `tap` is a screen pixel that taps \
-                         that ground cell (a playtest `[[input]] tap`)",
-                    )
+                out.with("ok", !free.is_empty()).with("count", free.len()).with("free", free).with(
+                    "message",
+                    "cells where the prefab's back corner can go right now; `tap` is a screen pixel that taps \
+                     that ground cell (a playtest `[[input]] tap`)",
+                )
             }
         }
     }
 }
 
-/// `inspect --place <prefab>[@x,y]`.
+/// `inspect --place <prefab>[@x,y[,turn]]`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlaceQuery {
     pub prefab: String,
     pub at: Option<[i32; 2]>,
+    /// Quarter turns of the copy asked about; `None`: as the prefab is.
+    pub turn: Option<u8>,
 }
 
 impl PlaceQuery {
-    /// `house` or `house@3,4`.
+    /// `house`, `house@3,4`, and turned: `house@3,4,90`, `house@90`.
     pub fn parse(s: &str) -> Result<PlaceQuery, String> {
-        let (prefab, at) = match s.split_once('@') {
-            None => (s, None),
-            Some((p, c)) => {
-                let nums: Vec<Option<i32>> = c.split(',').map(|v| v.trim().parse().ok()).collect();
-                match nums.as_slice() {
-                    [Some(x), Some(y)] => (p, Some([*x, *y])),
-                    _ => return Err(format!("`{c}` is not a cell; write `{p}@3,4`")),
-                }
-            }
-        };
+        let (prefab, rest) = s.split_once('@').unwrap_or((s, ""));
         if prefab.is_empty() {
             return Err("missing prefab name; write `house` or `house@3,4`".into());
         }
-        Ok(PlaceQuery { prefab: prefab.to_string(), at })
+        let nums: Vec<Option<i32>> =
+            if rest.is_empty() { Vec::new() } else { rest.split(',').map(|v| v.trim().parse().ok()).collect() };
+        let quarter = |degrees: i32| match degrees {
+            0 | 90 | 180 | 270 => Ok(Some((degrees / 90) as u8)),
+            _ => Err(format!("`{degrees}` is not a quarter turn; write 0, 90, 180 or 270")),
+        };
+        let (at, turn) = match nums.as_slice() {
+            [] if !s.contains('@') => (None, None),
+            [Some(turn)] => (None, quarter(*turn)?),
+            [Some(x), Some(y)] => (Some([*x, *y]), None),
+            [Some(x), Some(y), Some(turn)] => (Some([*x, *y]), quarter(*turn)?),
+            _ => return Err(format!("`{rest}` is not a cell; write `{prefab}@3,4`, or `{prefab}@3,4,90` turned")),
+        };
+        Ok(PlaceQuery { prefab: prefab.to_string(), at, turn })
     }
 }
 

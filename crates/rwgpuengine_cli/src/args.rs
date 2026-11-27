@@ -242,9 +242,10 @@ pub static COMMANDS: &[Command] = &[
             WATCH,
             flag(
                 "--place",
-                Some("PREFAB[@X,Y]"),
+                Some("PREFAB[@X,Y[,TURN]]"),
                 "Can I build here? With a cell: whether a `spawn` of PREFAB fits there at this frame, and why not. \
-                 Without: every cell where it fits. Prints only that answer (add --entity for the table).",
+                 Without: every cell where it fits. TURN (0, 90, 180, 270; also `PREFAB@90`) asks about a copy \
+                 turned that far. Prints only that answer (add --entity for the table).",
             ),
             JSON,
         ],
@@ -257,6 +258,7 @@ pub static COMMANDS: &[Command] = &[
             "rwgpu inspect --json",
             "rwgpu inspect --input tests/walkthrough.toml --frame 60 --entity player --events",
             "rwgpu inspect --input tests/build.toml --frame 120 --place house@3,2",
+            "rwgpu inspect --place workshop@3,2,90",
         ],
     },
     Command {

@@ -105,6 +105,7 @@ impl Bound {
             Some([w, h]) if w > 0 && h > 0 => take([-0.5, -0.5], [w as f32 - 0.5, h as f32 - 0.5]),
             _ => {
                 for e in world.entities.iter().filter(|e| e.takes_space()) {
+                    // The cells as covered: a turned entity's footprint is turned already (ADR 0029).
                     let ([x, y], [fw, fh]) = (e.cell(), e.footprint);
                     let lo = [x as f32 - 0.5, y as f32 - 0.5];
                     take(lo, [lo[0] + fw.max(1) as f32, lo[1] + fh.max(1) as f32]);

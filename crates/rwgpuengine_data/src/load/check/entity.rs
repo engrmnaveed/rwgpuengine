@@ -140,6 +140,7 @@ pub(crate) fn rules(def: &EntityDef, t: &Table, span: Span, src: &SourceFile, ou
     if def.screen_pos.is_some() {
         let world_only: Vec<&str> = [
             ("shape", def.shapes.is_some()),
+            ("turn", def.turn != 0),
             ("tile", def.tile.is_some()),
             ("block", def.block.is_some()),
             ("mover", def.mover.is_some()),

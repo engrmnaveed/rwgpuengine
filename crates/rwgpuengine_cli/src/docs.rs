@@ -197,6 +197,17 @@ chimney in from the wall, not flush with it. Every entity made from a prefab is 
 list; `shape = [...]` on an entity replaces it. `rwgpu shot --json` lists an entity's shapes with the pixels
 each shows, and `rwgpu inspect` prints them under `shape`.
 
+**Turning.** `turn = 90` on an entity (or in its prefab) turns it a quarter turn about the vertical, from +x
+toward +y, as a camera turned as far shows the world: 0, 90, 180 or 270. Its shapes turn about the middle of
+the cells it covers, and the footprint turns with it: `footprint = [2, 3]` covers 3 cells along x and 2 along
+y at 90 and 270. `pos` is always the covered cell with the lowest x and y, so a building covers its cells
+from the same cell at every turn; blocking, triggers, taps and placement go by the cells as covered. Shapes
+are written for the entity as it is at `turn = 0`. A `spawn` turns its copy with `turn = 90`, or reads the
+turn when the copy is placed: `turn = {{ entity = "tool", prop = "facing" }}`, an integer prop in degrees
+(whole quarter turns count and the number wraps, so a Turn button is one `add` of 90). The turned footprint
+is what is checked against the ground, the terrain and what stands there, and
+`rwgpu inspect --place workshop@3,4,90` answers for a turned copy.
+
 **Spawning.** `action = "spawn"` with `prefab` places a new copy of the prefab where the signal happened: on
 the tapped cell for `from = "ground"`, else on the emitter's cell (its back corner there). Every covered cell
 must be inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there,

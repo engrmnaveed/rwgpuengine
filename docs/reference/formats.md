@@ -147,6 +147,7 @@ A thing in the world. Starts from an optional prefab; keys here override it (com
 | `counts` | table: prop = "prefab" | — | Props that count enabled copies of a prefab, kept up to date by the engine: `counts = { houses = "house" }` makes `houses` an integer prop equal to the number of enabled `house` entities (placed in the scene or spawned; an entity with `prefab = "house"` is a copy whatever keys it overrides). It changes when a copy is spawned, disabled or enabled again; the entity then emits `changed`, so labels, `when` conditions and `[[expect]] props` read it like any prop. `add`/`set` cannot change it. |
 | `allow` | ["W....", ...] | — | Warning codes that are intended for this entity and should not be reported, e.g. `["W0201"]` for deliberately stacked solids. Errors cannot be allowed. |
 | `shape` | [[shape]] | — | What it is built of: solids with flat colors, one `[[shape]]` table each (in a scene: `[[entity.shape]]`, or `shape = [{ ... }]`). A list here replaces the prefab's. |
+| `turn` | 0 \| 90 \| 180 \| 270 | `0` | Quarter turns about the vertical, from +x toward +y (as a camera turned as far shows the world): its shapes turn about the middle of its footprint, and at 90 and 270 a `footprint = [w, h]` covers h cells along x and w along y. `pos` is always the covered cell with the lowest x and y. |
 
 ### `[[connect]]`
 
@@ -163,8 +164,9 @@ When `from` emits `signal`, apply `action` to `to` (or each of `actions`, in ord
 | `value` | bool \| number \| string | — | With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), of the prop's type. |
 | `prefab` | name | — | With `spawn`: the prefab to place. It goes on the tapped cell (`from = "ground"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`) and the source of the signal (the ground, for ground taps) emits `refused` on that cell, if a [[connect]] listens. |
 | `cost` | table: cost | — | With `spawn`: the price, paid from a prop only if the copy is placed: `cost = { entity = "town", prop = "coins", amount = 3 }`. If the prop is below `amount`, nothing is placed or paid (`blocked`, reason `funds`, checked before the cell) and the signal's source emits `refused` with reason `funds`. |
+| `turn` | 0 \| 90 \| 180 \| 270 \| table: turn | — | With `spawn`: the copy's `turn`. A quarter turn (`turn = 90`), or read from a prop when the copy is placed: `turn = { entity = "tool", prop = "facing" }`. Its footprint is turned before the cells are checked. Default: the prefab's own `turn`. |
 | `when` | [{ condition }, ...] | — | Conditions that must all hold when the signal arrives, or the action is skipped (logged as `skipped`). They are checked once, before the first action. For OR, write one `[[connect]]` per alternative. Item keys: `rwgpu explain condition`. |
-| `actions` | [{ action }, ...] | — | Several actions for the same signal and `when`, run in order: `actions = [{ action = "set", to = "town", prop = "tool", value = "tree" }, { action = "set", to = "hint", prop = "msg", value = "" }]`. Each item has the keys `action`, `to`, `prop`, `value`, `prefab` and `cost` (`rwgpu explain action`), which then cannot be on the [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run. |
+| `actions` | [{ action }, ...] | — | Several actions for the same signal and `when`, run in order: `actions = [{ action = "set", to = "town", prop = "tool", value = "tree" }, { action = "set", to = "hint", prop = "msg", value = "" }]`. Each item has the keys `action`, `to`, `prop`, `value`, `prefab`, `cost` and `turn` (`rwgpu explain action`), which then cannot be on the [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run. |
 
 ### `connect action`
 
@@ -178,6 +180,7 @@ One item of a `[[connect]]` `actions` list: the same keys as a single-action [[c
 | `value` | bool \| number \| string | — | With `add`: the number to add (default 1; negative subtracts). With `set`: the new value (required), of the prop's type. |
 | `prefab` | name | — | With `spawn`: the prefab to place. It goes on the tapped cell (`from = "ground"`) or the emitter's cell, with its `footprint` toward +x and +y, if every covered cell is inside the ground, on terrain with `build = true` and free: no enabled entity that is drawn there, solid, an actor or a trigger (data-only entities with just props take up no space). Otherwise nothing is placed (`blocked`, reason `edge`, `terrain` or `occupied`) and the source of the signal (the ground, for ground taps) emits `refused` on that cell, if a [[connect]] listens. |
 | `cost` | table: cost | — | With `spawn`: the price, paid from a prop only if the copy is placed: `cost = { entity = "town", prop = "coins", amount = 3 }`. If the prop is below `amount`, nothing is placed or paid (`blocked`, reason `funds`, checked before the cell) and the signal's source emits `refused` with reason `funds`. |
+| `turn` | 0 \| 90 \| 180 \| 270 \| table: turn | — | With `spawn`: the copy's `turn`. A quarter turn (`turn = 90`), or read from a prop when the copy is placed: `turn = { entity = "tool", prop = "facing" }`. Its footprint is turned before the cells are checked. Default: the prefab's own `turn`. |
 
 ### `when condition`
 
@@ -223,6 +226,7 @@ A reusable entity template: prefabs/<name>.toml. Same keys as an entity, minus n
 | `counts` | table: prop = "prefab" | — | Props that count enabled copies of a prefab, kept up to date by the engine: `counts = { houses = "house" }` makes `houses` an integer prop equal to the number of enabled `house` entities (placed in the scene or spawned; an entity with `prefab = "house"` is a copy whatever keys it overrides). It changes when a copy is spawned, disabled or enabled again; the entity then emits `changed`, so labels, `when` conditions and `[[expect]] props` read it like any prop. `add`/`set` cannot change it. |
 | `allow` | ["W....", ...] | — | Warning codes that are intended for this entity and should not be reported, e.g. `["W0201"]` for deliberately stacked solids. Errors cannot be allowed. |
 | `shape` | [[shape]] | — | What it is built of: solids with flat colors, one `[[shape]]` table each (in a scene: `[[entity.shape]]`, or `shape = [{ ... }]`). A list here replaces the prefab's. |
+| `turn` | 0 \| 90 \| 180 \| 270 | `0` | Quarter turns about the vertical, from +x toward +y (as a camera turned as far shows the world): its shapes turn about the middle of its footprint, and at 90 and 270 a `footprint = [w, h]` covers h cells along x and w along y. `pos` is always the covered cell with the lowest x and y. |
 
 
 ## Components
@@ -506,6 +510,17 @@ the footprint (W0208), and do not put two upright sides in one plane where they 
 chimney in from the wall, not flush with it. Every entity made from a prefab is drawn from the prefab's one
 list; `shape = [...]` on an entity replaces it. `rwgpu shot --json` lists an entity's shapes with the pixels
 each shows, and `rwgpu inspect` prints them under `shape`.
+
+**Turning.** `turn = 90` on an entity (or in its prefab) turns it a quarter turn about the vertical, from +x
+toward +y, as a camera turned as far shows the world: 0, 90, 180 or 270. Its shapes turn about the middle of
+the cells it covers, and the footprint turns with it: `footprint = [2, 3]` covers 3 cells along x and 2 along
+y at 90 and 270. `pos` is always the covered cell with the lowest x and y, so a building covers its cells
+from the same cell at every turn; blocking, triggers, taps and placement go by the cells as covered. Shapes
+are written for the entity as it is at `turn = 0`. A `spawn` turns its copy with `turn = 90`, or reads the
+turn when the copy is placed: `turn = { entity = "tool", prop = "facing" }`, an integer prop in degrees
+(whole quarter turns count and the number wraps, so a Turn button is one `add` of 90). The turned footprint
+is what is checked against the ground, the terrain and what stands there, and
+`rwgpu inspect --place workshop@3,4,90` answers for a turned copy.
 
 **Spawning.** `action = "spawn"` with `prefab` places a new copy of the prefab where the signal happened: on
 the tapped cell for `from = "ground"`, else on the emitter's cell (its back corner there). Every covered cell

@@ -65,7 +65,7 @@ pub(crate) enum ConnectStep {
     When,
 }
 
-/// The steps of one action. A `spawn` has the first six, every other
+/// The steps of one action. A `spawn` has the first seven, every other
 /// action the next two; both end with `Logic`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ActionStep {
@@ -81,6 +81,8 @@ pub(crate) enum ActionStep {
     PrefabScreen,
     /// The `spawn`'s `cost`.
     Cost,
+    /// The `spawn`'s `turn`, read from a prop.
+    Turn,
     /// `prefab` or `cost` on another action.
     Keys,
     /// `to`: missing, the ground's `self`, or unknown.

@@ -247,6 +247,8 @@ pub struct EntityDef {
     /// Its `[[shape]]` list, if it has one with shapes in it. Every entity
     /// made from one prefab shares the prefab's list.
     pub shapes: Option<Arc<[ShapeDef]>>,
+    /// Quarter turns about the vertical, from +x toward +y (0 to 3).
+    pub turn: u8,
 }
 
 /// As `#[derive(Debug)]` writes it, with the keys that came after the
@@ -278,6 +280,9 @@ impl std::fmt::Debug for EntityDef {
         if let Some(shapes) = &self.shapes {
             d.field("shapes", shapes);
         }
+        if self.turn != 0 {
+            d.field("turn", &self.turn);
+        }
         d.finish()
     }
 }
@@ -307,10 +312,23 @@ impl EntityDef {
         self.solid || self.pushable
     }
 
+    /// The cells it covers along x and y as it stands: its footprint, the
+    /// other way round after an odd number of quarter turns.
+    pub fn covered(&self) -> [i32; 2] {
+        turned_footprint(self.footprint, self.turn)
+    }
+
     /// Every cell the entity covers, x first then y.
     pub fn cells(&self) -> Vec<[i32; 2]> {
-        footprint_cells(self.cell(), self.footprint)
+        footprint_cells(self.cell(), self.covered())
     }
+}
+
+/// A footprint after `turn` quarter turns: `[w, h]` covers `[h, w]` cells
+/// after an odd number. The cell it is counted from stays the one with the
+/// lowest x and y.
+pub fn turned_footprint(footprint: [i32; 2], turn: u8) -> [i32; 2] {
+    if turn.is_multiple_of(2) { footprint } else { [footprint[1], footprint[0]] }
 }
 
 /// The cells of a `footprint` whose back corner (lowest x and y) is `at`.
@@ -677,7 +695,7 @@ pub struct ConnectDef {
 }
 
 /// One action of a `[[connect]]`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ActionDef {
     pub action: ConnectAction,
     /// `None` for `spawn`; `Some("self")` targets the emitter.
@@ -690,6 +708,43 @@ pub struct ActionDef {
     pub prefab: Option<String>,
     /// With spawn: the price, paid only if the copy is placed.
     pub cost: Option<CostDef>,
+    /// With spawn: how far the copy is turned (default: as its prefab is).
+    pub turn: Option<TurnDef>,
+}
+
+/// As `#[derive(Debug)]` writes it, with `turn` only where it is set: an
+/// action without one reads as it did before there was the key, so the pins
+/// of the loader's oracle hold (see `EntityDef`).
+impl std::fmt::Debug for ActionDef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut d = f.debug_struct("ActionDef");
+        d.field("action", &self.action)
+            .field("to", &self.to)
+            .field("prop", &self.prop)
+            .field("value", &self.value)
+            .field("prefab", &self.prefab)
+            .field("cost", &self.cost);
+        if let Some(turn) = &self.turn {
+            d.field("turn", turn);
+        }
+        d.finish()
+    }
+}
+
+/// `turn` on a spawn: a quarter turn, or where to read one when the copy is
+/// placed.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TurnDef {
+    /// Quarter turns, 0 to 3.
+    Fixed(u8),
+    /// `{ entity = "tool", prop = "facing" }`: an integer prop, in degrees.
+    Prop { entity: String, prop: String },
+}
+
+/// A number of degrees as quarter turns from +x toward +y, 0 to 3: whole
+/// quarter turns count, and the number wraps (360 is 0, -90 is 270).
+pub fn quarter_turns(degrees: i64) -> u8 {
+    degrees.div_euclid(90).rem_euclid(4) as u8
 }
 
 /// `cost = { entity = "town", prop = "coins", amount = 3 }` on a spawn.
@@ -995,6 +1050,7 @@ pub(crate) fn decode_entity(t: &Table, pos: [f32; 3], origin: Origin, shapes: Op
         allow: f.strs("allow"),
         origin,
         shapes,
+        turn: quarter_turns(f.int("turn")),
     }
 }
 
@@ -1053,7 +1109,17 @@ pub(crate) fn decode_action(t: &Table) -> ActionDef {
             amount: k.get("amount").and_then(scalar).unwrap_or(PropValue::Int(0)),
         }
     });
-    ActionDef { action, to: c.opt_str("to"), prop: c.opt_str("prop"), value, prefab: c.opt_str("prefab"), cost }
+    let turn = match t.get("turn") {
+        Some(n) => match n.as_table() {
+            Some(from) => {
+                let f = Fields::new(from, &schema::TURN_FROM);
+                Some(TurnDef::Prop { entity: f.str("entity"), prop: f.str("prop") })
+            }
+            None => n.as_int().map(|degrees| TurnDef::Fixed(quarter_turns(degrees))),
+        },
+        None => None,
+    };
+    ActionDef { action, to: c.opt_str("to"), prop: c.opt_str("prop"), value, prefab: c.opt_str("prefab"), cost, turn }
 }
 
 pub(crate) fn decode_condition(t: &Table) -> ConditionDef {

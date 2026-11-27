@@ -465,6 +465,10 @@
             },
             "maxItems": 64,
             "description": "What it is built of: solids with flat colors, one `[[shape]]` table each (in a scene: `[[entity.shape]]`, or `shape = [{ ... }]`). A list here replaces the prefab's."
+          },
+          "turn": {
+            "enum": [0, 90, 180, 270],
+            "description": "Quarter turns about the vertical, from +x toward +y (as a camera turned as far shows the world): its shapes turn about the middle of its footprint, and at 90 and 270 a `footprint = [w, h]` covers h cells along x and w along y. `pos` is always the covered cell with the lowest x and y. Default: 0."
           }
         },
         "additionalProperties": false
@@ -536,6 +540,32 @@
             },
             "required": ["entity", "prop", "amount"],
             "additionalProperties": false
+          },
+          "turn": {
+            "anyOf": [
+              {
+                "enum": [0, 90, 180, 270]
+              },
+              {
+                "type": "object",
+                "description": "Where a `spawn` reads its copy's turn: the integer prop `prop` of `entity`, in degrees. Whole quarter turns count and the number wraps: 90 to 179 is 90, 360 is 0, -90 is 270. So a Turn button is one `add` of 90 to that prop.",
+                "properties": {
+                  "entity": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_/-]+$",
+                    "description": "The entity that holds the turn, by name (the chosen tool, a HUD)."
+                  },
+                  "prop": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_/-]+$",
+                    "description": "Its integer prop, in degrees."
+                  }
+                },
+                "required": ["entity", "prop"],
+                "additionalProperties": false
+              }
+            ],
+            "description": "With `spawn`: the copy's `turn`. A quarter turn (`turn = 90`), or read from a prop when the copy is placed: `turn = { entity = \"tool\", prop = \"facing\" }`. Its footprint is turned before the cells are checked. Default: the prefab's own `turn`."
           },
           "when": {
             "type": "array",
@@ -632,12 +662,38 @@
                   },
                   "required": ["entity", "prop", "amount"],
                   "additionalProperties": false
+                },
+                "turn": {
+                  "anyOf": [
+                    {
+                      "enum": [0, 90, 180, 270]
+                    },
+                    {
+                      "type": "object",
+                      "description": "Where a `spawn` reads its copy's turn: the integer prop `prop` of `entity`, in degrees. Whole quarter turns count and the number wraps: 90 to 179 is 90, 360 is 0, -90 is 270. So a Turn button is one `add` of 90 to that prop.",
+                      "properties": {
+                        "entity": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_/-]+$",
+                          "description": "The entity that holds the turn, by name (the chosen tool, a HUD)."
+                        },
+                        "prop": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_/-]+$",
+                          "description": "Its integer prop, in degrees."
+                        }
+                      },
+                      "required": ["entity", "prop"],
+                      "additionalProperties": false
+                    }
+                  ],
+                  "description": "With `spawn`: the copy's `turn`. A quarter turn (`turn = 90`), or read from a prop when the copy is placed: `turn = { entity = \"tool\", prop = \"facing\" }`. Its footprint is turned before the cells are checked. Default: the prefab's own `turn`."
                 }
               },
               "required": ["action"],
               "additionalProperties": false
             },
-            "description": "Several actions for the same signal and `when`, run in order: `actions = [{ action = \"set\", to = \"town\", prop = \"tool\", value = \"tree\" }, { action = \"set\", to = \"hint\", prop = \"msg\", value = \"\" }]`. Each item has the keys `action`, `to`, `prop`, `value`, `prefab` and `cost` (`rwgpu explain action`), which then cannot be on the [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run."
+            "description": "Several actions for the same signal and `when`, run in order: `actions = [{ action = \"set\", to = \"town\", prop = \"tool\", value = \"tree\" }, { action = \"set\", to = \"hint\", prop = \"msg\", value = \"\" }]`. Each item has the keys `action`, `to`, `prop`, `value`, `prefab`, `cost` and `turn` (`rwgpu explain action`), which then cannot be on the [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run."
           }
         },
         "required": ["signal"],

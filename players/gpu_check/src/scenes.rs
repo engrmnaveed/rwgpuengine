@@ -616,7 +616,8 @@ block = { height = 64, color = "#3060c0", top = "#80d0f0" }
 /// cylinder, wedges as a lean-to and as ramps), flat boxes in rows and side
 /// by side like a road, a tile on a cylinder's top, a sprite and a label
 /// standing on shapes, shapes wall to wall with each other and with a
-/// block, one in the air, one disabled.
+/// block, one in the air, one disabled; and whole entities turned a quarter,
+/// a half and three quarters (a footprint of 3 by 2 standing 2 by 3).
 const SHAPES: &str = r##"
 [ground]
 size = [9, 8]
@@ -658,8 +659,9 @@ shape = [{ kind = "wedge", size = [1, 1, 0.5], color = "#c0a060" }, { kind = "we
 [[entity]]
 name = "workshop"
 pos = [3, 2]
-footprint = [2, 3]
-shape = [{ kind = "box", size = [2, 3, 1], color = "#b07a4a" }, { kind = "wedge", at = [0, 0, 1], size = [2, 3, 0.75], color = "#70564a", turn = 270 }, { kind = "cylinder", at = [1.375, 2.25, 0.5], size = [0.375, 0.375, 1.75], color = "#5a5a5a" }]
+footprint = [3, 2]
+turn = 90
+shape = [{ kind = "box", size = [3, 2, 1], color = "#b07a4a" }, { kind = "wedge", at = [0, 0, 1], size = [3, 2, 0.75], color = "#70564a", turn = 180 }, { kind = "cylinder", at = [2.25, 0.25, 0.5], size = [0.375, 0.375, 1.75], color = "#5a5a5a" }]
 
 [[entity]]
 name = "roofs"
@@ -681,6 +683,7 @@ shape = [{ kind = "box", size = [1, 1, 0.0625], color = "#8a8478" }]
 name = "bridge"
 pos = [3, 6]
 footprint = [2, 1]
+turn = 180
 shape = [{ kind = "wedge", size = [0.5, 1, 0.25], color = "#9a7a52" }, { kind = "box", at = [0.5, 0, 0], size = [1, 1, 0.25], color = "#9a7a52" }, { kind = "wedge", at = [1.5, 0, 0], size = [0.5, 1, 0.25], color = "#9a7a52", turn = 180 }, { kind = "box", at = [0.5, 0, 0.25], size = [1, 0.125, 0.25], color = "#6a4a2a" }, { kind = "box", at = [0.5, 0.875, 0.25], size = [1, 0.125, 0.25], color = "#6a4a2a" }]
 
 [[entity]]
@@ -691,6 +694,7 @@ block = { height = 0.25, color = "#a05a2c" }
 [[entity]]
 name = "hut"
 pos = [4, 7]
+turn = 270
 shape = [{ kind = "box", size = [1, 1, 0.75], color = "#a05a2c" }, { kind = "cone", at = [0, 0, 0.75], size = [1, 1, 0.5], color = "#6a3a2a" }]
 sprite = { shape = "circle", color = "#ffe060", size = [12, 12] }
 label = { text = "Hut", offset = [0, -14] }
@@ -1066,7 +1070,8 @@ pub fn upright_tie(list: &RenderList) -> bool {
 /// on it; one shape in each cell. Of every kind, at every turn, sizes in
 /// eighths of a cell, some in the air, some disabled, some with a tile on a
 /// level top or with a sprite or a label standing on them, and some blocks
-/// between. No two shapes of a list have upright sides in one plane that
+/// between. Half of the entities are turned a quarter, a half or three
+/// quarters, footprint and all. No two shapes of a list have upright sides in one plane that
 /// overlap (W0209), and the camera is never where two solids tie along an
 /// upright edge (the top of this file).
 pub fn random_shapes(seed: u64) -> Result<Scene, String> {
@@ -1110,8 +1115,16 @@ pub fn random_shapes(seed: u64) -> Result<Scene, String> {
         cells(&mut |c| taken[c] = true);
         let z = [0, 0, 0, 0, 2, 4][rng.below(6) as usize];
         let enabled = if rng.below(8) == 0 { "enabled = false\n" } else { "" };
+        // Half of them are turned. `w` by `h` are the cells as covered: the
+        // file has the footprint, and the shapes, as they are before the turn.
+        let turn = if rng.below(2) == 0 { 0 } else { rng.below(4) };
+        let (w, h) = if turn % 2 == 0 { (w, h) } else { (h, w) };
+        let turned = if turn == 0 { String::new() } else { format!("turn = {}\n", turn * 90) };
         let footprint = if w * h == 1 { String::new() } else { format!("footprint = [{w}, {h}]\n") };
-        scene.push_str(&format!("\n[[entity]]\nname = \"e{k}\"\npos = [{x}, {y}, {}]\n{enabled}{footprint}", e(z)));
+        scene.push_str(&format!(
+            "\n[[entity]]\nname = \"e{k}\"\npos = [{x}, {y}, {}]\n{enabled}{footprint}{turned}",
+            e(z)
+        ));
         let (w8, h8) = (8 * w, 8 * h);
         let mut list: Vec<String> = Vec::new();
         // The height of a level top a tile can lie on, if the thing has one.
@@ -1206,10 +1219,10 @@ pub fn random_shapes(seed: u64) -> Result<Scene, String> {
             )),
             _ => {}
         }
-        // Something flat on its level top, as large as the footprint.
+        // Something flat on its level top, as large as the footprint, turned with it.
         if let Some(top) = level_top.filter(|_| rng.below(3) == 0) {
             scene.push_str(&format!(
-                "\n[[entity]]\nname = \"t{k}\"\npos = [{x}, {y}, {}]\n{footprint}tile = {{ color = {} }}\n",
+                "\n[[entity]]\nname = \"t{k}\"\npos = [{x}, {y}, {}]\n{footprint}{turned}tile = {{ color = {} }}\n",
                 e(z + top),
                 color(&mut rng)
             ));

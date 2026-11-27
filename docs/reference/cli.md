@@ -138,7 +138,7 @@ Flags:
   --events           Include the event log: what happened and what was refused, and why.
   --since N          With --events: only events from frame N on.
   --watch NAMES      Write every event of these, however many happen: entity names or #ID, event kinds (moved, blocked, trigger), or `all`; comma-separated. Past 256 events of one of those kinds in a step, the others are counted, not written.
-  --place PREFAB[@X,Y] Can I build here? With a cell: whether a `spawn` of PREFAB fits there at this frame, and why not. Without: every cell where it fits. Prints only that answer (add --entity for the table).
+  --place PREFAB[@X,Y[,TURN]] Can I build here? With a cell: whether a `spawn` of PREFAB fits there at this frame, and why not. Without: every cell where it fits. TURN (0, 90, 180, 270; also `PREFAB@90`) asks about a copy turned that far. Prints only that answer (add --entity for the table).
   --json             Print one JSON object on stdout instead of text.
 
 Answers what exists, where it is, and why something happened. The text table is a summary (cell, components, solid, cooldown, patrol target, screen rectangle, tap point); --json has every component and all runtime state, plus `ground` (size, and the map and terrain legend for terrain maps). `tap` is a pixel where a tap is guaranteed to hit the entity. `--place` applies the same rules as the `spawn` action (inside the ground, buildable terrain, nothing enabled standing there).
@@ -147,6 +147,7 @@ Examples:
   rwgpu inspect --json
   rwgpu inspect --input tests/walkthrough.toml --frame 60 --entity player --events
   rwgpu inspect --input tests/build.toml --frame 120 --place house@3,2
+  rwgpu inspect --place workshop@3,2,90
 ```
 
 ## rwgpu test

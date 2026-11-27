@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use rwgpuengine_data::{CondTest, ConditionDef, ConnectAction, ConnectFrom, PropValue, SceneDef};
+use rwgpuengine_data::{CondTest, ConditionDef, ConnectAction, ConnectFrom, PropValue, SceneDef, TurnDef};
 
 use super::{Entity, EntityId};
 
@@ -49,6 +49,17 @@ pub struct Act {
     pub prefab: Option<String>,
     /// With spawn: who pays, from which prop, how much.
     pub cost: Option<Cost>,
+    /// With spawn: how far the copy is turned (`None`: as its prefab is).
+    pub turn: Option<Turn>,
+}
+
+/// A spawn's turn, with the entity that holds it resolved.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Turn {
+    /// Quarter turns, 0 to 3.
+    Fixed(u8),
+    /// Read from this entity's integer prop, in degrees, when the copy is placed.
+    Prop(EntityId, String),
 }
 
 /// A spawn's price, with the payer resolved.
@@ -122,6 +133,11 @@ pub(super) fn resolve(scene: &SceneDef, names: &BTreeMap<String, EntityId>) -> V
                         }),
                         None => None,
                     };
+                    let turn = match &a.turn {
+                        Some(TurnDef::Fixed(q)) => Some(Turn::Fixed(*q)),
+                        Some(TurnDef::Prop { entity, prop }) => Some(Turn::Prop(*names.get(entity)?, prop.clone())),
+                        None => None,
+                    };
                     Some(Act {
                         to,
                         action: a.action,
@@ -129,6 +145,7 @@ pub(super) fn resolve(scene: &SceneDef, names: &BTreeMap<String, EntityId>) -> V
                         value: a.value.clone(),
                         prefab: a.prefab.clone(),
                         cost,
+                        turn,
                     })
                 })
                 .collect::<Option<Vec<_>>>()?;

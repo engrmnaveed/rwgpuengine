@@ -1443,3 +1443,172 @@ fn shapes_are_part_of_the_state_and_a_world_without_them_hashes_as_before() {
     let w = shaped(plain, &without);
     assert!(w.shapes.is_empty() && w.entities.iter().all(|e| e.shapes.is_none()));
 }
+
+// ---------------------------------------------------------------------------
+// Quarter turns (ADR 0029)
+
+const TURNED: &str = r##"
+[ground]
+size = [8, 6]
+
+[[entity]]
+name = "tool"
+props = { facing = 0 }
+
+[[entity]]
+name = "player"
+pos = [0, 0]
+sprite = {}
+mover = { step_frames = 1 }
+
+[[entity]]
+name = "shop"
+prefab = "workshop"
+pos = [2, 0]
+turn = 90
+
+[[entity]]
+name = "pad"
+pos = [6, 2]
+footprint = [1, 2]
+turn = 270
+tile = {}
+trigger = {}
+
+[[entity]]
+name = "turn_button"
+screen_pos = [0, 0]
+sprite = {}
+
+[[connect]]
+from = "turn_button"
+signal = "tapped"
+to = "tool"
+action = "add"
+prop = "facing"
+value = 90
+
+[[connect]]
+from = "ground"
+signal = "tapped"
+action = "spawn"
+prefab = "workshop"
+turn = { entity = "tool", prop = "facing" }
+"##;
+
+/// A workshop: 2 cells along x, 3 along y, solid.
+const WORKSHOP: &str = "footprint = [2, 3]\nsolid = true\n\n[[shape]]\nkind = \"box\"\nsize = [2, 3, 1]\n\n[[shape]]\nkind = \"wedge\"\nat = [0, 0, 1]\nsize = [2, 3, 0.75]\n";
+
+fn turned_world(scene: &str) -> World {
+    let mut vfs = Vfs::new();
+    vfs.insert("scenes/main.toml", scene);
+    vfs.insert("prefabs/workshop.toml", WORKSHOP);
+    let mut loader = SceneLoader::new(&vfs);
+    let def = loader.load_scene("scenes/main.toml").unwrap_or_else(|| panic!("{:#?}", loader.diags));
+    World::new(&def, 1)
+}
+
+fn tap_on(id: u32) -> InputFrame {
+    InputFrame {
+        taps: vec![Tap { x: 0.0, y: 0.0, hit: Some(id), under_disabled: vec![], ground: None }],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_turned_entity_covers_its_footprint_the_other_way_round_from_the_same_cell() {
+    let mut w = turned_world(TURNED);
+    w.check_against_scans(true);
+    let shop = w.by_name("shop").expect("the shop").clone();
+    // 2 by 3 in its file; turned a quarter it covers 3 cells along x and 2 along y, and
+    // `pos` is still the covered cell with the lowest x and y.
+    assert_eq!((shop.turn, shop.footprint, shop.cell()), (1, [3, 2], [2, 0]));
+    assert_eq!(shop.cells(), [[2, 0], [3, 0], [4, 0], [2, 1], [3, 1], [4, 1]]);
+    assert!(shop.covers([4, 1]) && !shop.covers([2, 2]));
+    // It blocks on the cells it covers as it stands, not on those of its file.
+    w.tick(&press(Action::Right), &mut NoSystems);
+    w.tick(&press(Action::Right), &mut NoSystems);
+    assert_eq!(w.by_name("player").unwrap().cell(), [1, 0], "the shop's first cell stops the player");
+    assert!(last(&w, EventKind::Blocked).contains("'shop'"), "{}", last(&w, EventKind::Blocked));
+    for _ in 0..2 {
+        w.tick(&press(Action::Down), &mut NoSystems);
+    }
+    for _ in 0..4 {
+        w.tick(&press(Action::Right), &mut NoSystems);
+    }
+    assert_eq!(w.by_name("player").unwrap().cell(), [5, 2], "the row below the shop is free");
+    // A plate of 1 by 2, turned: it lies along x, and a step onto its far cell presses it.
+    let pad = w.by_name("pad").unwrap();
+    assert_eq!((pad.footprint, pad.cells()), ([2, 1], vec![[6, 2], [7, 2]]));
+    for _ in 0..2 {
+        w.tick(&press(Action::Right), &mut NoSystems);
+    }
+    assert_eq!(w.by_name("player").unwrap().cell(), [7, 2]);
+    assert_eq!(w.by_name("pad").unwrap().trigger.as_ref().unwrap().occupants, [1]);
+    // What `inspect` prints: the turn in degrees, and the cells as they are covered.
+    let j = crate::dump::entity_json(&w, w.by_name("shop").unwrap());
+    assert_eq!(j.get("turn").and_then(|t| t.as_i64()), Some(90));
+    assert_eq!(j.get("footprint").map(|f| f.to_compact()), Some("[3,2]".into()));
+    assert_eq!(crate::dump::entity_json(&w, w.by_name("player").unwrap()).get("turn"), None);
+    assert!(w.verify_index().is_ok());
+}
+
+#[test]
+fn a_spawn_turns_its_copy_by_a_prop_and_places_it_by_the_turned_footprint() {
+    let mut w = turned_world(TURNED);
+    w.check_against_scans(true);
+    let button = w.find("turn_button").expect("the button");
+    let facing = |w: &World| w.by_name("tool").unwrap().props.get("facing").cloned();
+    // Facing 0: the workshop stands as its file has it, 2 along x and 3 along y from the tapped cell.
+    assert_eq!(w.can_place("workshop", [0, 3]), Ok(vec![[0, 3], [1, 3], [0, 4], [1, 4], [0, 5], [1, 5]]));
+    assert_eq!(w.can_place_turned("workshop", [0, 3], 1).map(|c| c.len()), Ok(6));
+    assert_eq!(w.can_place_turned("workshop", [0, 4], 0).unwrap_err().reason, "edge");
+    assert_eq!(w.can_place_turned("workshop", [0, 4], 3), Ok(vec![[0, 4], [1, 4], [2, 4], [0, 5], [1, 5], [2, 5]]));
+    w.tick(&ground_tap([0, 3]), &mut NoSystems);
+    let first = w.entities.last().unwrap().clone();
+    assert_eq!((first.turn, first.footprint, first.cell()), (0, [2, 3], [0, 3]));
+    assert!(last(&w, EventKind::Spawned).contains("was spawned at (0, 3) (via"), "{}", last(&w, EventKind::Spawned));
+    // The Turn button is one `add` of 90. The next copy is turned, and fits where the first would not.
+    w.tick(&tap_on(button), &mut NoSystems);
+    assert_eq!(facing(&w), Some(PropValue::Int(90)));
+    w.tick(&ground_tap([3, 4]), &mut NoSystems);
+    let second = w.entities.last().unwrap().clone();
+    assert_eq!((second.turn, second.footprint, second.cells().len()), (1, [3, 2], 6));
+    let spawned = w.events.all().iter().rev().find(|e| e.kind == EventKind::Spawned).unwrap().clone();
+    assert!(spawned.message.contains("was spawned at (3, 4), turned 90 (via"), "{}", spawned.message);
+    assert_eq!(spawned.data.get("turn").and_then(|t| t.as_i64()), Some(90));
+    // Turned, it needs 3 cells along x: one cell further right it is over the edge, and nothing is placed.
+    let before = w.entities.len();
+    w.tick(&ground_tap([6, 4]), &mut NoSystems);
+    assert_eq!(w.entities.len(), before);
+    assert!(last(&w, EventKind::Blocked).contains("cell (8, 4) is outside"), "{}", last(&w, EventKind::Blocked));
+    // The number wraps and only whole quarter turns count: 360 is 0, 450 is 90, 100 is 90, -90 is 270.
+    for (degrees, quarters) in [(360, 0), (450, 1), (100, 1), (179, 1), (180, 2), (-90, 3), (-1, 3), (89, 0)] {
+        w.get_mut(0).unwrap().props.insert("facing".into(), PropValue::Int(degrees));
+        let act = w.connections()[1].actions[0].clone();
+        assert_eq!(w.spawn_turn("workshop", act.turn.as_ref()), quarters, "{degrees} degrees");
+    }
+    assert!(w.verify_index().is_ok());
+}
+
+#[test]
+fn a_turn_is_part_of_the_state_and_a_spawn_can_fix_it() {
+    let base = turned_world(TURNED).state_hash();
+    assert_eq!(base, turned_world(TURNED).state_hash());
+    // The shop turned another way, or not at all, is another world; so is the pad.
+    for (from, to) in [("turn = 90", "turn = 270"), ("turn = 90", "turn = 0"), ("turn = 270", "turn = 90")] {
+        assert!(TURNED.contains(from));
+        assert_ne!(base, turned_world(&TURNED.replacen(from, to, 1)).state_hash(), "{from} -> {to}");
+    }
+    // `turn = 180` on the spawn: every copy is turned half round, whatever the tool says.
+    let fixed = TURNED.replace("turn = { entity = \"tool\", prop = \"facing\" }", "turn = 180");
+    let mut w = turned_world(&fixed);
+    w.tick(&ground_tap([0, 3]), &mut NoSystems);
+    let copy = w.entities.last().unwrap();
+    assert_eq!((copy.turn, copy.footprint), (2, [2, 3]));
+    // With no `turn` on the spawn, a copy stands as its prefab does.
+    let plain = TURNED.replace("turn = { entity = \"tool\", prop = \"facing\" }\n", "");
+    let mut w = turned_world(&plain);
+    w.tick(&ground_tap([0, 3]), &mut NoSystems);
+    assert_eq!(w.entities.last().unwrap().turn, 0);
+}

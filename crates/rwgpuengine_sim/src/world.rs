@@ -42,7 +42,7 @@ mod wiring;
 pub use entity::{Entities, Entity, EntityMut, Mover, Patrol, Trigger, Wander};
 pub use index::IndexStats;
 pub use placement::Refusal;
-pub use wiring::{Act, Condition, Connection, Cost, Source, Target};
+pub use wiring::{Act, Condition, Connection, Cost, Source, Target, Turn};
 
 use counting::Stale;
 use entity::make_entity;

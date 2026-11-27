@@ -2,12 +2,12 @@
 
 use rwgpuengine_core::json::Json;
 use rwgpuengine_core::limits::ENTITIES;
-use rwgpuengine_data::{EntityDef, footprint_cells};
+use rwgpuengine_data::{EntityDef, PropValue, footprint_cells, quarter_turns, turned_footprint};
 
 use super::counting::Stale;
 use super::entity::make_entity;
 use super::signals::Pending;
-use super::wiring::Cost;
+use super::wiring::{Cost, Turn};
 use super::{Entity, EntityId, World, fmt_cell, scan};
 use crate::dump::prop_json;
 use crate::events::EventKind;
@@ -48,12 +48,20 @@ impl World {
         found
     }
 
-    /// Can `prefab` be placed with its back corner on `at` right now? Returns
-    /// the cells it would cover, or why not. Every covered cell must be inside
-    /// the ground, on buildable terrain, and not covered by an enabled entity.
+    /// Can `prefab` be placed with its back corner on `at` right now, turned
+    /// as the prefab is? Returns the cells it would cover, or why not. Every
+    /// covered cell must be inside the ground, on buildable terrain, and not
+    /// covered by an enabled entity.
     pub fn can_place(&self, prefab: &str, at: [i32; 2]) -> Result<Vec<[i32; 2]>, Refusal> {
+        self.can_place_turned(prefab, at, self.template(prefab).map_or(0, |t| t.turn))
+    }
+
+    /// [`World::can_place`] for a copy turned `turn` quarter turns: its
+    /// footprint lies the other way round after an odd number, and `at` is
+    /// the covered cell with the lowest x and y whatever the turn.
+    pub fn can_place_turned(&self, prefab: &str, at: [i32; 2], turn: u8) -> Result<Vec<[i32; 2]>, Refusal> {
         let footprint = self.template(prefab).map_or([1, 1], |t| t.footprint);
-        let cells = footprint_cells(at, footprint);
+        let cells = footprint_cells(at, turned_footprint(footprint, turn));
         for &c in &cells {
             match &self.ground {
                 Some(g) if !g.contains(c) => {
@@ -83,13 +91,30 @@ impl World {
         Ok(cells)
     }
 
-    /// Place a new copy of `prefab` at `at` and pay its `cost`, or log why
-    /// not (funds are checked before the cell). The new entity emits
-    /// `spawned` if a connection listens. Returns whether it was placed.
+    /// How far a spawned copy of `prefab` is turned, in quarter turns: what
+    /// the action says, or reads from a prop now (degrees: whole quarter
+    /// turns count, and the number wraps), or as the prefab is.
+    pub(crate) fn spawn_turn(&self, prefab: &str, turn: Option<&Turn>) -> u8 {
+        match turn {
+            Some(Turn::Fixed(q)) => *q,
+            Some(Turn::Prop(holder, prop)) => match self.get(*holder).and_then(|e| e.props.get(prop)) {
+                Some(PropValue::Int(degrees)) => quarter_turns(*degrees),
+                _ => 0,
+            },
+            None => self.template(prefab).map_or(0, |t| t.turn),
+        }
+    }
+
+    /// Place a new copy of `prefab` at `at`, turned `turn` quarter turns,
+    /// and pay its `cost`, or log why not (funds are checked before the
+    /// cell). The new entity emits `spawned` if a connection listens.
+    /// Returns whether it was placed.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn spawn(
         &mut self,
         prefab: &str,
         cost: Option<&Cost>,
+        turn: u8,
         at: [i32; 2],
         emitter: Option<EntityId>,
         via: &str,
@@ -116,7 +141,7 @@ impl World {
         }
         let placed = match self.can_afford(cost, at) {
             Err(r) => Err(r),
-            Ok(()) => self.can_place(prefab, at),
+            Ok(()) => self.can_place_turned(prefab, at, turn),
         };
         match placed {
             Err(r) => {
@@ -155,6 +180,7 @@ impl World {
                 let id = self.entities.len() as EntityId;
                 let mut def = template;
                 def.pos = [at[0] as f32, at[1] as f32, def.pos[2]];
+                def.turn = turn;
                 self.entities.0.push(make_entity(id, &def, shapes));
                 self.index.enter(&self.entities[id as usize]);
                 let who = self.describe(id);
@@ -179,7 +205,12 @@ impl World {
                     );
                     payer_changed = Some(k.entity);
                 }
-                let msg = format!("{who} was spawned at {} ({via}){paid}{when}", fmt_cell(at));
+                // A copy that is turned says so; one that is not reads as it always did.
+                let turned = if turn == 0 { String::new() } else { format!(", turned {}", turn as u32 * 90) };
+                if turn != 0 {
+                    data.set("turn", turn as u32 * 90);
+                }
+                let msg = format!("{who} was spawned at {}{turned} ({via}){paid}{when}", fmt_cell(at));
                 self.write(EventKind::Spawned, Some(id), emitter, msg, data);
                 if !self.entities[id as usize].counts.is_empty() {
                     self.add_counter(id);

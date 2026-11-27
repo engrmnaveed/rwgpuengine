@@ -84,6 +84,8 @@ pub(crate) struct Action<'p> {
     pub template: Option<EntityDef>,
     /// Who pays for a `spawn` with `cost` (an entity of the scene).
     pub payer: Option<usize>,
+    /// Whose prop a `spawn` reads its `turn` from (an entity of the scene).
+    pub turner: Option<usize>,
 }
 
 /// Who a [[connect]] listens to.
@@ -403,7 +405,7 @@ fn well_formed(t: &Table, c: &ConnectDef) -> bool {
 }
 
 /// Keys of an action, which go inside the items of `actions`.
-pub(crate) const ACTION_KEYS: [&str; 5] = ["to", "prop", "value", "prefab", "cost"];
+pub(crate) const ACTION_KEYS: [&str; 6] = ["to", "prop", "value", "prefab", "cost", "turn"];
 
 /// The prefabs `spawn` places, in first-use order.
 #[derive(Default)]
@@ -460,7 +462,7 @@ fn connection(
     }
     for (k, ((table, aspan), a)) in defs::action_tables(t, span).into_iter().zip(&c.def.actions).enumerate() {
         let step = |s| At::Connect(item, ConnectStep::Action(k, s));
-        let mut action = Action { table, span: aspan, target: None, template: None, payer: None };
+        let mut action = Action { table, span: aspan, target: None, template: None, payer: None, turner: None };
         if a.action == ConnectAction::Spawn {
             if let Some(p) = &a.prefab
                 && let Some(def) =
@@ -472,7 +474,12 @@ fn connection(
                 action.template = Some(def);
             }
             if let Some(cost) = &a.cost {
-                action.payer = payer(cost, table, aspan, entities, index, src, &mut out.at(step(ActionStep::Cost)));
+                let who = ("cost", cost.entity.as_str(), "the paying entity");
+                action.payer = named(who, table, aspan, entities, index, src, &mut out.at(step(ActionStep::Cost)));
+            }
+            if let Some(defs::TurnDef::Prop { entity, .. }) = &a.turn {
+                let who = ("turn", entity.as_str(), "the entity that holds the turn");
+                action.turner = named(who, table, aspan, entities, index, src, &mut out.at(step(ActionStep::Turn)));
             }
         } else {
             match a.to.as_deref() {
@@ -502,9 +509,10 @@ fn connection(
     }
 }
 
-/// The entity a spawn's `cost` names, or E0202.
-fn payer(
-    cost: &defs::CostDef,
+/// The entity a spawn's `cost` or `turn` names (`key`, the name, and what
+/// the entity is for the hint), or E0202.
+fn named(
+    (key, name, what): (&str, &str, &str),
     t: &Table,
     span: Span,
     entities: &[EntityDef],
@@ -512,15 +520,14 @@ fn payer(
     src: &SourceFile,
     out: &mut super::order::Sink,
 ) -> Option<usize> {
-    if let Some(&i) = index.get(cost.entity.as_str()) {
+    if let Some(&i) = index.get(name) {
         return Some(i);
     }
-    let at = t.table("cost").map_or(span, |c| c.value_span("entity", t.value_span("cost", span)));
+    let at = t.table(key).map_or(span, |c| c.value_span("entity", t.value_span(key, span)));
     let names = entities.iter().filter_map(|e| e.name.as_deref());
-    let hint = did_you_mean(&cost.entity, names)
-        .unwrap_or_else(|| format!("give the paying entity `name = \"{}\"`", cost.entity));
+    let hint = did_you_mean(name, names).unwrap_or_else(|| format!("give {what} `name = \"{name}\"`"));
     out.push(
-        Diagnostic::new(&codes::UNKNOWN_ENTITY, format!("`cost` names unknown entity `{}`", cost.entity))
+        Diagnostic::new(&codes::UNKNOWN_ENTITY, format!("`{key}` names unknown entity `{name}`"))
             .at(src, at)
             .hint(hint),
     );

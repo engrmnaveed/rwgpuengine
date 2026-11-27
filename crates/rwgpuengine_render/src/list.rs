@@ -212,7 +212,7 @@ pub fn build(world: &World, view: &View, camera: &Camera, include_disabled: bool
             }
         }
         if let Some(shapes) = e.shapes.and_then(|n| world.shapes.get(n as usize)) {
-            let turn = 0;
+            let turn = e.turn % 4;
             let slot = &mut model_of[e.shapes.unwrap_or(0) as usize][turn as usize];
             // The same list in another footprint is another model (rare: one more is looked for).
             let fits = |m: &Model| Arc::ptr_eq(&m.shapes, shapes) && m.footprint == e.footprint && m.turn == turn;

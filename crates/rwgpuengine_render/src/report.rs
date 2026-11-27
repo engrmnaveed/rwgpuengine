@@ -314,6 +314,9 @@ impl FrameReport {
                     .with("clipped", r.clipped)
                     .with("covered_by", cov)
                     .with("text", r.text.clone());
+                if let Some(turn) = world.get(r.id).map(|e| e.turn).filter(|t| *t != 0) {
+                    j.set("turn", turn as u32 * 90);
+                }
                 // What it is built of, shape by shape: a roof that shows no pixel is hidden or faces away.
                 if !r.shapes.is_empty() {
                     let shape = |(kind, drawn, visible): &(&str, u32, u32)| {

@@ -1184,3 +1184,86 @@ fn flat_things_and_cards_stand_on_shapes_as_on_blocks() {
     assert_eq!(list.models.len(), 5);
     assert_eq!(list, build(&stage.world, &stage.view, &stage.camera, false));
 }
+
+#[test]
+fn a_turned_entity_is_its_shapes_written_the_other_way_round() {
+    // A shed of 2 by 1 cells: walls, a lean-to roof that rises toward +x, a
+    // gable over one end, and a post at its +x, low-y corner. Turned, it is
+    // drawn exactly as the shed written by hand for that turn, pixel for
+    // pixel: from +x toward +y, about the middle of the cells it covers,
+    // which run the other way after a quarter turn; `pos` stays the lowest
+    // corner.
+    let shed = |footprint: &str, turn: u32, shapes: &str| {
+        format!(
+            "[ground]\nsize = [5, 5]\n\n[[entity]]\nname = \"shed\"\npos = [1, 2]\nfootprint = {footprint}\nturn = {turn}\nshape = [{shapes}]\n"
+        )
+    };
+    let written = "{ kind = \"box\", size = [2, 1, 0.5], color = \"#c0a060\" }, { kind = \"wedge\", at = [0, 0, 0.5], size = [1.5, 1, 0.5], color = \"#b5523b\" }, { kind = \"roof\", at = [1.5, 0, 0.5], size = [0.5, 1, 0.25], color = \"#7a3a2a\" }, { kind = \"box\", at = [1.5, 0, 0.75], size = [0.5, 0.25, 1], color = \"#555555\" }";
+    let by_hand = [
+        ("[2, 1]", written.to_string()),
+        (
+            "[1, 2]",
+            "{ kind = \"box\", size = [1, 2, 0.5], color = \"#c0a060\" }, { kind = \"wedge\", at = [0, 0, 0.5], size = [1, 1.5, 0.5], color = \"#b5523b\", turn = 90 }, { kind = \"roof\", at = [0, 1.5, 0.5], size = [1, 0.5, 0.25], color = \"#7a3a2a\", turn = 90 }, { kind = \"box\", at = [0.75, 1.5, 0.75], size = [0.25, 0.5, 1], color = \"#555555\" }".to_string(),
+        ),
+        (
+            "[2, 1]",
+            "{ kind = \"box\", size = [2, 1, 0.5], color = \"#c0a060\" }, { kind = \"wedge\", at = [0.5, 0, 0.5], size = [1.5, 1, 0.5], color = \"#b5523b\", turn = 180 }, { kind = \"roof\", at = [0, 0, 0.5], size = [0.5, 1, 0.25], color = \"#7a3a2a\" }, { kind = \"box\", at = [0, 0.75, 0.75], size = [0.5, 0.25, 1], color = \"#555555\" }".to_string(),
+        ),
+        (
+            "[1, 2]",
+            "{ kind = \"box\", size = [1, 2, 0.5], color = \"#c0a060\" }, { kind = \"wedge\", at = [0, 0.5, 0.5], size = [1, 1.5, 0.5], color = \"#b5523b\", turn = 270 }, { kind = \"roof\", at = [0, 0, 0.5], size = [1, 0.5, 0.25], color = \"#7a3a2a\", turn = 90 }, { kind = \"box\", at = [0, 0, 0.75], size = [0.25, 0.5, 1], color = \"#555555\" }".to_string(),
+        ),
+    ];
+    for (quarters, (footprint, shapes)) in by_hand.iter().enumerate() {
+        for (view, turn, zoom) in cameras() {
+            let turned = setup(&shed("[2, 1]", quarters as u32 * 90, written)).with(view, turn, zoom);
+            let hand = setup(&shed(footprint, 0, shapes)).with(view, turn, zoom);
+            let (a, b) = (render(&turned.seen(false)), render(&hand.seen(false)));
+            let first = a.rgba.iter().zip(&b.rgba).position(|(x, y)| x != y).map(|i| ((i / 4) % 320, i / 4 / 320));
+            assert_eq!(first, None, "turned {}, {view:?} {turn} {zoom}: the first different pixel", quarters * 90);
+            assert!(a.owner == b.owner, "turned {}, {view:?} {turn} {zoom}: owners", quarters * 90);
+        }
+        // The world covers the same cells either way.
+        let turned = setup(&shed("[2, 1]", quarters as u32 * 90, written));
+        let hand = setup(&shed(footprint, 0, shapes));
+        assert_eq!(turned.world.by_name("shed").unwrap().cells(), hand.world.by_name("shed").unwrap().cells());
+    }
+}
+
+#[test]
+fn a_turned_entity_is_tapped_and_reported_on_the_cells_it_covers() {
+    // A wall of 3 by 1 cells, turned a quarter: it runs along y from its `pos`.
+    let scene = "[ground]\nsize = [5, 5]\n\n[[entity]]\nname = \"wall\"\npos = [2, 1]\nfootprint = [3, 1]\nturn = 90\nblock = { height = 0.5 }\ntile = { color = \"#ff00ff\" }\n\n[[entity]]\nname = \"gate\"\npos = [0, 4]\nfootprint = [2, 1]\nturn = 270\nshape = [{ kind = \"box\", size = [2, 1, 0.25] }]\n";
+    for (view, turn, zoom) in cameras() {
+        let stage = setup(scene).with(view, turn, zoom);
+        let (seen, frame, report) = stage.render();
+        let wall = stage.world.find("wall").expect("the wall");
+        // The middle of the top over each covered cell is the wall; the cells beside it are ground.
+        for (cell, is_wall) in [([2, 1], true), ([2, 2], true), ([2, 3], true), ([3, 1], false), ([4, 1], false)] {
+            let [px, py] = stage.px(cell[0] as f32, cell[1] as f32, if is_wall { 0.5 } else { 0.0 });
+            if px < 0 || py < 0 || px >= 320 || py >= 240 {
+                continue;
+            }
+            let owner = frame.owner[py as usize * 320 + px as usize].checked_sub(1).map(|i| &seen.items[i as usize]);
+            let what = format!("{view:?} {turn} {zoom}: cell {cell:?}");
+            if is_wall {
+                assert_eq!(owner.and_then(|i| i.entity), Some(wall), "{what}");
+                assert_eq!(pick(&seen, px as f32 + 0.5, py as f32 + 0.5).hit, Some(wall), "{what}");
+            } else if (turn, zoom) == (0.0, 1.0) {
+                // Seen from the start, the cells beside it are in front of it.
+                assert_ne!(owner.and_then(|i| i.entity), Some(wall), "{what}");
+            }
+        }
+        // The report says which way an entity is turned, where it is.
+        let json = report.to_json(&stage.world);
+        let turn_of = |name: &str| {
+            let all = json.get("entities").and_then(|e| e.as_array()).expect("entities");
+            let e = all.iter().find(|e| e.get("entity").and_then(|n| n.as_str()) == Some(name)).expect("it is drawn");
+            e.get("turn").and_then(|t| t.as_i64())
+        };
+        assert_eq!((turn_of("wall"), turn_of("gate")), (Some(90), Some(270)));
+    }
+    // A block and a tile fill the cells as they are covered: the picture is the unturned 1 by 3 wall's.
+    let plain = scene.replace("footprint = [3, 1]\nturn = 90", "footprint = [1, 3]");
+    assert_eq!(setup(scene).image(), setup(&plain).image());
+}

@@ -354,6 +354,13 @@ fn without_a_ground_the_bound_is_what_the_world_holds_and_it_holds_the_start() {
     // The HUD and the entity with only props take up no cell.
     assert_eq!((s.camera_bound.min, s.camera_bound.max), ([-4.5, 0.0], [3.5, 4.5]));
 
+    // A turned entity counts with the cells it covers: 1 x 4 cells of shapes, turned a quarter, cover
+    // x 5.5..9.5 and y -2.5..-1.5 (as written they would reach y 1.5 and stop at x 6.5).
+    let scene =
+        "[[entity]]\npos = [6, -2]\nfootprint = [1, 4]\nturn = 90\nshape = [{ kind = \"box\", size = [1, 4, 1] }]\n";
+    let s = Session::load(&project(scene, &[]), &SessionConfig::default(), Box::new(DataOnly)).unwrap();
+    assert_eq!((s.camera_bound.min, s.camera_bound.max), ([0.0, -2.5], [9.5, 0.0]));
+
     let mut vfs = builder("[test]\nframes = 5\n");
     let ground = vfs.get("scenes/main.toml").unwrap().to_string();
     vfs.insert("scenes/main.toml", format!("[camera]\ncenter = [20, 1]\n\n{ground}"));
@@ -469,4 +476,48 @@ fn a_playtest_checks_each_frame_its_own_tables_in_file_order() {
     let failed: Vec<&str> = run.failures.iter().map(|d| d.message.split('`').nth(1).unwrap_or("")).collect();
     assert_eq!(failed, ["w1", "w3", "w0"]);
     assert_eq!(run.expects_checked, 4);
+}
+
+#[test]
+fn a_placement_question_can_ask_about_a_turned_copy() {
+    use crate::session::PlaceQuery;
+    use rwgpuengine_core::json::Json;
+    let q = |s: &str| PlaceQuery::parse(s);
+    let asked = |prefab: &str, at, turn| Ok(PlaceQuery { prefab: prefab.into(), at, turn });
+    assert_eq!(q("house"), asked("house", None, None));
+    assert_eq!(q("house@3,4"), asked("house", Some([3, 4]), None));
+    assert_eq!(q("house@3,4,90"), asked("house", Some([3, 4]), Some(1)));
+    assert_eq!(q("house@-1, 2, 270"), asked("house", Some([-1, 2]), Some(3)));
+    assert_eq!(q("house@180"), asked("house", None, Some(2)));
+    for bad in ["@3,4", "house@", "house@3", "house@3,4,45", "house@3,4,90,1", "house@x,y", "house@3,"] {
+        assert!(q(bad).is_err(), "{bad}");
+    }
+    // A shed of 3 by 1 on a ground 4 wide and 3 deep: unturned it fits along x from (1, 0),
+    // turned a quarter it runs along y and reaches past the last row from (1, 1).
+    let mut vfs = Vfs::new();
+    vfs.insert("rwgpu.toml", "[project]\nname = \"t\"\n");
+    vfs.insert("prefabs/shed.toml", "footprint = [3, 1]\nblock = {}\n");
+    vfs.insert(
+        "scenes/main.toml",
+        "[ground]\nsize = [4, 3]\n\n[[connect]]\nfrom = \"ground\"\nsignal = \"tapped\"\naction = \"spawn\"\nprefab = \"shed\"\n",
+    );
+    let session = Session::load(&vfs, &SessionConfig::default(), Box::new(DataOnly)).expect("it loads");
+    let (seen, frame) = (session.projected(false), session.render().0);
+    let ask = |s: &str| session.place_json(&q(s).expect("a question"), &seen, &frame);
+    let ok = |j: &Json| j.get("ok").and_then(Json::as_bool);
+    let plain = ask("shed@1,0");
+    assert_eq!((ok(&plain), plain.get("turn")), (Some(true), None));
+    assert_eq!(plain.get("cells").map(Json::to_compact), Some("[[1,0],[2,0],[3,0]]".into()));
+    let turned = ask("shed@1,0,90");
+    assert_eq!(turned.get("cells").map(Json::to_compact), Some("[[1,0],[1,1],[1,2]]".into()));
+    assert_eq!(turned.get("turn").and_then(Json::as_i64), Some(90));
+    assert_eq!(turned.get("message").and_then(Json::as_str), Some("`shed` fits at (1, 0), turned 90"));
+    let refused = ask("shed@1,1,270");
+    assert_eq!((ok(&refused), refused.get("reason").and_then(Json::as_str)), (Some(false), Some("edge")));
+    assert!(
+        refused.get("message").and_then(Json::as_str).is_some_and(|m| m.contains("(1, 1), turned 270: cell (1, 3)"))
+    );
+    // Every cell where it fits: 2 unturned (x 0 and 1, three rows each: 6), 4 turned (the first row).
+    assert_eq!(ask("shed").get("count").and_then(Json::as_i64), Some(6));
+    assert_eq!(ask("shed@90").get("count").and_then(Json::as_i64), Some(4));
 }

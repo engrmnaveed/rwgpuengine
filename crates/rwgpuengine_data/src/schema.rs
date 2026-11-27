@@ -44,6 +44,8 @@ pub enum Ty {
     },
     /// A quarter turn in degrees: 0, 90, 180 or 270.
     Turn,
+    /// A quarter turn, or a table that says where to read one.
+    TurnOr(&'static Spec),
     /// `[x, y]` integers.
     Cell,
     /// Non-empty array of cells.
@@ -364,6 +366,7 @@ pub static ENTITY: Spec = Spec {
         F_COUNTS,
         F_ALLOW,
         F_SHAPE,
+        F_TURN,
     ],
 };
 
@@ -390,6 +393,7 @@ pub static PREFAB_FILE: Spec = Spec {
         F_COUNTS,
         F_ALLOW,
         F_SHAPE,
+        F_TURN,
     ],
 };
 
@@ -469,6 +473,15 @@ const F_SHAPE: Field = opt(
     None,
     "What it is built of: solids with flat colors, one `[[shape]]` table each (in a scene: `[[entity.shape]]`, \
      or `shape = [{ ... }]`). A list here replaces the prefab's.",
+);
+
+const F_TURN: Field = opt(
+    "turn",
+    Ty::Turn,
+    Some("0"),
+    "Quarter turns about the vertical, from +x toward +y (as a camera turned as far shows the world): its shapes \
+     turn about the middle of its footprint, and at 90 and 270 a `footprint = [w, h]` covers h cells along x and \
+     w along y. `pos` is always the covered cell with the lowest x and y.",
 );
 
 pub static TILE: Spec = Spec {
@@ -649,6 +662,7 @@ pub static CONNECT: Spec = Spec {
         F_CONNECT_VALUE,
         F_CONNECT_PREFAB,
         F_CONNECT_COST,
+        F_CONNECT_TURN,
         opt(
             "when",
             Ty::List(&CONDITION),
@@ -664,8 +678,8 @@ pub static CONNECT: Spec = Spec {
             "Several actions for the same signal and `when`, run in order: \
              `actions = [{ action = \"set\", to = \"town\", prop = \"tool\", value = \"tree\" }, \
              { action = \"set\", to = \"hint\", prop = \"msg\", value = \"\" }]`. Each item has the keys \
-             `action`, `to`, `prop`, `value`, `prefab` and `cost` (`rwgpu explain action`), which then cannot be on the \
-             [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run.",
+             `action`, `to`, `prop`, `value`, `prefab`, `cost` and `turn` (`rwgpu explain action`), which then cannot \
+             be on the [[connect]] itself. If a `spawn` in the list cannot be placed, the actions after it do not run.",
         ),
     ],
 };
@@ -685,6 +699,7 @@ pub static ACTION: Spec = Spec {
         F_CONNECT_VALUE,
         F_CONNECT_PREFAB,
         F_CONNECT_COST,
+        F_CONNECT_TURN,
     ],
 };
 
@@ -727,6 +742,27 @@ const F_CONNECT_COST: Field = opt(
      placed or paid (`blocked`, reason `funds`, checked before the cell) and the signal's source emits \
      `refused` with reason `funds`.",
 );
+
+const F_CONNECT_TURN: Field = opt(
+    "turn",
+    Ty::TurnOr(&TURN_FROM),
+    None,
+    "With `spawn`: the copy's `turn`. A quarter turn (`turn = 90`), or read from a prop when the copy is placed: \
+     `turn = { entity = \"tool\", prop = \"facing\" }`. Its footprint is turned before the cells are checked. \
+     Default: the prefab's own `turn`.",
+);
+
+pub static TURN_FROM: Spec = Spec {
+    id: "turn",
+    title: "spawn turn",
+    doc: "Where a `spawn` reads its copy's turn: the integer prop `prop` of `entity`, in degrees. Whole quarter \
+          turns count and the number wraps: 90 to 179 is 90, 360 is 0, -90 is 270. So a Turn button is one \
+          `add` of 90 to that prop.",
+    fields: &[
+        req("entity", Ty::Name, "The entity that holds the turn, by name (the chosen tool, a HUD)."),
+        req("prop", Ty::Name, "Its integer prop, in degrees."),
+    ],
+};
 
 pub static COST: Spec = Spec {
     id: "cost",
@@ -949,6 +985,7 @@ pub static ALL_SPECS: &[&Spec] = &[
     &CONNECT,
     &ACTION,
     &COST,
+    &TURN_FROM,
     &CONDITION,
     &PREFAB_FILE,
     &TILE,
@@ -1007,6 +1044,7 @@ impl Ty {
             Ty::Pos => "[x, y] or [x, y, z] numbers".into(),
             Ty::Size3 { max } => format!("three numbers [x, y, z], each above 0 and at most {max}"),
             Ty::Turn => "0, 90, 180 or 270".into(),
+            Ty::TurnOr(spec) => format!("0, 90, 180 or 270, or a table ({})", spec.title),
             Ty::Cell => "two integers [x, y]".into(),
             Ty::Cells => "a list of cells like [[0, 0], [1, 0]]".into(),
             Ty::Props => "a table of simple values like { hp = 3 }".into(),
@@ -1037,6 +1075,7 @@ impl Ty {
             Ty::Pos => "[x, y, z?]".into(),
             Ty::Size3 { .. } => "[x, y, z]".into(),
             Ty::Turn => "0 \\| 90 \\| 180 \\| 270".into(),
+            Ty::TurnOr(spec) => format!("0 \\| 90 \\| 180 \\| 270 \\| table: {}", spec.id),
             Ty::Cell => "[x, y] int".into(),
             Ty::Cells => "[[x, y], ...]".into(),
             Ty::Props => "table".into(),
@@ -1226,7 +1265,8 @@ impl Checker<'_> {
                 }
                 _ => wrong_type(self),
             },
-            Ty::Turn => match node.as_int() {
+            Ty::TurnOr(spec) if node.as_table().is_some() => self.value(node, &Ty::Table(spec), label),
+            Ty::Turn | Ty::TurnOr(_) => match node.as_int() {
                 None => wrong_type(self),
                 Some(0 | 90 | 180 | 270) => true,
                 Some(_) => {
@@ -1595,6 +1635,7 @@ fn ty_schema(ty: &Ty) -> Json {
             .with("minItems", 3)
             .with("maxItems", 3),
         Ty::Turn => Json::object().with("enum", vec![Json::from(0), 90.into(), 180.into(), 270.into()]),
+        Ty::TurnOr(spec) => Json::object().with("anyOf", vec![ty_schema(&Ty::Turn), table_schema(spec)]),
         Ty::Cell => num_array("integer", 2, 2),
         Ty::Cells => Json::object().with("type", "array").with("items", num_array("integer", 2, 2)).with("minItems", 1),
         Ty::Codes => Json::object()

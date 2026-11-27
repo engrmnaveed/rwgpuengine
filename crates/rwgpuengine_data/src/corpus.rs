@@ -1792,6 +1792,7 @@ pub(crate) fn cases() -> Vec<Case> {
     v.push(case("playtest/all", tests));
     v.extend(file_cases());
     v.extend(shape_cases());
+    v.extend(turn_cases());
     v.push(case("everything", everything()));
     v.extend(test_inputs());
     v.extend(generated());
@@ -1939,6 +1940,104 @@ fn shape_cases() -> Vec<Case> {
         "shape/prefab-spawned-warnings",
         with(&[("prefabs/home.toml", odd), ("scenes/main.toml", &scene(spawned))]),
     ));
+    v
+}
+
+// ---------------------------------------------------------------------------
+// Quarter turns (ADR 0029): `turn` on an entity and on a `spawn`. A group of
+// its own, like the shapes.
+
+/// Entities and [[connect]] tables with `turn`, appended to the base scene.
+const TURN_SNIPS: &[(&str, &str)] = &[
+    ("entity", "[[entity]]\nname = \"shed\"\npos = [0, 2]\nfootprint = [2, 1]\nturn = 90\nblock = {}\n"),
+    (
+        "every-turn",
+        "[[entity]]\nname = \"a\"\npos = [0, 2]\nturn = 0\ntile = {}\n\n[[entity]]\nname = \"b\"\npos = [1, 2]\nturn = 90\ntile = {}\n\n[[entity]]\nname = \"c\"\npos = [3, 2]\nturn = 180\nfootprint = [1, 2]\nshape = [{ kind = \"wedge\", size = [1, 2, 1] }]\n\n[[entity]]\nname = \"d\"\npos = [0, 5]\nturn = 270\nfootprint = [1, 2]\nshape = [{ kind = \"roof\", size = [1, 2, 1] }]\n",
+    ),
+    (
+        "wrong",
+        "[[entity]]\nname = \"wa\"\npos = [0, 2]\nturn = 45\n\n[[entity]]\nname = \"wb\"\npos = [0, 2]\nturn = \"90\"\n\n[[entity]]\nname = \"wc\"\npos = [0, 2]\nturn = 360\n\n[[entity]]\nname = \"wd\"\npos = [0, 2]\nturn = -90\n\n[[entity]]\nname = \"we\"\npos = [0, 2]\nturn = 1\n\n[[entity]]\nname = \"wf\"\npos = [0, 2]\nturn = 90.0\n",
+    ),
+    (
+        "outside-ground",
+        "[[entity]]\nname = \"out\"\npos = [6, 4]\nfootprint = [1, 3]\nturn = 90\ntile = {}\n\n[[entity]]\nname = \"in\"\npos = [7, 3]\nfootprint = [3, 1]\nturn = 270\ntile = {}\n",
+    ),
+    (
+        "solid-overlap",
+        "[[entity]]\nname = \"gate\"\npos = [7, 0]\nfootprint = [2, 1]\nturn = 90\nblock = {}\nsolid = true\n\n[[entity]]\nname = \"clear\"\npos = [6, 0]\nfootprint = [1, 2]\nturn = 0\nblock = {}\nsolid = true\n",
+    ),
+    ("on-screen", "[[entity]]\nname = \"sign\"\nscreen_pos = [4, 4]\nturn = 180\nlabel = { text = \"x\" }\n"),
+    ("mover", "[[entity]]\nname = \"cart\"\npos = [0, 2]\nturn = 270\nsprite = {}\nwander = {}\n"),
+    (
+        "footprint-mover",
+        "[[entity]]\nname = \"big\"\npos = [0, 2]\nfootprint = [2, 1]\nturn = 90\nmover = {}\nsprite = {}\n",
+    ),
+    (
+        "shapes-in-the-footprint-as-written",
+        "[[entity]]\nname = \"fits\"\npos = [0, 2]\nfootprint = [2, 1]\nturn = 90\nshape = [{ kind = \"box\", size = [2, 1, 1] }]\n\n[[entity]]\nname = \"across\"\npos = [3, 2]\nfootprint = [2, 1]\nturn = 90\nshape = [{ kind = \"box\", size = [1, 2, 1] }]\n",
+    ),
+    ("cells", "[[entity]]\ncells = [[0, 2], [0, 4]]\nfootprint = [2, 1]\nturn = 90\ntile = {}\n"),
+    (
+        "spawn-fixed",
+        "[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = 270\n",
+    ),
+    (
+        "spawn-prop",
+        "[[entity]]\nname = \"tool\"\nprops = { facing = 0 }\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = { entity = \"tool\", prop = \"facing\" }\n",
+    ),
+    (
+        "spawn-prop-unknown-entity",
+        "[[entity]]\nname = \"tool\"\nprops = { facing = 0 }\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = { entity = \"tol\", prop = \"facing\" }\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = { entity = \"zeppelin\", prop = \"facing\" }\n",
+    ),
+    (
+        "spawn-prop-unknown-prop",
+        "[[entity]]\nname = \"tool\"\nprops = { facing = 0 }\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = { entity = \"tool\", prop = \"facin\" }\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = { entity = \"hint\", prop = \"zzz\" }\n",
+    ),
+    (
+        "spawn-prop-not-integer",
+        "[[entity]]\nname = \"tool\"\nprops = { facing = \"north\", half = 0.5, on = true }\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = { entity = \"tool\", prop = \"facing\" }\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = { entity = \"tool\", prop = \"half\" }\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = { entity = \"tool\", prop = \"on\" }\n",
+    ),
+    (
+        "spawn-prop-a-count",
+        "[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = { entity = \"job\", prop = \"houses\" }\n",
+    ),
+    (
+        "spawn-wrong",
+        "[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = 45\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = \"90\"\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = { entity = \"town\" }\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = { entity = \"town\", prop = \"coins\", by = 90 }\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"house\"\nturn = [90]\n",
+    ),
+    (
+        "not-a-spawn",
+        "[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\nto = \"door\"\naction = \"enable\"\nturn = 90\n",
+    ),
+    (
+        "beside-actions",
+        "[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\nturn = 90\nactions = [{ action = \"spawn\", prefab = \"house\" }]\n",
+    ),
+    (
+        "in-actions",
+        "[[entity]]\nname = \"tool\"\nprops = { facing = 90 }\n\n[[connect]]\nfrom = \"ground\"\nsignal = \"tapped\"\nactions = [{ action = \"spawn\", prefab = \"house\", turn = { entity = \"tool\", prop = \"facing\" }, cost = { entity = \"town\", prop = \"coins\", amount = 2 } }, { action = \"add\", to = \"tool\", prop = \"facing\", value = 90 }]\n",
+    ),
+];
+
+fn turn_cases() -> Vec<Case> {
+    let mut v = Vec::new();
+    for (name, text) in TURN_SNIPS {
+        v.push(case(format!("turn/{name}"), scene_with(text)));
+    }
+    // Several at a time; the two snippets that name `tool` twice are left to their own cases.
+    let all: Vec<&str> = TURN_SNIPS
+        .iter()
+        .filter(|(n, _)| !n.starts_with("spawn-prop-") && *n != "in-actions")
+        .map(|(_, t)| *t)
+        .collect();
+    v.push(case("turn/all", scene_with(&all.join("\n"))));
+    // A prefab that is turned as it is written, and entities that turn it back or further.
+    let shed = "footprint = [3, 1]\nturn = 90\nblock = {}\nsolid = true\n";
+    let sheds = "[[entity]]\nname = \"upright\"\nprefab = \"shed\"\npos = [0, 2]\n\n[[entity]]\nname = \"flat\"\nprefab = \"shed\"\npos = [3, 5]\nturn = 0\n\n[[connect]]\nfrom = \"plate\"\nsignal = \"pressed\"\naction = \"spawn\"\nprefab = \"shed\"\n";
+    let scene = format!("{}\n{sheds}", base_scene());
+    v.push(case("turn/prefab", with(&[("prefabs/shed.toml", shed), ("scenes/main.toml", &scene)])));
+    let wrong = "footprint = [3, 1]\nturn = 30\nblock = {}\n";
+    v.push(case("turn/prefab-wrong", with(&[("prefabs/shed.toml", wrong), ("scenes/main.toml", &scene)])));
     v
 }
 
@@ -2111,13 +2210,14 @@ fn everything() -> Vfs {
 /// playtest (ADR 0030): its record differs from the one before only by the
 /// lines that list and decode that file, and every other case's is the same.
 ///
-/// Five pins are newer, by one word each (ADR 0029): where an unknown key of
+/// Five pins are newer, by two words each (ADR 0029): where an unknown key of
 /// an entity or of a prefab file has no near name, the hint lists the keys
-/// there are, and `shape` is one now (`entity/unknown-key-no-hint`,
-/// `entity/all`, `files/prefab-unused-invalid`,
-/// `files/prefab-invalid-from-prefab`, `everything`). Every other line of
-/// every record of before is the same byte for byte. The cases under
-/// `shape/` and `limits/shapes*` came with shapes.
+/// there are, and `shape` and `turn` are two of them now
+/// (`entity/unknown-key-no-hint`, `entity/all`,
+/// `files/prefab-unused-invalid`, `files/prefab-invalid-from-prefab`,
+/// `everything`). Every other line of every record of before is the same
+/// byte for byte. The cases under `shape/`, `turn/` and `limits/shapes*`
+/// came with shapes and turns.
 const PINS: &[(&str, &str)] = &[
     ("examples/coin_vault", "b7e48e8a696ae553"),
     ("examples/iso_garden", "c84862e5a560d2ec"),
@@ -2182,7 +2282,7 @@ const PINS: &[(&str, &str)] = &[
     ("entity/name-invalid", "8439275b913f98c1"),
     ("entity/name-wrong-type", "829f302ac8eae24a"),
     ("entity/unknown-key-hint", "b5c82855140cd9e6"),
-    ("entity/unknown-key-no-hint", "60882b18f6865f74"),
+    ("entity/unknown-key-no-hint", "75a86d9a92df816a"),
     ("entity/unknown-component-key", "166b582c65949910"),
     ("entity/component-wrong-type", "48d97e00bfb983dc"),
     ("entity/color-invalid", "dd7ca6235dcb4093"),
@@ -2196,7 +2296,7 @@ const PINS: &[(&str, &str)] = &[
     ("entity/allow-wrong-type", "1a73634911bc1125"),
     ("entity/missing-required", "df6e472e0ecbc578"),
     ("entity/bool-wrong-type", "ef392472d4c1c046"),
-    ("entity/all", "597cf038d383fb0d"),
+    ("entity/all", "6c8aa4daba506d0d"),
     ("placement/solid-overlap", "5445844e40504593"),
     ("placement/solid-overlap-allowed-first", "a7bc67f6acfacf26"),
     ("placement/solid-overlap-footprint", "0215b0a7bc1b465f"),
@@ -2414,10 +2514,10 @@ const PINS: &[(&str, &str)] = &[
     ("ties/prefabs", "19aa1200e1ac2d77"),
     ("files/prefab-syntax", "451102ab2f2a041a"),
     ("files/prefab-unknown-key-used-twice", "d391fd06071e35cd"),
-    ("files/prefab-unused-invalid", "e1b962775f859dcd"),
+    ("files/prefab-unused-invalid", "dcce9c06e2d0b749"),
     ("files/prefab-empty", "c377855d158e3968"),
     ("files/prefab-subfolder", "aa6caac048b0e61d"),
-    ("files/prefab-invalid-from-prefab", "7c89f80caa02fa2d"),
+    ("files/prefab-invalid-from-prefab", "4e680e631f17999b"),
     ("files/spawn-screen-prefab", "ab4f0b7d6dd7dea0"),
     ("files/spawn-screen-prefab-cost", "4254e5348cfa14fa"),
     ("files/spawn-prefab-checks", "afb27f5e3917cf60"),
@@ -2476,7 +2576,30 @@ const PINS: &[(&str, &str)] = &[
     ("shape/prefab-own-list", "f7eaf743cef6ee70"),
     ("shape/prefab-spawned", "ede6c88cb451020d"),
     ("shape/prefab-spawned-warnings", "108e0105677140a2"),
-    ("everything", "41e16c1ca2df4163"),
+    ("turn/entity", "d172a2e5d75d29ff"),
+    ("turn/every-turn", "a9c4ece00209efb9"),
+    ("turn/wrong", "5328060e61a2a552"),
+    ("turn/outside-ground", "d2f973455413fc3d"),
+    ("turn/solid-overlap", "350e663027f73474"),
+    ("turn/on-screen", "74cc48c6afea3275"),
+    ("turn/mover", "b06d9f5eadb2d830"),
+    ("turn/footprint-mover", "e09ab818783ba479"),
+    ("turn/shapes-in-the-footprint-as-written", "07c2f09db8b86ba0"),
+    ("turn/cells", "5d49ecc289450e2b"),
+    ("turn/spawn-fixed", "3f0d702bec2cd3f9"),
+    ("turn/spawn-prop", "95ebaf8712955063"),
+    ("turn/spawn-prop-unknown-entity", "2f7f7b4bd03f3ca4"),
+    ("turn/spawn-prop-unknown-prop", "bf406041890696d2"),
+    ("turn/spawn-prop-not-integer", "37400d6db15fa48f"),
+    ("turn/spawn-prop-a-count", "8e1c68d209ea42f2"),
+    ("turn/spawn-wrong", "0496e6a68dfe404a"),
+    ("turn/not-a-spawn", "59880c1d53304173"),
+    ("turn/beside-actions", "6bd27979fd9df6d9"),
+    ("turn/in-actions", "461d2fd97ef79ca5"),
+    ("turn/all", "0ea26860016962fd"),
+    ("turn/prefab", "dae2a859d56ef307"),
+    ("turn/prefab-wrong", "23f22b63687a8f20"),
+    ("everything", "f33527a32f3b0e0f"),
     ("tests/a-valid-project", "ee60916e978d9580"),
     ("tests/missing-prefab", "63bab07b03a580ed"),
     ("tests/reference-errors", "828b83965df45d91"),

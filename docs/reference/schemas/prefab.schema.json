@@ -300,6 +300,10 @@
       },
       "maxItems": 64,
       "description": "What it is built of: solids with flat colors, one `[[shape]]` table each (in a scene: `[[entity.shape]]`, or `shape = [{ ... }]`). A list here replaces the prefab's."
+    },
+    "turn": {
+      "enum": [0, 90, 180, 270],
+      "description": "Quarter turns about the vertical, from +x toward +y (as a camera turned as far shows the world): its shapes turn about the middle of its footprint, and at 90 and 270 a `footprint = [w, h]` covers h cells along x and w along y. `pos` is always the covered cell with the lowest x and y. Default: 0."
     }
   },
   "additionalProperties": false

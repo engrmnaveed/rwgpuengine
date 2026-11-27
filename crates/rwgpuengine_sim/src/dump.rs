@@ -39,6 +39,9 @@ pub fn entity_json(world: &World, e: &Entity) -> Json {
         j.set("footprint", e.footprint);
         j.set("cells", Json::Arr(e.cells().into_iter().map(Json::from).collect()));
     }
+    if e.turn != 0 {
+        j.set("turn", e.turn as u32 * 90);
+    }
     if e.pushable {
         j.set("pushable", true);
     }

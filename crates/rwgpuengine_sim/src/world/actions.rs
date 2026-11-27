@@ -77,7 +77,8 @@ impl World {
     pub(super) fn run_action(&mut self, a: &Act, ctx: &ActCtx) -> bool {
         if a.action == ConnectAction::Spawn {
             let prefab = a.prefab.as_deref().unwrap_or_default();
-            return self.spawn(prefab, a.cost.as_ref(), ctx.cell, ctx.emitter, ctx.via, ctx.held);
+            let turn = self.spawn_turn(prefab, a.turn.as_ref());
+            return self.spawn(prefab, a.cost.as_ref(), turn, ctx.cell, ctx.emitter, ctx.via, ctx.held);
         }
         let (to, target) = self.act_target(a, ctx.emitter);
         let Some(to) = to else { return true };

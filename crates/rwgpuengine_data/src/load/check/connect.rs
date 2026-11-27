@@ -217,8 +217,30 @@ fn action(
         if let (Some(cost), Some(payer)) = (&a.cost, ra.payer) {
             self::cost(cost, &r.entities[payer], t, span, src, &mut out.at(at(ActionStep::Cost)));
         }
+        // A turn read from a prop: an integer prop its entity declares.
+        if let (Some(defs::TurnDef::Prop { entity, prop }), Some(holder)) = (&a.turn, ra.turner) {
+            let holder = &r.entities[holder];
+            let place = t.table("turn").map_or(span, |c| c.value_span("prop", t.value_span("turn", span)));
+            match holder.prop(prop) {
+                // No `prop` at all is reported as missing.
+                None if prop.is_empty() => {}
+                None => out.at(at(ActionStep::Turn)).push(unknown_prop(holder, prop, "`turn`", src, place)),
+                Some(defs::PropValue::Int(_)) => {}
+                Some(other) => out.at(at(ActionStep::Turn)).push(
+                    Diagnostic::new(
+                        &codes::PROP_TYPE,
+                        format!(
+                            "`turn` needs an integer prop (degrees), but `{entity}`.{prop} is {}",
+                            other.type_name()
+                        ),
+                    )
+                    .at(src, place)
+                    .hint("declare it as a whole number: `props = { facing = 0 }`"),
+                ),
+            }
+        }
     } else {
-        for key in ["prefab", "cost"].into_iter().filter(|k| t.has(k)) {
+        for key in ["prefab", "cost", "turn"].into_iter().filter(|k| t.has(k)) {
             out.at(at(ActionStep::Keys)).push(
                 Diagnostic::new(&codes::INVALID_VALUE, format!("`{key}` only applies to `action = \"spawn\"`"))
                     .at(src, t.key_span(key, span))
