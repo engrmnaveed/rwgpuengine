@@ -7,6 +7,38 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-27 — The simulation at scale, piece 2: events at scale, and limits on the work of a step
+
+- Step 5, piece 2 of 3 ([ADR 0027](decisions/0027-events-at-scale-and-limits-on-work.md)), on the branch
+  `sim-scale`. One step with 50,000 moving actors: 14.1 → 1.06 ms on an Apple M5 Pro, within the 2 ms budget,
+  which is now a row of `budgets.toml` (`time.sim_step_us`). Every state hash is unchanged.
+- **Pinned first.** Before any change, the event output of the ten example playtests (`run --events` as text
+  and JSON, `inspect --events`, `test`) and of the three examples run for 600 frames: 49 outputs. After: the
+  same bytes.
+- **Where an event's time went**, by switching parts off in a measuring copy: the sentence about 60 %, the
+  fields about 35 %, storing and dropping within the noise. A 32-byte fact or a counter costs about 1 ns.
+- **The design.** Moves, refusals of moves, plates and game code's events (the kinds there is one of per
+  actor in a step) are written for the first 256 of each kind in a step, and counted after; an `omitted`
+  event says how many. Watching writes everything about an entity or a kind: `--watch` on `run` and
+  `inspect`, `inspect --entity NAME --events`, and a playtest for what its expectations name. Every other kind
+  is always written. Written when read (a fact, the sentence on reading) was prototyped: the cheapest per
+  event, but 40,000 facts a step at 50,000 actors and every reader rewritten, for 0.18 ms. Not built.
+- **The worked example.** In a town of 50,000 named actors, `rwgpu inspect --frame 38 --entity walker_31005
+  --events --since 37` prints the one sentence: blocked by actor `walker_32798`. Before, asked from frame 60,
+  the log had dropped it with 2,350,000 others.
+- **Limits on work.** One table, `rwgpuengine_core::limits`: 1,000 signals, 10,000 actions and 10,000 count
+  changes a step, 1,000,000 entities, 256 taps a step, codes E0301 to E0305. Small hostile files that took
+  650 ms a step (30 × 30 actions on one `changed`), 3 s for three steps (eggs that count eggs) or grew
+  without end (a chain of spawns) now stop at a limit in 7 to 27 ms, with a diagnostic and an event. Counts
+  are looked at per prefab, so their work follows what changed.
+- **The oracle** runs each world twice: with every event written it reaches the scanning engine's numbers;
+  by default five large worlds write fewer events, and their fourth number was recorded.
+- **Also:** a world without a ground keeps an array over where its entities are (24.2 → 1.7 ms at 50,000);
+  a signal no longer copies the connections it reaches.
+- **Sizes:** the web module 658,555 → 680,792 bytes (limit 800,000); `rwgpu` 2,183,600 → 2,234,144.
+- **Measured, not built:** at 50,000 actors the render list takes 1.35 ms, its projection 10.8 ms and the
+  frame report 2.8 ms (26.6 ms with a sprite per actor); loading the scene 2.2 s (piece 3).
+
 ## 2026-11-27 — The simulation at scale, piece 1: a cell index, and `world.rs` in modules
 
 - Step 5, piece 1 of 2 ([ADR 0026](decisions/0026-cell-index-and-the-world-in-modules.md)), on the branch

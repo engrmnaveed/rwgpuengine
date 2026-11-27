@@ -50,17 +50,22 @@ decision in [open-questions.md](open-questions.md).
      play every exported example from a plain static host at `/` and under `/rwgpuengine/`. The owner decided
      to publish the town with GitHub Pages from this repository; the manual-only workflow ran from `main` on
      2026-11-27.
-9. **The simulation at scale** (step 5), in two pieces on the branch `sim-scale`:
+9. **The simulation at scale** (step 5), in three pieces on the branch `sim-scale`:
    - ~~the cell index and the world's storage~~: built on 2026-11-27
      ([ADR 0026](decisions/0026-cell-index-and-the-world-in-modules.md)). No rule looks at every entity any
      more. One step with 50,000 actors went from 2,659 ms to 14.1 ms, and is 0.88 ms without the event log;
      every state hash is unchanged, and 17 generated worlds pin that. Entities stay as they are: columns were
      measured and wait for a game at city scale. `world.rs` is split into modules (the audit's step 4, half
      of it).
-   - **next: the loader, limits on work and events at scale.** `load.rs` takes 2.4 s for 50,000 actors and is
-     still one file; a footprint and a ground have no upper size; a `moved` event for every move is 94 % of
-     the step. The budget row "one step, 50,000 moving actors, 2 ms" is added there, when events no longer
-     keep the step above it.
+   - ~~events at scale and limits on the work of a step~~: built on 2026-11-27
+     ([ADR 0027](decisions/0027-events-at-scale-and-limits-on-work.md)). In a step, the first 256 events of
+     each kind there is one of per actor are written and the rest counted; watching an entity writes all of
+     its events. One step with 50,000 actors: 14.1 → 1.06 ms, within the new budget row of 2 ms; the example
+     playtests print the same events, byte for byte. Five limits bound what a game file can make one step do
+     (signals, actions, count changes, entities, taps), each with a code. A world without a ground is no
+     longer ten times slower.
+   - **next: the loader and limits at load.** `load.rs` takes 2.2 s for 50,000 actors and is still one file; a
+     footprint and a ground have no upper size.
 10. Then, in the order the proposal gives (its section 7): shapes as text and the town reference game; Rust
     game code; templates per kind of game. Then demos, the MCP adapter and the desktop app.
 

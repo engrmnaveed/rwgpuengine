@@ -74,7 +74,7 @@ web host ([ADR 0025](decisions/0025-rwgpu-export-web.md)).
 
 | crate | owns | must not |
 |---|---|---|
-| `rwgpuengine_core` | JSON, `Diagnostic`, the code registry, RNG, hashing, colors | depend on anything |
+| `rwgpuengine_core` | JSON, `Diagnostic`, the code registry, the limits, RNG, hashing, colors | depend on anything |
 | `rwgpuengine_data` | file formats: the schema registry, validation, typed definitions, `Vfs`, static checks | run anything |
 | `rwgpuengine_sim` | `World`, entities, the cell index, built-in behaviors, signals, event log, state hash | render, read files, use wall-clock time, look at every entity in a step |
 | `rwgpuengine_render` | the camera, the render list, the CPU reference renderer, frame report, picking, PNG | change the world |
@@ -146,19 +146,19 @@ responsibility ([ADR 0026](decisions/0026-cell-index-and-the-world-in-modules.md
 
 No rule looks at every entity. The world keeps, beside the entities:
 
-- **who is on each cell**: the ground's cells are an array of list heads, each list in id order; cells
-  outside the ground, and a world without one, are in a sorted map. An enabled entity is on every cell its
-  body covers;
+- **who is on each cell**: the ground's cells are an array of list heads, each list in id order; a world
+  without a ground has the array over where its entities are when it is built; every other cell is in a
+  sorted map. An enabled entity is on every cell its body covers;
 - **a fact per entity** (24 bytes: cell, footprint, and whether it is enabled, takes space, is solid, an
   actor, pushable), so a question about space never reads the entity;
 - **who has each behavior**, in id order: whose turn it is in each part of the step;
-- **enabled copies per prefab**, for `counts`;
+- **enabled copies per prefab**, and who counts each prefab, for `counts`;
 - **routes**: for a signal and where it came from, the connections that listen.
 
 "What stops a move onto this cell?", "who stands on this plate?", "is there room for a house?" and "who
 listens to this signal?" are answered from these, with the answers the scans gave, in the same order: every
-list is in id order. One step with 50,000 actors takes 14.1 ms, of which 0.88 ms are the rules and the rest
-is the event log (it was 2,659 ms).
+list is in id order. One step with 50,000 actors takes 1.06 ms, of which 0.88 ms are the rules and the rest
+the events a step writes (it was 2,659 ms before the index, 14.1 ms before events at scale).
 
 All of it is **derived, never state**. It is not in the state hash and can be rebuilt from the entities at
 any time (`World::rebuild_index`). The rules tell it what they change: a move, a spawn, enable and disable.
@@ -181,7 +181,7 @@ panics where they differ.
 5. **custom systems** — Rust game code (`Game: Systems`).
 6. **triggers** — compare cell occupancy (enabled actors and pushables) with last step; emit `on_enter` /
    `on_exit`.
-7. **signal dispatch** — FIFO through `[[connect]]` wiring, capped at 1000 per step (E0301). Each
+7. **signal dispatch** — FIFO through `[[connect]]` wiring, within the limits on work below. Each
    connection first checks its `when` conditions against the current state, once (logging `skipped` for each
    action if one fails), then applies its actions in order: `enable`/`disable`/`toggle`, `add`/`set` on a
    prop, or `spawn`; a refused spawn stops the rest of its `actions` list (ADR 0015). A spawn with a `cost`
@@ -195,15 +195,51 @@ panics where they differ.
    disable or toggle (and once before dispatch, for custom systems), `counts` props are brought up to date:
    each change logs `counted` and makes its owner emit `changed` (ADR 0014).
 
-Then `frame += 1`. Frame N is the state after N steps; input scheduled at frame N is applied by step N.
+Then the step's `omitted` events are written (below) and `frame += 1`. Frame N is the state after N steps;
+input scheduled at frame N is applied by step N.
+
+### Limits on work
+
+A game file must not be able to make one step do unbounded work, or the world grow without end
+([ADR 0027](decisions/0027-events-at-scale-and-limits-on-work.md)). The limits are one table,
+`rwgpuengine_core::limits`, printed by `rwgpu explain limits` and the reference:
+
+| limit | number | code |
+|---|---|---|
+| signals per step | 1,000 | E0301 |
+| actions per step, run or skipped | 10,000 | E0302 |
+| `counts` props changed per step | 10,000 | E0303 |
+| entities in a world | 1,000,000 | E0304 |
+| taps per step (the rest are not picked) | 256 | E0305 |
+
+A step that reaches one stops there (`World::cut_step`): the signals still queued are dropped and an `error`
+event says what was cut off. The world keeps what it reached (`World::limits_hit`); the session turns that
+into diagnostics, so `rwgpu run`, `inspect`, `shot` and `test` fail with the code. Later steps run as usual.
 
 ### The event log
 
 Every step appends structured events — `input tap tap_miss moved blocked trigger signal action skipped
-spawned counted error custom` — each with a complete sentence and fields. Refusals are first-class: a `blocked` event says
+spawned counted error custom omitted` — each with a complete sentence and fields. Refusals are first-class: a `blocked` event says
 which solid, actor, edge, area or cooldown stopped a move; a `signal` with zero connections says which
 `[[connect]]` to add; a `skipped` event names the `when` condition that failed and what was seen; a
 `tap_miss` names the disabled entity under the finger. `action` events carry prop values before and after.
+
+At scale ([ADR 0027](decisions/0027-events-at-scale-and-limits-on-work.md)):
+
+```text
+ a rule: one move, refusal or plate (moved, blocked, trigger; custom from game code)
+   └─ World::wants(kind, who, other)?  ── watched (entity, kind or all) ──────────► built and written
+                                       ── among the first 256 of its kind this step ► built and written
+                                       └─ otherwise: counted, nothing built
+ every other kind (input, taps, signals, actions, spawns, counts, errors) ───────► built and written
+ the end of the step: one `omitted` event per kind with events counted and not written
+```
+
+`EventLog` keeps the written events (100,000 at most; then the oldest half is dropped and counted) and a
+count of every event per kind: `event_counts` is what happened, `events_omitted` and `events_dropped` what
+is not in the log. A `Watch` is set before stepping: `--watch` on `run` and `inspect`, `inspect --entity
+NAME --events`, and a playtest watches what its `[[expect]]` tables name. What is written never changes the
+world: the oracle runs every world with everything written and by default, and both reach the same state.
 
 ## Determinism
 

@@ -28,6 +28,7 @@ cargo xtask export-check             # every example exported (CPU player) and p
 cargo xtask pages                    # the folder the Pages workflow publishes: dist, Tiny Town with the WebGPU player, proved in a browser under /rwgpuengine/
 cargo xtask docs                     # regenerate docs/reference after changing commands/formats/codes
 cargo xtask budgets                  # measure size/time/dependency budgets
+cargo run --release -p xtask -- sim-bench town 50000   # one step at scale (--all: every event written; --write DIR: the town as a project)
 cargo run --release -p xtask -- sim-bench   # one simulation step in generated worlds of 1,000 to 50,000 entities (--steps N: stop at a frame and compare state hashes)
 cargo xtask gpu                      # the players' gate: the wgpu renderer against the CPU reference, the native player and the web player (headless Chrome) against `rwgpu test`, every example exported and played from a static host, players' budgets
 cargo xtask gpu --fast               # only the picture check, built incrementally (the edit loop for players/)
@@ -73,6 +74,12 @@ Where the browser loses the WebGPU device of a canvas (Chrome on SwiftShader, as
 - **Formats live in one registry** (`rwgpuengine_data::schema`). Never parse a key that is not declared there.
 - **Every problem is a `Diagnostic` with a registered code** (`rwgpuengine_core::codes`), a location and, when
   possible, a hint. Never reuse a code. Never print errors any other way.
+- **Limits live in one table** (`rwgpuengine_core::limits`, [ADR 0027](docs/decisions/0027-events-at-scale-and-limits-on-work.md)).
+  A step that reaches one stops there with an `error` event and the limit's code; never a hang, never a
+  silent stop. Nothing a game file describes may make one step do work that no limit bounds.
+- **Events of the per-actor kinds ask first** (`moved`, `blocked` for a move, `trigger`, `custom`): a rule
+  calls `World::wants` and builds the sentence only on a yes, so a step's events cost the same at any size.
+  Every other kind is always written. What is written never changes what happens.
 - **Commands are data** (`rwgpuengine_cli::args::COMMANDS`); help and docs are generated from it.
 - **Reference games drive features**: do not add engine features no example or reference game uses.
 - Run `cargo xtask docs` after changing commands, formats or codes, and commit the regenerated reference.
@@ -92,7 +99,8 @@ Where the browser loses the WebGPU device of a canvas (Chrome on SwiftShader, as
 | new diagnostic | `rwgpuengine_core/src/codes.rs` (next free number in range) → emit with `.at(src, span).hint(..)` → test asserts the code |
 | new command | `rwgpuengine_cli/src/args.rs` (Command entry with examples) → `lib.rs` dispatch → `commands.rs` → `cargo xtask docs` |
 | web player file | `web/` for the CPU player, `players/rwgpuengine_player/web/` for the WebGPU player (relative addresses only) → `CPU_PLAYER_FILES` or `WEB_PLAYER_FILES` in `rwgpuengine_cli/src/web.rs` (each player's files, where each comes from and the one lookup; `serve`, `export web` and xtask read them) → `cargo xtask export-check` (CPU) and `cargo xtask gpu` (WebGPU, in a browser) |
-| new event kind | `rwgpuengine_sim/src/events.rs` + `schema::EVENT_KINDS` (a test keeps them equal) |
+| new event kind | `rwgpuengine_sim/src/events.rs` + `schema::EVENT_KINDS` (a test keeps them equal); if there is one per actor in a step, write it through `World::wants` and add it to `World::per_actor` |
+| new limit on work | `rwgpuengine_core/src/limits.rs` (a `Limit` in `ALL`) and its code in `codes.rs` (the explanation says the number; a test checks) → check it where the work is done and stop with `World::cut_step` → a hostile scene that reaches it in `rwgpuengine_sim/src/scale_tests.rs` → `cargo xtask docs` |
 | player input or window | `players/rwgpuengine_player`: `input.rs` (keys, taps, camera gestures; the web player's mapping for the game's input) and the `play` entry's text in `rwgpuengine_cli/src/args.rs` (a test keeps them equal), `window.rs` (the event loop), `clock.rs` (the fixed step) → `cargo xtask docs` → `cargo xtask gpu --window`. No game rule and no visual feature here: those go in the engine and the reference |
 | web player | `players/rwgpuengine_player/src/web.rs` (what the page calls) and `web/player.js` (the page: canvas, events, animation frames; nothing that decides); bindings stay in `input.rs`, shared with the window (a test keeps the page's help equal) → `cargo xtask web-player`, `cargo rwgpu serve examples/tiny_town` → `cargo xtask gpu` (the browser check: `web/check.mjs`, then `gpu_check --web-frames`) |
 | visual change | the reference first (`reference.rs`, `list.rs`, `camera.rs`): run `cargo rwgpu test examples/iso_garden`; if refs differ on purpose, `--update-refs`, then look at the PNG → the same rule in `players/rwgpuengine_gpu` (`pack.rs` for what the CPU prepares, `shader.wgsl` for what the GPU draws) → a scene for it in `players/gpu_check/src/scenes.rs` under an iso and a perspective camera → `cargo xtask gpu` → a few thousand random scenes, `cargo xtask gpu --fast -- --random 3000` (the hand-made scenes were green twice while a real fault was there) |
