@@ -7,6 +7,22 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-27 — Step 4 is on `main`, and Tiny Town is on the web
+
+- Step 4 (the web player on wgpu, the CPU fallback, `rwgpu export web`) was merged into `main` at `c84bb14`
+  after pull request 11 was green on every check: `ci` and `gpu` on Linux, Windows and macOS, and both probes.
+- The owner had decided to publish the town with GitHub Pages from this repository. Pages was switched on
+  (source: GitHub Actions) and the manual-only workflow was run once from `main` (run 45965248356). It built
+  through `cargo xtask dist`, exported `examples/tiny_town`, proved the folder in the runner's Chrome under
+  `/rwgpuengine/` and at `/`, and deployed it.
+- **The link: <https://engrmnaveed.github.io/rwgpuengine/>.** Six files, 788,618 bytes (303,480 gzipped when
+  measured locally): the player 771,917, the game 16,701.
+- Checked from outside, in a headless Chrome on an Apple M5 Pro: the page says `WebGPU · apple metal-3`,
+  `?input=tests/turn_and_build.toml&frames=90` ends at frame 90 in the state `5775c67554808f1a` (the
+  playtest's own), and the picture shows the town. With `?renderer=cpu` the same state on the CPU path.
+- Not done: nothing republishes the page by itself; a new run of the workflow does. Touch input on a phone or
+  a tablet has not been tried on the live page.
+
 ## 2026-11-27 — `rwgpu export web`: a game as a folder for any static web host, with the WebGPU player
 
 - Step 4, piece 3 ([ADR 0025](decisions/0025-rwgpu-export-web.md)). `rwgpu export web [PATH] --out DIR` writes

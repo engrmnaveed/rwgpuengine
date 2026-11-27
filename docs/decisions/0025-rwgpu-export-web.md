@@ -188,6 +188,11 @@ runs the workflow; no other session runs it or changes the repository's settings
 - **What becomes public:** the six files of the Tiny Town folder. The bundle holds Tiny Town's TOML files,
   which the repository already shows; the player is the engine, built from the public source. No path, name or
   email of a machine is in them (proved before upload). GitHub records who ran the workflow, as for any run.
+- **Published on 2026-11-27.** Pages was switched on (source: GitHub Actions) and the workflow was run once
+  from `main` at `c84bb14` (run 45965248356: build and deploy green). The six files are served with the sizes
+  the proof measured (788,618 bytes in all) and `application/wasm` for the module. Checked from outside in a
+  headless Chrome: the page draws on WebGPU, replays `tests/turn_and_build.toml` to the state
+  `5775c67554808f1a`, and shows the town; with `?renderer=cpu` it reaches the same state on the CPU path.
 - **Limit:** Pages caches files for about 10 minutes, so for a while after a new run a visitor can get the new
   page with the old module.
 

@@ -35,8 +35,9 @@ decision in [open-questions.md](open-questions.md).
      ([ADR 0022](decisions/0022-native-player-winit-and-rwgpu-play.md)). `rwgpu-player` plays a project in a
      winit window and `rwgpu play` starts it; it replays every example playtest to `rwgpu test`'s state
      hashes, and its window shows the reference's picture. Step 3 is done when this lands on `gpu-players`.
-8. **Next: the web player on wgpu** (step 4): the same renderer on WebGPU in a browser, the CPU reference as the
-   fallback, and `rwgpu export web`.
+8. ~~The web player on wgpu~~ (step 4): done and on `main` on 2026-11-27. The same renderer on WebGPU in a
+   browser, the CPU reference as the fallback, and `rwgpu export web`. Tiny Town is published at
+   <https://engrmnaveed.github.io/rwgpuengine/>.
    - ~~release builds without local paths, and a repository check in the gate~~: built on 2026-11-26
      ([ADR 0023](decisions/0023-release-builds-without-local-paths.md)). `cargo xtask dist` builds every
      artifact with no path of the machine that built it, and both gates check that.
@@ -47,9 +48,9 @@ decision in [open-questions.md](open-questions.md).
    - ~~`rwgpu export web`~~: built on 2026-11-26 ([ADR 0025](decisions/0025-rwgpu-export-web.md)). A project
      becomes a folder that any static web host serves, with the WebGPU player when one is found. Both gates
      play every exported example from a plain static host at `/` and under `/rwgpuengine/`. The owner decided
-     to publish the town with GitHub Pages from this repository: the manual-only workflow is ready, and the
-     supervisor runs it once step 4 is in `main`.
-9. Then, in the order the proposal gives (its section 7): the simulation at scale;
+     to publish the town with GitHub Pages from this repository; the manual-only workflow ran from `main` on
+     2026-11-27.
+9. **Next: the simulation at scale** (step 5). Then, in the order the proposal gives (its section 7):
    shapes as text and the town reference game; Rust game code; templates per kind of game. Then demos, the
    MCP adapter and the desktop app.
 

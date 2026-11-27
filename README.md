@@ -85,6 +85,9 @@ Put a game on the web: `rwgpu export web` writes a folder that any static web ho
 any web server, a folder on a site), with the same player `rwgpu serve` finds. The project must pass
 `rwgpu check` first.
 
+Tiny Town, exported this way, is live at <https://engrmnaveed.github.io/rwgpuengine/>. It draws with WebGPU
+where the browser has it and with the CPU reference renderer where not.
+
 ```bash
 cargo xtask dist                 # target/release/rwgpu, with both web players next to it
 target/release/rwgpu export web examples/tiny_town --out target/site
