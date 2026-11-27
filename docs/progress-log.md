@@ -7,6 +7,34 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-28 — Step 6, piece 2: the camera stays over the ground, and every camera move by touch
+
+- [ADR 0030](decisions/0030-camera-over-the-ground-and-by-touch.md), on the branch `camera-touch` for
+  `river-town`. River Town's valley is larger than the screen and must be playable on a tablet.
+- **The bound is the engine's.** `Session::move_camera` keeps the camera's center inside the ground's cells
+  (without a ground, what the world holds at the start; always the scene's own camera), so a playtest, the
+  window and the page all keep it, and `run`, `inspect` and the page report it as `bound`. No format key.
+  A new playtest, `tiny_town/tests/past_the_edge.toml`, pans past three edges and builds after each; on the
+  engine before it, the same file builds nothing. The ten other playtests keep their state and image hashes.
+- **Touch, in both players, from one table:** one finger pans a game with no mover (swipes in one with a
+  mover); two fingers keep the ground under them (pan, zoom about their midpoint, and from a twist of 20°
+  turn, settling on a quarter turn when they let go); a tap of two fingers switches the view, of three goes
+  back to the scene's camera. The page has ⟲ ⟳ View Home under the frame and stops the browser's own
+  gestures on the canvas. The window takes winit's touch events.
+- **Measured:** the two-finger thresholds on 4,000 modelled gestures per level of drift (a model of hands,
+  said so in the ADR): a twist of 20° turns no pan or pinch at medium drift and 1.6 % at high, and still turns
+  98 % of twists of 20–45°; zooming at once keeps pinches within 5 % where waiting for 10 % leaves 40 % short.
+  A settle lands on its quarter turn bit for bit; nudging a move by last bits to land exactly on any camera
+  was measured and dropped (it helps almost never).
+- **Proved in a browser:** `cargo xtask gpu` touches Tiny Town on a phone-sized page through DevTools (pan,
+  pinch, twist, two- and three-finger taps, a pan past the edge, taps that build), checks nine things, and
+  `rwgpu run` replays what the page recorded to the same state and camera. Against a page that lets the
+  browser take the touches, four of the nine checks fail.
+- **Found:** the loader's oracle (ADR 0028) pins each example's files, so Tiny Town's pin had to follow its
+  new playtest; every other record of the 474 is byte-identical, and Tiny Town's differs only by the lines
+  that list and decode the new file. Said in the pull request for the supervisor and the owner.
+- Not tested: a real phone, tablet or touch screen (this Mac has none; Chrome's touch emulation is what ran).
+
 ## 2026-11-28 — Step 5 is on `main`; the spec of reference game 2, River Town, is approved
 
 - Step 5 (the simulation at scale) was merged into `main` at `9b9aa0d` after pull request 15 was green on

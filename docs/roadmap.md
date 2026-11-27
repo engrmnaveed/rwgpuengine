@@ -77,6 +77,13 @@ decision in [open-questions.md](open-questions.md).
     river valley, in three stages. It pulls five shapes (box, roof, wedge, cylinder, cone), quarter turns,
     placement by neighbours and terrain, and a camera that stays over the ground and works by touch. Done
     when the town, its playtests and a cold-agent run pass.
+   - ~~the camera over the ground, and every camera move by touch~~ (piece 6.2): built on 2026-11-28
+     ([ADR 0030](decisions/0030-camera-over-the-ground-and-by-touch.md)). However a move arrives, the camera's
+     center stays over the ground's cells; in both players one finger pans a game with no mover, two fingers
+     pan, zoom and turn (settling on a quarter turn), a tap of two fingers switches the view and of three goes
+     home, and the page has buttons for the turns, the view and Home. The browser check touches the page and
+     `rwgpu run` replays what it recorded to the same state and camera. No example's hash changed. Not tested
+     on a real touch screen.
 11. Then, in the order the proposal gives (its section 7): Rust game code, with people and carts in River
     Town as its test; templates per kind of game. Then demos, the MCP adapter and the desktop app.
 

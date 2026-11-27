@@ -275,7 +275,10 @@ the wasm's pixels hash to native `rwgpu shot`'s image hashes. The current finger
 - The **camera** (`camera.rs`) is session state: `view` (`iso` or `perspective`), `center`, `turn`, `zoom`.
   The iso view with no turn and zoom 1 is the formula below, bit for bit, so scenes and taps written for
   the 2.5D engine stay valid. Its math is exact float operations plus the owned sine and cosine of
-  `rwgpuengine_core::math`.
+  `rwgpuengine_core::math`. Its center stays over the ground: every move goes through
+  `Session::move_camera`, which keeps it inside `Session::camera_bound`, the ground's cells (without a
+  ground, the cells of what the world holds at the start), fixed when the session starts
+  ([ADR 0030](decisions/0030-camera-over-the-ground-and-by-touch.md)).
 - `reference::project` takes the list to the screen: triangles with corners on a 1/256 pixel grid and a
   depth at each corner, cards as flat shapes with a depth per row. `reference::render` fills pixels through a
   depth buffer with exact integer coverage (top-left rule) and records which item owns each pixel. It is the
@@ -351,6 +354,13 @@ The frame is the list's size; the window opens at that size in logical pixels an
 taken back to frame pixels, so a tap hits what `rwgpu inspect --place` says is there. `--headless` takes the
 same steps with no window and no clock; `--frames` and `--input` end a run and print the state hash.
 
+Every camera move can be made by touch alone, in the window and on the page, from one table in `input.rs`
+([ADR 0030](decisions/0030-camera-over-the-ground-and-by-touch.md)): one finger taps, and drags to pan in a
+game with no mover (to swipe in one with a mover); two fingers keep the ground under them (pan, zoom about
+their midpoint, and past a twist of 20° turn, settling on a quarter turn when they let go); a tap of two
+fingers switches the view, of three goes back to the scene's camera. Each gesture ends in `CameraMove`s, so
+a playtest can make whatever a person did.
+
 ## The agent surface
 
 - **CLI** (`rwgpuengine_cli`): the command registry (`args::COMMANDS`) is data; parsing, `help`, `help --json`
@@ -381,7 +391,8 @@ and the animation frames:
 Without the WebGPU player, the CPU player of ADR 0008 is served: `rwgpuengine_web` (a wasm module with zero
 imports, about 630 KB, budget 800,000), driven by `web/player.js`, which copies the pixels to the canvas only
 when the picture changed. Diagnostics show in the page. Touch first: tap = tap, swipe = move along the iso
-axes, on-screen pad; the WebGPU player adds the camera's bindings and a two-finger pinch.
+axes, on-screen pad; the WebGPU player adds the camera's bindings, every camera move by touch, and buttons
+under the frame for the turns, the view and Home.
 
 Both pages ask only for files next to them, by relative addresses, and one lookup in `rwgpuengine_cli/src/web.rs`
 finds the player for `serve` and for `export web` ([ADR 0025](decisions/0025-rwgpu-export-web.md)):
