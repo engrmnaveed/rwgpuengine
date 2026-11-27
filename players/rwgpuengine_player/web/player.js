@@ -196,8 +196,18 @@ function stepped(flags) {
   status();
 }
 
+// The camera moved while the game is paused: draw it without stepping.
+function redraw() {
+  if (started && paused) handle(rw.redraw());
+}
+
 function wire(c) {
   const touch = (e) => e.pointerType === 'touch';
+  // The browser's own gestures on the canvas (scrolling, zooming the page, a double tap, Safari's pinch) would take
+  // the touches the camera needs: touch-action in the page's style, and these, stop them (ADR 0030).
+  for (const ev of ['touchstart', 'touchmove', 'gesturestart', 'gesturechange', 'dblclick']) {
+    c.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+  }
   c.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     c.setPointerCapture(e.pointerId);
@@ -205,12 +215,12 @@ function wire(c) {
     rw.pointer_down(e.pointerId, touch(e), e.button, ...at(e));
     if (paused) stepped(rw.step_once());
   });
-  c.addEventListener('pointermove', (e) => rw.pointer_move(e.pointerId, touch(e), ...at(e)));
+  c.addEventListener('pointermove', (e) => { rw.pointer_move(e.pointerId, touch(e), ...at(e)); redraw(); });
   c.addEventListener('pointerup', (e) => {
     rw.pointer_up(e.pointerId, touch(e), e.button, ...at(e), false);
     if (paused) stepped(rw.step_once());
   });
-  c.addEventListener('pointercancel', (e) => rw.pointer_up(e.pointerId, touch(e), e.button, ...at(e), true));
+  c.addEventListener('pointercancel', (e) => { rw.pointer_up(e.pointerId, touch(e), e.button, ...at(e), true); redraw(); });
   c.addEventListener('contextmenu', (e) => e.preventDefault());
   c.addEventListener('wheel', (e) => { e.preventDefault(); rw.wheel(e.deltaMode, e.deltaY, e.ctrlKey); }, { passive: false });
 }
@@ -300,6 +310,24 @@ page.live = async (ms, { turn = false } = {}) => {
   return { ms: performance.now() - t0, frames: rw.frame() - f0, stats: JSON.parse(rw.stats()) };
 };
 
+// For the touch check (`cargo xtask gpu`, ADR 0030): the scene played live and paused, so that only the touches
+// step it (a finger that comes down or goes up takes one step, as on a paused page), with the input recorded.
+page.touchStart = () => {
+  $('input').value = '';
+  if (!start()) throw new Error(rw.out());
+  setPaused(true);
+  rw.record(true);
+  return page.geometry();
+};
+page.geometry = () => {
+  const r = canvas.getBoundingClientRect();
+  return { left: r.left, top: r.top, width: r.width, height: r.height, frame: [rw.width(), rw.height()],
+    scrollY, scale: window.visualViewport ? visualViewport.scale : 1, touchAction: getComputedStyle(canvas).touchAction };
+};
+page.screenPoint = (x, y) => JSON.parse(rw.screen_point(x, y, 0));
+page.touchState = () => ({ camera: JSON.parse(rw.camera()), camera_text: rw.camera(), frame: rw.frame(), state: rw.state_hash(),
+  spawned: JSON.parse(rw.events(0)).filter((e) => e.kind === 'spawned').length, recorded: JSON.parse(rw.recorded()) });
+
 async function main() {
   wasm = await init({ module_or_path: new URL('rwgpu_web_bg.wasm', import.meta.url) });
   canvas = $('screen');
@@ -344,7 +372,7 @@ async function main() {
   addEventListener('keydown', (e) => {
     if (typing(e)) return;
     rw.shift(e.shiftKey);
-    if (rw.key(e.code, true, e.repeat)) e.preventDefault();
+    if (rw.key(e.code, true, e.repeat)) { e.preventDefault(); redraw(); }
   });
   addEventListener('keyup', (e) => { rw.shift(e.shiftKey); rw.key(e.code, false, false); });
   addEventListener('blur', () => rw.blur());
@@ -352,6 +380,12 @@ async function main() {
   for (const b of document.querySelectorAll('.pad button')) {
     const code = PAD[b.dataset.action];
     b.addEventListener('pointerdown', (e) => { e.preventDefault(); rw.key(code, true, false); });
+    for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, () => rw.key(code, false, false));
+  }
+  // The camera's buttons, outside the frame: the keys Q, E, V and Home, for a player with no keyboard.
+  for (const b of document.querySelectorAll('.camera button')) {
+    const code = b.dataset.key;
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); rw.key(code, true, false); redraw(); });
     for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, () => rw.key(code, false, false));
   }
 

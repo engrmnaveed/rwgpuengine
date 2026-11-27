@@ -110,10 +110,18 @@ around it. When the window closes it prints the frame and the state hash: with -
 for the same file.
 
 Keys and taps, as in the web player: arrows or W A S D move, Enter or Space confirm, Escape cancel. A click is a \
-tap; a drag of 12 frame pixels or more is a swipe along the iso axes (up-right is up).
+tap; a drag of 12 frame pixels or more is a swipe along the iso axes (up-right is up), or, in a game with no mover, \
+a pan that keeps the ground under the pointer.
 
 Camera: Q and E turn a quarter turn; right-drag turns freely; middle-drag or Shift + right-drag pans; the wheel, \
-a pinch, - and = zoom; V switches between iso and perspective; Home goes back to the scene's camera.
+a pinch, - and = zoom; V switches between iso and perspective; Home goes back to the scene's camera. However it \
+moves, the camera's center stays over the ground.
+
+Touch, where the screen has it: one finger taps, and drags as the mouse does (a pan in a game with no mover, else a \
+swipe). With two fingers the ground stays under them: moved together they pan, apart or together they zoom, and a \
+twist of 20 degrees or more turns the view, which settles on a quarter turn, the next one the way it was twisted, \
+when they let go. A tap of two fingers switches between iso and perspective; a tap of three fingers goes back to the \
+scene's camera.
 
 E0006 when the player is not installed: build it from a clone of the repository with \
 `cargo install --locked --path players/rwgpuengine_player`.";
@@ -126,8 +134,9 @@ on every request, and the page reloads when they change. URL parameters: scene=P
 frames immediately, then pause), renderer=cpu (draw with the CPU reference renderer). The page shows the frame \
 number and state hash, which match `rwgpu run` for the same input.
 
-The WebGPU player has the bindings of `rwgpu play` (see `rwgpu help play`): keys, taps, swipes and the camera, with \
-a two-finger pinch on a touch screen. The CPU player has keys, taps and swipes.
+The WebGPU player has the bindings of `rwgpu play` (see `rwgpu help play`): keys, taps, swipes and the camera, every \
+camera move by touch alone, and buttons under the frame that turn the view, switch it and go back to the scene's \
+camera. The CPU player has keys, taps and swipes.
 
 --site DIR serves a folder as it is, as a static web host would: one made by `rwgpu export web`.
 

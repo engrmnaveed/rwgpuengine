@@ -2,7 +2,7 @@
 // `cargo xtask gpu` runs it; it needs Node and a Chromium browser, nothing else.
 //
 //   node check.mjs --rwgpu <rwgpu> --player <web player folder> --out <folder>
-//                  [--browser <program>] [--paths webgpu,cpu,software] [--measure]
+//                  [--browser <program>] [--paths webgpu,cpu,software] [--measure] [--touch]
 //                  [--export <folder> [--base /path/]]
 //                  <example> ...
 //
@@ -18,7 +18,10 @@
 // written to <out> with a line in <out>/frames.txt, for `gpu_check --web-frames`;
 // on the CPU path the canvas is read back into a file too, for xtask to hash. `--measure` adds, on
 // Tiny Town: a playtest replayed in real time, the device lost halfway through a
-// playtest, the scene left alone for 3 s, and the camera turning for 3 s.
+// playtest, the scene left alone for 3 s, and the camera turning for 3 s. `--touch`
+// adds, on Tiny Town, every camera move made by touch alone through DevTools on a
+// phone-sized page (ADR 0030): the moves the page made, its state and its camera, for
+// xtask to replay as a playtest with `rwgpu run`.
 //
 // The browser runs headless with a profile folder of its own under <out>,
 // removed after; it is driven over the DevTools protocol on a pipe. The result
@@ -40,6 +43,7 @@ const player = resolve(opt('--player', 'target/web-player'));
 const out = resolve(opt('--out', 'target/web-check'));
 const paths = opt('--paths', 'webgpu,cpu').split(',');
 const measure = has('--measure');
+const touching = has('--touch');
 const exportArg = opt('--export');
 const exported = exportArg && resolve(exportArg);
 const base = opt('--base', '/');
@@ -109,11 +113,16 @@ async function launch(program, flags) {
     events,
     notes,
     stderr: () => stderr,
-    async open(url) {
+    async open(url, { phone = false } = {}) {
       const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
       const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
       await send('Runtime.enable', {}, sessionId);
       await send('Log.enable', {}, sessionId);
+      if (phone) {
+        // A small touch screen: the page is longer than the screen, so a touch the page let through would scroll it.
+        await send('Emulation.setDeviceMetricsOverride', { width: PHONE[0], height: PHONE[1], deviceScaleFactor: 1, mobile: true }, sessionId);
+        await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }, sessionId);
+      }
       await send('Page.navigate', { url }, sessionId);
       const evaluate = async (expression, seconds = 120) => {
         let timer;
@@ -140,7 +149,9 @@ async function launch(program, flags) {
           visibility: document.visibilityState, now: performance.now(), page: window.rwgpu || null })`, 5).catch((f) => String(f));
         throw new Error(`${e.message.split('\n')[0]}; the page: ${state}`);
       }
-      return { ready: JSON.parse(ready), evaluate, close: () => send('Target.closeTarget', { targetId }) };
+      // Fingers on the page, as a touch screen sends them: every finger still down, in CSS pixels.
+      const touch = (type, points) => send('Input.dispatchTouchEvent', { type, touchPoints: points }, sessionId);
+      return { ready: JSON.parse(ready), evaluate, touch, close: () => send('Target.closeTarget', { targetId }) };
     },
     async close() {
       // The browser may exit before it answers this: do not wait for the answer.
@@ -183,6 +194,106 @@ async function serveExported(example) {
 }
 
 const QUERY = { webgpu: '', cpu: '?renderer=cpu', software: '?renderer=software' };
+// The whole frame shows on it, and the page is longer than it.
+const PHONE = [700, 700];
+
+// Every camera move by touch alone, on Tiny Town (ADR 0030), with taps that build between them: what the moved
+// camera shows decides what they build. The page plays live and paused, so each finger that comes down or goes up
+// takes one step. Returns the page's record of what it did (camera moves, taps), its state and camera after each
+// gesture, and what it checked; xtask replays the record natively and holds the state and the camera to it.
+async function touchCheck(b, url) {
+  const tab = await b.open(url, { phone: true });
+  const ev = async (js) => tab.evaluate(js);
+  const g = await ev('window.rwgpu.touchStart()');
+  // A frame pixel to the CSS pixel showing it.
+  const css = ([fx, fy], id) => ({ x: g.left + fx * g.width / g.frame[0], y: g.top + fy * g.height / g.frame[1], id });
+  const fingers = async (type, points) => tab.touch(type, points.map(([p, id]) => css(p, id)));
+  const state = async () => ev('window.rwgpu.touchState()');
+  const steps = [];
+  const after = async (name) => { const s = await state(); steps.push({ name, camera: s.camera, frame: s.frame, spawned: s.spawned }); return s; };
+  // Paths of each finger, sampled `n` times between `from` and `to` (frame pixels).
+  const path = (from, to, k, n) => from.map((p, i) => [p[0] + (to[i][0] - p[0]) * k / n, p[1] + (to[i][1] - p[1]) * k / n]);
+  const gesture = async (from, to, n = 12) => {
+    const ids = from.map((_, i) => i + 1);
+    for (let i = 0; i < from.length; i++) await fingers('touchStart', from.slice(0, i + 1).map((p, j) => [p, ids[j]]));
+    for (let k = 1; k <= n; k++) await fingers('touchMove', path(from, to, k, n).map((p, j) => [p, ids[j]]));
+    for (let i = from.length - 1; i >= 0; i--) await fingers('touchEnd', to.slice(0, i).map((p, j) => [p, ids[j]]));
+  };
+  const twist = async (center, radius, deg, n = 12) => {
+    const at = (a) => { const r = a * Math.PI / 180; return [[center[0] - radius * Math.cos(r), center[1] - radius * Math.sin(r)],
+      [center[0] + radius * Math.cos(r), center[1] + radius * Math.sin(r)]]; };
+    const ids = [1, 2];
+    await fingers('touchStart', [[at(0)[0], 1]]);
+    await fingers('touchStart', at(0).map((p, j) => [p, ids[j]]));
+    for (let k = 1; k <= n; k++) await fingers('touchMove', at(deg * k / n).map((p, j) => [p, ids[j]]));
+    const end = at(deg);
+    await fingers('touchEnd', [[end[0], 1]]);
+    await fingers('touchEnd', []);
+  };
+  const tap = async (p) => gesture([p], [p], 0);
+  const tapCell = async (x, y) => {
+    const p = await ev(`window.rwgpu.screenPoint(${x}, ${y})`);
+    await tap([Math.floor(p[0]) + 0.5, Math.floor(p[1]) + 0.5]);
+  };
+  const start = await after('start');
+  // One finger drags the island (Tiny Town has no mover): a pan.
+  await gesture([[320, 240]], [[240, 280]]);
+  await after('pan');
+  await tapCell(4, 1);                                  // a house (the tool it starts with)
+  await after('tap');
+  // Two fingers move apart, one of them still: a pinch, 1.5 times.
+  await gesture([[260, 220], [340, 220]], [[260, 220], [380, 220]]);
+  const pinched = await after('pinch');
+  await tap([246.5, 442.5]);                            // the Tree button: the HUD does not move with the camera
+  await tapCell(8, 2);
+  await after('tap');
+  // A twist of 40 degrees clockwise: a quarter turn when the fingers let go.
+  await twist([320, 240], 60, 40);
+  await after('twist');
+  await tapCell(3, 5);
+  await after('tap');
+  // A tap of two fingers: perspective.
+  await gesture([[280, 240], [360, 240]], [[280, 240], [360, 240]], 0);
+  await after('two-finger tap');
+  // One finger drags far past the island's edge: the center stops at it.
+  await gesture([[600, 240]], [[40, 240]], 20);
+  await after('pan past the edge');
+  // A tap of three fingers: the scene's camera.
+  await gesture([[240, 200], [320, 200], [400, 200]], [[240, 200], [320, 200], [400, 200]], 0);
+  await after('three-finger tap');
+  await tapCell(6, 2);
+  const end = await after('tap');
+  const page = await ev('window.rwgpu.geometry()');
+  if (g.top + g.height > PHONE[1]) throw new Error(`the frame does not fit on the phone's screen: ${JSON.stringify(g)}`);
+  // The same drag on the line under the canvas does scroll the page: the check would see a scroll.
+  const below = await ev(`(() => { const r = document.getElementById('renderer').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
+  await tab.touch('touchStart', [{ x: below[0], y: below[1], id: 9 }]);
+  for (let k = 1; k <= 10; k++) await tab.touch('touchMove', [{ x: below[0], y: below[1] - 30 * k, id: 9 }]);
+  await tab.touch('touchEnd', []);
+  await new Promise((ok) => setTimeout(ok, 300));
+  const control = await ev('window.rwgpu.geometry()');
+  await tab.close();
+
+  const cam = (s) => steps.find((x) => x.name === s).camera;
+  const near = (a, b, d) => Math.abs(a - b) <= d;
+  const checks = [];
+  const check = (name, ok, detail) => checks.push({ name, ok: !!ok, detail: JSON.stringify(detail) });
+  const pan = cam('pan');
+  check('one finger pans', pan.view === 'iso' && pan.turn === 0 && pan.zoom === 1 && (pan.center[0] !== start.camera.center[0] || pan.center[1] !== start.camera.center[1]), pan);
+  check('two fingers zoom 1.5 times', near(pinched.camera.zoom, 1.5, 0.03) && pinched.camera.turn === 0, pinched.camera);
+  check('a twist settles on a quarter turn', cam('twist').turn === 90, cam('twist'));
+  check('a tap of two fingers switches the view', cam('two-finger tap').view === 'perspective', cam('two-finger tap'));
+  const edge = cam('pan past the edge');
+  check('the center stops at the edge of the ground', edge.center.some((v, i) => v === edge.bound[i] || v === edge.bound[i + 2]), edge);
+  const home = cam('three-finger tap');
+  check('a tap of three fingers goes back to the scene\'s camera', home.view === start.camera.view && home.turn === start.camera.turn
+    && near(home.zoom, start.camera.zoom, 1e-5) && home.center.every((v, i) => near(v, start.camera.center[i], 1e-4)), home);
+  check('every tap built', end.spawned === 4, steps.map((x) => `${x.name}: ${x.spawned}`));
+  check('the page neither scrolled nor zoomed', page.scrollY === 0 && page.scale === 1 && page.touchAction === 'none', page);
+  check('a drag outside the canvas scrolls the page (so a scroll would be seen)', control.scrollY > 0, control);
+  return { phone: PHONE, frame: end.frame, state: end.state, camera: end.camera, camera_text: end.camera_text, recorded: end.recorded,
+    steps, checks };
+}
 
 async function main() {
   const program = browser();
@@ -246,6 +357,10 @@ async function main() {
           }
           run.playtests.push(row);
           log(`  ${test}: frame ${r.frame}, state ${r.state}, ${r.path}${row.error ? ': ' + row.error : ''}`);
+        }
+        if (touching && name === 'tiny_town' && path === paths[0]) {
+          result.touch = await touchCheck(b, server.url + QUERY[path]);
+          for (const c of result.touch.checks) log(`  touch: ${c.ok ? 'ok' : 'FAILED'}: ${c.name}${c.ok ? '' : ': ' + c.detail}`);
         }
         if (measure && name === 'tiny_town' && path === 'webgpu') {
           const m = result.measure;

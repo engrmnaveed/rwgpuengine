@@ -286,7 +286,7 @@ fn one_check(
         Served::Serve => {
             let out = root().join("target/web-check");
             cmd.arg(&script).arg("--rwgpu").arg(rwgpu).arg("--player").arg(dir).arg("--out").arg(&out);
-            cmd.arg("--measure");
+            cmd.args(["--measure", "--touch"]);
             out
         }
         Served::Export { folders, base } => {
@@ -426,6 +426,21 @@ fn one_check(
             );
         }
         m.summary.push(line);
+    }
+    // Every camera move by touch alone, replayed as a playtest by the engine (ADR 0030).
+    if let Some(t) = j.get("touch") {
+        match touch_replay(rwgpu, &out, t) {
+            Ok(line) => {
+                eprintln!("ok    {line}");
+                m.summary.push(line);
+            }
+            Err(e) => {
+                eprintln!("FAIL  {e}");
+                bad.push(e);
+            }
+        }
+    } else if matches!(served, Served::Serve) {
+        bad.push("the touch check did not run".into());
     }
     // The device lost halfway through a playtest: the CPU path goes on.
     let lost = j.pointer("measure/lost");
@@ -579,6 +594,88 @@ fn one_check(
     if bad.is_empty() { Ok(true) } else { Err(format!("the web player in {browser}:\n  {}", bad.join("\n  "))) }
 }
 
+/// The touch check's verdict (`check.mjs --touch`, ADR 0030): every one of
+/// its checks held on the page, and what the page recorded (its camera moves
+/// and taps), written as a playtest and run by `rwgpu run`, ends in the
+/// page's state hash and camera, bit for bit.
+fn touch_replay(rwgpu: &Path, out: &Path, t: &Json) -> Result<String> {
+    let s = |j: &Json, k: &str| j.get(k).and_then(Json::as_str).unwrap_or("").to_string();
+    let failed: Vec<String> = t
+        .get("checks")
+        .and_then(Json::as_array)
+        .unwrap_or(&[])
+        .iter()
+        .filter(|c| c.get("ok").and_then(Json::as_bool) != Some(true))
+        .map(|c| format!("{}: {}", s(c, "name"), s(c, "detail")))
+        .collect();
+    if !failed.is_empty() {
+        return Err(format!("touch on the page: {}", failed.join("; ")));
+    }
+    let frame = t.get("frame").and_then(Json::as_i64).ok_or("the touch check gave no frame")?;
+    let recorded = t.get("recorded").and_then(Json::as_array).unwrap_or(&[]);
+    let toml = touch_playtest(recorded, frame);
+    let file = out.join("touch.toml");
+    std::fs::write(&file, &toml).map_err(|e| format!("{}: {e}", file.display()))?;
+    let done = Command::new(rwgpu)
+        .args(["run", "examples/tiny_town", "--json", "--input"])
+        .arg(&file)
+        .current_dir(root())
+        .output()
+        .map_err(|e| format!("rwgpu run: {e}"))?;
+    let j = Json::parse(&String::from_utf8_lossy(&done.stdout)).map_err(|e| format!("rwgpu run: {e}"))?;
+    let camera = |c: Option<&Json>| c.map(Json::to_compact).unwrap_or_default();
+    let page_camera = Json::parse(&s(t, "camera_text")).ok();
+    let (state, cam) = (s(&j, "state_hash"), camera(j.get("camera")));
+    let moves = recorded.iter().filter(|r| r.get("camera").is_some()).count();
+    let taps = recorded.iter().filter(|r| r.get("tap").is_some()).count();
+    if state != s(t, "state") || cam != camera(page_camera.as_ref()) {
+        return Err(format!(
+            "touch: the page ended in state {} with camera {}, its record replayed by `rwgpu run` ({}) in {state} with {cam}",
+            s(t, "state"),
+            camera(page_camera.as_ref()),
+            file.display()
+        ));
+    }
+    let checks = t.get("checks").and_then(Json::as_array).map_or(0, <[Json]>::len);
+    Ok(format!(
+        "touch on a phone-sized page: pan, pinch, twist, a tap of two and of three fingers, a pan past the edge, \
+         {checks} checks held; its {moves} camera moves and {taps} taps, replayed by `rwgpu run`, end in the same \
+         state {state} and camera"
+    ))
+}
+
+/// The page's record of its live input as a playtest: one `[[input]]` per
+/// camera move, tap or press, at the frame it happened, its numbers written
+/// as the exact values the page used.
+pub fn touch_playtest(recorded: &[Json], frames: i64) -> String {
+    let num = |j: Option<&Json>| j.and_then(Json::as_f64).map(|v| format!("{v}")).unwrap_or_else(|| "0".into());
+    let pair = |j: Option<&Json>| {
+        let a = j.and_then(Json::as_array).unwrap_or(&[]);
+        format!("[{}, {}]", num(a.first()), num(a.get(1)))
+    };
+    let mut out = format!(
+        "[test]\ndoc = \"What the web player's page recorded while touches moved its camera (cargo xtask gpu, ADR 0030).\"\nframes = {frames}\n"
+    );
+    for r in recorded {
+        let frame = r.get("frame").and_then(Json::as_i64).unwrap_or(0);
+        out.push_str(&format!("\n[[input]]\nframe = {frame}\n"));
+        if let Some(c) = r.get("camera") {
+            let view = c.get("view").and_then(Json::as_str).map(|v| format!("view = \"{v}\", ")).unwrap_or_default();
+            out.push_str(&format!(
+                "camera = {{ {view}turn = {}, zoom = {}, pan = {} }}\n",
+                num(c.get("turn")),
+                num(c.get("zoom")),
+                pair(c.get("pan"))
+            ));
+        } else if let Some(p) = r.get("tap") {
+            out.push_str(&format!("tap = {}\n", pair(Some(p))));
+        } else if let Some(a) = r.get("press").and_then(Json::as_str) {
+            out.push_str(&format!("press = \"{a}\"\n"));
+        }
+    }
+    out
+}
+
 /// `rwgpu shot`'s image hash at the end of a playtest.
 fn shot_hash(rwgpu: &Path, want: &Expected) -> Result<String> {
     let png = root().join("target/web-check/shot.png");
@@ -596,6 +693,51 @@ fn shot_hash(rwgpu: &Path, want: &Expected) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The page's record, written as a playtest, reads back to the very
+    /// numbers the page's camera moves had: f32 values that a short decimal
+    /// would round, tiny and negative ones, a view, taps and a press.
+    #[test]
+    fn the_touch_record_reads_back_as_the_same_moves() {
+        use rwgpuengine_data::{CameraView, InputKind, Vfs, load_playtest};
+        let moves = [
+            (0.1f32, 1.0f32 / 3.0, [1.0e-7f32, -2.5e-9]),
+            (90.0, 1.5000004, [-4.399_999, 7.25]),
+            (-12.345_679, 0.6666667, [0.0, 0.0]),
+        ];
+        let n = |v: f32| Json::from(f64::from(v));
+        let mut recorded: Vec<Json> = moves
+            .iter()
+            .enumerate()
+            .map(|(i, (turn, zoom, pan))| {
+                let mut c = Json::object()
+                    .with("turn", n(*turn))
+                    .with("zoom", n(*zoom))
+                    .with("pan", vec![n(pan[0]), n(pan[1])]);
+                if i == 1 {
+                    c.set("view", "perspective");
+                }
+                Json::object().with("camera", c).with("frame", i as u64)
+            })
+            .collect();
+        recorded.push(Json::object().with("tap", [304.0f32, 232.0]).with("frame", 3u64));
+        recorded.push(Json::object().with("press", "up").with("frame", 4u64));
+        let text = touch_playtest(&recorded, 9);
+        let mut vfs = Vfs::new();
+        vfs.insert("tests/touch.toml", text.as_str());
+        let (def, diags) = load_playtest(&vfs, "tests/touch.toml");
+        assert!(diags.is_empty(), "{diags:?}\n{text}");
+        let def = def.expect("a playtest");
+        assert_eq!(def.frames, 9);
+        for (i, (turn, zoom, pan)) in moves.iter().enumerate() {
+            let InputKind::Camera(m) = &def.inputs[i].kind else { panic!("{:?}", def.inputs[i]) };
+            assert_eq!((m.turn.to_bits(), m.zoom.to_bits()), (turn.to_bits(), zoom.to_bits()), "{text}");
+            assert_eq!(m.pan.map(f32::to_bits), pan.map(f32::to_bits), "{text}");
+            assert_eq!(m.view, (i == 1).then_some(CameraView::Perspective));
+        }
+        assert!(matches!(def.inputs[3].kind, InputKind::Tap(304.0, 232.0)) && def.inputs[3].frame == 3);
+        assert!(matches!(def.inputs[4].kind, InputKind::Press(_)) && def.inputs[4].frame == 4);
+    }
 
     /// The tool must be the crate's exact version: the players' manifest pins
     /// the crate with `=`, and the lockfile agrees.

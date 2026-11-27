@@ -135,7 +135,14 @@ struct Web {
     present_us: Timings,
     copy: Option<FrameCopy>,
     out: String,
+    /// What the live input did, as a playtest's `[[input]]` tables would say
+    /// it, while [`record`] is on: for the check that a touch on the page
+    /// and a playtest end in the same state.
+    record: Option<Vec<Json>>,
 }
+
+/// At most this many inputs are recorded.
+const RECORD_MAX: usize = 100_000;
 
 thread_local! {
     static WEB: RefCell<Web> = RefCell::new(Web::new());
@@ -180,7 +187,30 @@ impl Web {
             present_us: Timings::default(),
             copy: None,
             out: String::new(),
+            record: None,
         }
+    }
+
+    /// Note an input at the session's frame, if recording.
+    fn note(&mut self, input: Json) {
+        let frame = self.play.as_ref().map_or(0, |p| p.session().frame());
+        if let Some(r) = self.record.as_mut().filter(|r| r.len() < RECORD_MAX) {
+            r.push(input.with("frame", frame));
+        }
+    }
+
+    /// The live input for the next step, noted if recording.
+    fn take_step(&mut self) -> LiveInput {
+        let live = self.input.take_step();
+        if self.record.is_some() {
+            for &(x, y) in &live.taps {
+                self.note(Json::object().with("tap", [x, y]));
+            }
+            for name in live.pressed.names() {
+                self.note(Json::object().with("press", name));
+            }
+        }
+        live
     }
 
     fn frame_size(&self) -> [u32; 2] {
@@ -199,6 +229,10 @@ impl Web {
         self.steps = Steps::new(session.project.sim.tick_rate);
         self.watch = None;
         self.input = Input::default();
+        self.input.set_drag_pans(play::drag_pans(&session));
+        if let Some(r) = self.record.as_mut() {
+            r.clear();
+        }
         if let Some(Play::Gpu(old)) = self.play.take() {
             self.spare = Some(old.renderer);
         }
@@ -231,21 +265,27 @@ impl Web {
     fn gesture(&mut self, g: Option<Gesture>) {
         let (Some(g), Some(play)) = (g, self.play.as_mut()) else { return };
         let session = play.session_mut();
-        let m = match g {
-            Gesture::Move(m) => Some(m),
-            Gesture::Pan(d) => play::pan_move(session, d),
-            Gesture::Key(does) => Some(play::key_move(session, does)),
-        };
-        if let Some(m) = m {
-            session.move_camera(&m);
-            self.dirty = true;
+        let Some(m) = play::gesture_move(session, g) else { return };
+        session.move_camera(&m);
+        self.dirty = true;
+        if self.record.is_some() {
+            // Each number as the f32 it is, written so that it reads back the same.
+            let n = |v: f32| Json::from(f64::from(v));
+            let mut cam = Json::object()
+                .with("turn", n(m.turn))
+                .with("zoom", n(m.zoom))
+                .with("pan", vec![n(m.pan[0]), n(m.pan[1])]);
+            if let Some(v) = m.view {
+                cam.set("view", v.name());
+            }
+            self.note(Json::object().with("camera", cam));
         }
     }
 
-    /// The frame pixel under a canvas pixel, and canvas pixels per frame pixel.
-    fn to_frame(&self, at: [f64; 2]) -> (Option<[f32; 2]>, f64) {
-        let frame = self.frame_size();
-        (fit::to_frame(self.area, frame, at), fit::scale(self.area, frame))
+    /// The frame pixel under a canvas pixel, on the frame or not, and whether
+    /// it is on the frame.
+    fn frame_point(&self, at: [f64; 2]) -> ([f32; 2], bool) {
+        fit::frame_point(self.area, self.frame_size(), at)
     }
 
     /// Build the list, and draw and show it if it changed.
@@ -330,7 +370,7 @@ impl Web {
         let watch = *self.watch.get_or_insert_with(|| Watch::started_at(now));
         let due = self.steps.due(watch.since(now));
         for _ in 0..due {
-            let live = self.input.take_step();
+            let live = self.take_step();
             if let Some(p) = self.play.as_mut() {
                 p.step(&live);
             }
@@ -537,11 +577,21 @@ pub fn resume() {
 #[wasm_bindgen]
 pub fn step_once() -> u32 {
     with(|w| {
-        let live = w.input.take_step();
+        let live = w.take_step();
         if let Some(p) = w.play.as_mut() {
             p.step(&live);
         }
         w.dirty = true;
+        let watch = Watch::start();
+        w.after(&watch)
+    })
+}
+
+/// Draw and show the frame if a camera move changed it, without stepping:
+/// for a page that is paused.
+#[wasm_bindgen]
+pub fn redraw() -> u32 {
+    with(|w| {
         let watch = Watch::start();
         w.after(&watch)
     })
@@ -632,14 +682,15 @@ fn button_of(b: i16) -> Button {
 #[wasm_bindgen]
 pub fn pointer_down(id: u32, touch: bool, button: i16, x: f64, y: f64) {
     with(|w| {
-        let (at, scale) = w.to_frame([x, y]);
-        if touch {
-            w.input.finger_down(id, [x, y], at);
+        let (at, inside) = w.frame_point([x, y]);
+        let g = if touch {
+            w.input.finger_down(id, at, inside)
         } else {
-            let g = w.input.moved([x, y], scale);
+            let g = w.input.moved(at);
             w.gesture(g);
-            w.input.button(button_of(button), true, at);
-        }
+            w.input.button(button_of(button), true, at, inside)
+        };
+        w.gesture(g);
     })
 }
 
@@ -647,25 +698,42 @@ pub fn pointer_down(id: u32, touch: bool, button: i16, x: f64, y: f64) {
 #[wasm_bindgen]
 pub fn pointer_move(id: u32, touch: bool, x: f64, y: f64) {
     with(|w| {
-        let (_, scale) = w.to_frame([x, y]);
-        let g = if touch { w.input.finger_moved(id, [x, y]) } else { w.input.moved([x, y], scale) };
+        let (at, _) = w.frame_point([x, y]);
+        let g = if touch { w.input.finger_moved(id, at) } else { w.input.moved(at) };
         w.gesture(g);
     })
 }
 
 /// A pointer went up at (x, y), or was taken away by the browser
-/// (`cancelled`: no tap).
+/// (`cancelled`: no tap, no swipe).
 #[wasm_bindgen]
 pub fn pointer_up(id: u32, touch: bool, button: i16, x: f64, y: f64, cancelled: bool) {
     with(|w| {
-        let (at, _) = w.to_frame([x, y]);
-        let at = at.filter(|_| !cancelled);
-        if touch {
-            w.input.finger_up(id, at);
-        } else {
-            w.input.button(button_of(button), false, at);
-        }
+        let (at, inside) = w.frame_point([x, y]);
+        let g = match (touch, cancelled) {
+            (true, true) => w.input.finger_cancelled(id),
+            (true, false) => w.input.finger_up(id, at, inside),
+            (false, _) => w.input.button(button_of(button), false, at, inside && !cancelled),
+        };
+        w.gesture(g);
     })
+}
+
+/// Record the live input from now on (`on`), or stop; a new session starts
+/// the record again. [`recorded`] gives it.
+#[wasm_bindgen]
+pub fn record(on: bool) {
+    with(|w| w.record = on.then(Vec::new));
+}
+
+/// What the live input did since [`record`] was turned on, as a JSON array
+/// of a playtest's `[[input]]` tables: `{ frame, camera }`, `{ frame, tap }`
+/// and `{ frame, press }`, in the order they happened. Each camera move is
+/// the one the session made, its numbers written so that they read back to
+/// the same bits.
+#[wasm_bindgen]
+pub fn recorded() -> String {
+    with(|w| Json::Arr(w.record.clone().unwrap_or_default()).to_compact())
 }
 
 /// The wheel: `WheelEvent.deltaY` in its `deltaMode` (0 pixels, 1 lines, 2
@@ -733,6 +801,16 @@ pub fn image_hash() -> String {
 #[wasm_bindgen]
 pub fn camera() -> String {
     with(|w| w.play.as_ref().map(|p| p.session().camera_json().to_compact()).unwrap_or_default())
+}
+
+/// The frame pixel a world point is drawn at now, as `[x, y]`; `null`
+/// behind the camera. For the check that taps what a moved camera shows.
+#[wasm_bindgen]
+pub fn screen_point(x: f32, y: f32, z: f32) -> String {
+    with(|w| {
+        let p = w.play.as_ref().and_then(|p| p.session().screen_point([x, y, z]));
+        Json::from(p).to_compact()
+    })
 }
 
 /// Events from frame `since` on, as a JSON array.

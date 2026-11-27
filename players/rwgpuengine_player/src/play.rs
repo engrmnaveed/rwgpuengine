@@ -10,12 +10,12 @@
 use rwgpuengine_core::diag::Diagnostic;
 use rwgpuengine_data::{CameraMove, CameraView};
 use rwgpuengine_gpu::{Options, Renderer, wgpu};
-use rwgpuengine_render::{Camera, RenderList};
+use rwgpuengine_render::{Camera, Projector, RenderList, View};
 use rwgpuengine_runtime::{LiveInput, Session};
 
 use crate::clock::{Timings, Watch};
 use crate::gpu::{Gpu, failed};
-use crate::input::{Does, STILL};
+use crate::input::{Does, Gesture, STILL};
 
 /// A session drawn by the GPU renderer.
 pub struct Player {
@@ -117,6 +117,13 @@ impl Player {
         pan_move(&self.session, d)
     }
 
+    /// Make the move a gesture asks for ([`gesture_move`]). Returns it.
+    pub fn gesture(&mut self, g: Gesture) -> Option<CameraMove> {
+        let m = gesture_move(&self.session, g)?;
+        self.session.move_camera(&m);
+        Some(m)
+    }
+
     /// Without a window: step to the end as fast as the steps go, drawing
     /// each frame whose list changed, as a window would.
     pub fn run_headless(&mut self, gpu: &Gpu, watch: &Watch) -> Result<(), Diagnostic> {
@@ -150,6 +157,28 @@ impl Player {
     }
 }
 
+/// The camera move a gesture asks for, in this session: what both the
+/// window and the web page do with every [`Gesture`]. `None` when it asks
+/// for nothing (a pan of a ground seen edge-on).
+pub fn gesture_move(session: &Session, g: Gesture) -> Option<CameraMove> {
+    match g {
+        Gesture::Move(m) => Some(m),
+        Gesture::Pan(d) => pan_move(session, d),
+        Gesture::Grab { from, to, zoom, turn } => grab_move(session, from, to, zoom, turn),
+        Gesture::Settle { quarters, turned } => Some(settle_move(session, quarters, turned)),
+        Gesture::Key(does) => Some(key_move(session, does)),
+    }
+}
+
+/// Does a drag pan in this game, rather than swipe? It does when nothing in
+/// the scene, and no prefab it spawns, has a `mover`: a swipe would move
+/// nothing there (actions drive only movers), and a builder's map is moved
+/// by dragging it (ADR 0030).
+pub fn drag_pans(session: &Session) -> bool {
+    let w = &session.world;
+    !w.entities.iter().any(|e| e.mover.is_some()) && !w.templates.iter().any(|t| t.mover.is_some())
+}
+
 /// The move for [`Does::View`] (the other view) and [`Does::Home`] (back to
 /// the scene's camera, as one move); [`STILL`] for anything else.
 pub fn key_move(session: &Session, does: Does) -> CameraMove {
@@ -173,6 +202,65 @@ pub fn key_move(session: &Session, does: Does) -> CameraMove {
         }
         _ => STILL,
     }
+}
+
+/// The move of a grab: turn by `turn` and zoom by `zoom`, then pan so that
+/// the ground drawn at frame pixel `from` now is drawn at `to`. Panning moves
+/// the camera with its center, so the pan is the ground point under `from`
+/// before the move less the one under `to` once turned and zoomed
+/// ([`ground_at`]). `None` when the ground is seen edge-on there, or behind
+/// the camera.
+pub fn grab_move(session: &Session, from: [f32; 2], to: [f32; 2], zoom: f32, turn: f32) -> Option<CameraMove> {
+    let now = session.camera;
+    let mut then = now;
+    then.apply(&CameraMove { zoom, turn, ..STILL });
+    let p = ground_at(&session.view, &now, from)?;
+    let q = ground_at(&session.view, &then, to)?;
+    let pan = [p[0] - q[0], p[1] - q[1]];
+    pan.iter().all(|v| v.is_finite()).then_some(CameraMove { view: None, turn, zoom, pan })
+}
+
+/// The ground point drawn at frame pixel `px` under camera `cam`: the
+/// directions of one cell along x and y at the camera's center give a first
+/// answer, exact in the iso view, and corrections make it exact to a small
+/// fraction of a pixel in perspective, where the ground point can be far
+/// from the center. `None` when the ground is seen edge-on or the point is
+/// behind the camera.
+pub fn ground_at(view: &View, cam: &Camera, px: [f32; 2]) -> Option<[f32; 2]> {
+    let projector = Projector::new(view, cam);
+    let [cx, cy] = cam.center;
+    let at = |v: [f32; 2]| projector.screen([cx + v[0], cy + v[1], 0.0]);
+    let o = at([0.0, 0.0])?;
+    let mut w = [0.0f32, 0.0];
+    let mut s = o;
+    for _ in 0..8 {
+        // The ground's directions where the answer is now.
+        let (x, y) = (at([w[0] + 1.0, w[1]])?, at([w[0], w[1] + 1.0])?);
+        let (ax, ay) = ([x[0] - s[0], x[1] - s[1]], [y[0] - s[0], y[1] - s[1]]);
+        let det = ax[0] * ay[1] - ay[0] * ax[1];
+        if det.abs() < 1e-3 {
+            return None;
+        }
+        let r = [px[0] - s[0], px[1] - s[1]];
+        if r[0].abs() < 0.01 && r[1].abs() < 0.01 {
+            break;
+        }
+        w = [w[0] + (r[0] * ay[1] - ay[0] * r[1]) / det, w[1] + (ax[0] * r[1] - r[0] * ax[1]) / det];
+        s = at(w)?;
+    }
+    Some([cx + w[0], cy + w[1]])
+}
+
+/// The move that settles a twist on a quarter turn when the fingers let go:
+/// `quarters` quarter turns from the quarter turn nearest the view's turn
+/// before the twist (`turned` degrees ago). The move is the plain
+/// difference, which lands on the quarter turn exactly (ADR 0030).
+pub fn settle_move(session: &Session, quarters: i32, turned: f32) -> CameraMove {
+    let now = session.camera.turn;
+    let start = now - turned;
+    let target = ((start / 90.0).round() + quarters as f32) * 90.0;
+    let target = target - (target / 360.0).floor() * 360.0;
+    CameraMove { turn: target - now, ..STILL }
 }
 
 /// The pan that makes the ground under the camera's center follow the
@@ -207,10 +295,80 @@ mod tests {
     use rwgpuengine_data::Vfs;
     use rwgpuengine_runtime::{DataOnly, SessionConfig};
 
-    fn town() -> Session {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/tiny_town");
-        let vfs = Vfs::from_dir(&dir).expect("tiny_town");
+    fn example(name: &str) -> Session {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples").join(name);
+        let vfs = Vfs::from_dir(&dir).expect("example");
         Session::load(&vfs, &SessionConfig::default(), Box::new(DataOnly)).expect("loads")
+    }
+
+    fn town() -> Session {
+        example("tiny_town")
+    }
+
+    /// A grab, applied, draws the ground point that was under `from` at `to`,
+    /// turned and zoomed about it: under every camera of the engine. A twist
+    /// clockwise on the screen turns the ground clockwise about the fingers.
+    #[test]
+    fn a_grab_keeps_the_ground_under_the_fingers() {
+        let moves = [
+            STILL,
+            CameraMove { turn: 90.0, ..STILL },
+            CameraMove { turn: 37.0, zoom: 1.5, ..STILL },
+            CameraMove { view: Some(CameraView::Perspective), ..STILL },
+            CameraMove { turn: 200.0, zoom: 0.6, ..STILL },
+        ];
+        let grabs = [
+            ([320.0, 240.0], [344.0, 230.0], 1.0, 0.0),
+            ([150.0, 300.0], [140.0, 330.0], 1.25, 0.0),
+            ([400.0, 200.0], [400.0, 200.0], 0.8, 12.0),
+            ([250.0, 260.0], [270.0, 250.0], 1.1, -7.5),
+        ];
+        for m in moves {
+            for (from, to, zoom, turn) in grabs {
+                let mut s = town();
+                s.move_camera(&m);
+                let p = ground_at(&s.view, &s.camera, from).expect("ground under the finger");
+                let right = ground_at(&s.view, &s.camera, [from[0] + 40.0, from[1]]).expect("ground");
+                let g = grab_move(&s, from, to, zoom, turn).expect("a grab");
+                s.move_camera(&g);
+                let at = s.screen_point([p[0], p[1], 0.0]).expect("in front");
+                assert!((at[0] - to[0]).abs() < 0.05 && (at[1] - to[1]).abs() < 0.05, "{m:?} {from:?}: at {at:?}");
+                let r = s.screen_point([right[0], right[1], 0.0]).expect("in front");
+                if turn > 0.0 {
+                    assert!(r[1] > to[1] + 1.0, "{m:?}: clockwise moves the right side down: {r:?}");
+                } else if turn < 0.0 {
+                    assert!(r[1] < to[1] - 1.0, "{m:?}: anticlockwise moves the right side up: {r:?}");
+                }
+            }
+        }
+    }
+
+    /// A settle lands on a quarter turn exactly, bit for bit, from wherever
+    /// the view was: a quarter turn the next way, or the nearest one.
+    #[test]
+    fn a_settle_lands_on_a_quarter_turn_exactly() {
+        let mut rng = rwgpuengine_core::rng::Rng::new(30);
+        let mut s = town();
+        for _ in 0..5000 {
+            let before = rng.below(360_000) as f32 / 1000.0;
+            s.move_camera(&CameraMove { turn: before - s.camera.turn, ..STILL });
+            let turned = rng.range_i32(-170_000, 170_000) as f32 / 1000.0;
+            s.move_camera(&CameraMove { turn: turned, ..STILL });
+            let quarters = rng.range_i32(-2, 2);
+            let m = settle_move(&s, quarters, turned);
+            s.move_camera(&m);
+            let base = (before / 90.0).round() as i32;
+            let want = ((base + quarters).rem_euclid(4) * 90) as f32;
+            assert_eq!(s.camera.turn, want, "from {before} turned {turned} by {quarters} quarters");
+        }
+    }
+
+    /// A drag pans in a game where nothing moves by the player's directions
+    /// (the towns), and swipes where something does (the games with a player).
+    #[test]
+    fn a_drag_pans_only_where_nothing_has_a_mover() {
+        assert!(drag_pans(&town()));
+        assert!(!drag_pans(&example("coin_vault")) && !drag_pans(&example("iso_garden")));
     }
 
     /// The pan of a drag, applied, puts the ground point that was under the

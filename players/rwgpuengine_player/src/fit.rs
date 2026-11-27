@@ -18,11 +18,19 @@ pub fn letterbox(frame: [u32; 2], window: [u32; 2]) -> [u32; 4] {
 
 /// The frame pixel under a window pixel, or `None` when it is on a bar.
 pub fn to_frame(area: [u32; 4], frame: [u32; 2], at: [f64; 2]) -> Option<[f32; 2]> {
+    let (p, inside) = frame_point(area, frame, at);
+    inside.then_some(p)
+}
+
+/// The frame pixel under a window pixel, on the frame or not (on a bar it
+/// is outside 0..width or 0..height), and whether it is on the frame. A
+/// gesture follows a finger over the bars; only a tap needs the frame.
+pub fn frame_point(area: [u32; 4], frame: [u32; 2], at: [f64; 2]) -> ([f32; 2], bool) {
     let [x, y, w, h] = area.map(f64::from);
     let fx = (at[0] - x) * f64::from(frame[0]) / w;
     let fy = (at[1] - y) * f64::from(frame[1]) / h;
     let inside = (0.0..f64::from(frame[0])).contains(&fx) && (0.0..f64::from(frame[1])).contains(&fy);
-    inside.then_some([fx as f32, fy as f32])
+    ([fx as f32, fy as f32], inside)
 }
 
 /// Window pixels per frame pixel.
@@ -60,6 +68,8 @@ mod tests {
         assert_eq!(to_frame(area, frame, [180.0, 100.0]), Some([0.0, 100.0]));
         assert_eq!(to_frame(area, frame, [819.5, 479.5]), Some([639.5, 479.5]));
         assert_eq!(to_frame(area, frame, [820.0, 100.0]), None);
+        assert_eq!(frame_point(area, frame, [820.0, 100.0]), ([640.0, 100.0], false));
+        assert_eq!(frame_point(area, frame, [170.0, -4.0]), ([-10.0, -4.0], false));
         assert_eq!(scale(area, frame), 1.0);
         // Every frame pixel's center maps back to that pixel at an odd size.
         let window = [1513, 911];

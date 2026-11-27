@@ -14,7 +14,7 @@ use rwgpuengine_gpu::wgpu;
 use rwgpuengine_runtime::Session;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, Touch, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
@@ -23,7 +23,7 @@ use crate::clock::{Steps, Timings, Watch};
 use crate::fit;
 use crate::gpu::{self, Gpu, failed};
 use crate::input::{Button, Gesture, Input};
-use crate::play::Player;
+use crate::play::{self, Player};
 
 /// A picture the window showed, read back for `--screenshot`.
 #[derive(Debug)]
@@ -71,6 +71,7 @@ pub fn play(session: Session, end: Option<u64>, screenshot: bool) -> Result<Ran,
         error: None,
         closed_early: false,
         camera_moved: false,
+        cursor: None,
         present_us: Timings::default(),
         shot: None,
     };
@@ -122,6 +123,8 @@ struct App {
     error: Option<Diagnostic>,
     closed_early: bool,
     camera_moved: bool,
+    /// The mouse pointer, in window pixels.
+    cursor: Option<[f64; 2]>,
     present_us: Timings,
     shot: Option<Shot>,
 }
@@ -177,6 +180,7 @@ impl App {
         config.present_mode = wgpu::PresentMode::AutoVsync;
         surface.configure(&gpu.device, &config);
         self.steps = Steps::new(session.project.sim.tick_rate);
+        self.input.set_drag_pans(play::drag_pans(&session));
         let player = Player::new(session, &gpu.device, self.end);
         let area = fit::letterbox(player.frame_size(), [config.width, config.height]);
         Ok(Open { window, surface, config, readable, gpu, player, area })
@@ -224,15 +228,28 @@ impl App {
 
     fn gesture(&mut self, g: Option<Gesture>) {
         let (Some(g), Some(open)) = (g, self.open.as_mut()) else { return };
-        let m = match g {
-            Gesture::Move(m) => Some(m),
-            Gesture::Pan(d) => open.player.pan_move(d),
-            Gesture::Key(does) => Some(open.player.key_move(does)),
-        };
-        if let Some(m) = m {
-            open.player.camera(&m);
+        if open.player.gesture(g).is_some() {
             self.camera_moved = true;
         }
+    }
+
+    /// A window pixel as a frame pixel, and whether it is on the frame.
+    fn frame_point(&self, at: [f64; 2]) -> ([f32; 2], bool) {
+        self.open.as_ref().map_or(([0.0; 2], false), |o| fit::frame_point(o.area, o.player.frame_size(), at))
+    }
+
+    /// A finger on a touch screen: the bindings of `crate::input`.
+    fn touch(&mut self, t: Touch) {
+        let (at, inside) = self.frame_point([t.location.x, t.location.y]);
+        // winit's ids are the platform's; two fingers down at once never share one.
+        let id = t.id as u32;
+        let g = match t.phase {
+            TouchPhase::Started => self.input.finger_down(id, at, inside),
+            TouchPhase::Moved => self.input.finger_moved(id, at),
+            TouchPhase::Ended => self.input.finger_up(id, at, inside),
+            TouchPhase::Cancelled => self.input.finger_cancelled(id),
+        };
+        self.gesture(g);
     }
 }
 
@@ -294,19 +311,23 @@ impl ApplicationHandler for App {
                     self.gesture(g);
                 }
             }
+            // A system that also makes mouse events from touches: those are ignored while a finger is down.
             WindowEvent::CursorMoved { position, .. } => {
-                let scale = self.open.as_ref().map_or(1.0, |o| fit::scale(o.area, o.player.frame_size()));
-                let g = self.input.moved([position.x, position.y], scale);
-                self.gesture(g);
+                self.cursor = Some([position.x, position.y]);
+                if !self.input.touching() {
+                    let (at, _) = self.frame_point([position.x, position.y]);
+                    let g = self.input.moved(at);
+                    self.gesture(g);
+                }
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                let at = self
-                    .input
-                    .cursor()
-                    .zip(self.open.as_ref())
-                    .and_then(|(at, o)| fit::to_frame(o.area, o.player.frame_size(), at));
-                self.input.button(button_of(button), state == ElementState::Pressed, at);
+                if let (Some(cursor), false) = (self.cursor, self.input.touching()) {
+                    let (at, inside) = self.frame_point(cursor);
+                    let g = self.input.button(button_of(button), state == ElementState::Pressed, at, inside);
+                    self.gesture(g);
+                }
             }
+            WindowEvent::Touch(t) => self.touch(t),
             WindowEvent::MouseWheel { delta, .. } => {
                 let g = match delta {
                     MouseScrollDelta::LineDelta(_, y) => self.input.wheel(f64::from(y), 0.0),
