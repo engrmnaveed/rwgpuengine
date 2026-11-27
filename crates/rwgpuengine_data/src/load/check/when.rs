@@ -5,14 +5,14 @@ use rwgpuengine_core::diag::{Diagnostic, SourceFile};
 use rwgpuengine_core::text::did_you_mean;
 
 use super::super::order::Sink;
+use super::super::resolve::Resolved;
 use super::entity::unknown_prop;
-use crate::defs::{self, CondTest, EntityDef};
+use crate::defs::{self, CondTest};
 use crate::node::{Node, Table};
 
 /// Each `when` item: one test of one named entity's state, or a `reason`
 /// alone on `refused`.
-pub(crate) fn when(c: &defs::ConnectDef, t: &Table, entities: &[EntityDef], src: &SourceFile, out: &mut Sink) {
-    let by_name = |n: &str| entities.iter().find(|e| e.name.as_deref() == Some(n));
+pub(crate) fn when(c: &defs::ConnectDef, t: &Table, r: &Resolved, src: &SourceFile, out: &mut Sink) {
     for item in t.get("when").and_then(Node::as_array).unwrap_or(&[]) {
         let Some(w) = item.as_table() else { continue };
         let cond = defs::decode_condition(w);
@@ -54,9 +54,9 @@ pub(crate) fn when(c: &defs::ConnectDef, t: &Table, entities: &[EntityDef], src:
             );
             continue;
         }
-        let Some(target) = by_name(&cond.entity) else {
+        let Some(target) = r.named(&cond.entity) else {
             if !cond.entity.is_empty() {
-                let names = entities.iter().filter_map(|e| e.name.as_deref());
+                let names = r.entities.iter().filter_map(|e| e.name.as_deref());
                 let hint = did_you_mean(&cond.entity, names)
                     .unwrap_or_else(|| format!("give an entity `name = \"{}\"`", cond.entity));
                 out.push(

@@ -1269,7 +1269,7 @@ impl<'a> Fields<'a> {
             return Some(n.clone());
         }
         let field = self.spec.field(key).unwrap_or_else(|| panic!("{} has no field `{key}`", self.spec.id));
-        field.default.map(parse_default)
+        field.default.map(default_node)
     }
 
     pub fn has(&self, key: &str) -> bool {
@@ -1359,6 +1359,41 @@ pub fn node_pos(n: &Node) -> Option<[f32; 3]> {
 pub fn node_cell(n: &Node) -> Option<[i32; 2]> {
     match n.as_array()? {
         [a, b] => Some([a.as_int()? as i32, b.as_int()? as i32]),
+        _ => None,
+    }
+}
+
+/// A default as a node. The registry's defaults are simple literals
+/// (integers, decimals, booleans, strings without escapes, flat arrays of
+/// those), read here without the TOML parser: decoding an entity reads
+/// several, and parsing each took most of the time an entity took to load
+/// (ADR 0028). Anything else is parsed as TOML. Only the values of default
+/// nodes are read, never their spans.
+fn default_node(literal: &str) -> Node {
+    match literal_value(literal) {
+        Some(kind) => Node { kind, span: Span::default() },
+        None => parse_default(literal),
+    }
+}
+
+/// A simple literal's value, or `None` for anything else.
+fn literal_value(s: &str) -> Option<NodeKind> {
+    let s = s.trim();
+    if let Some(inner) = s.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+        let items = inner.split(',').filter(|i| !i.trim().is_empty());
+        let nodes: Option<Vec<Node>> =
+            items.map(|i| Some(Node { kind: literal_value(i)?, span: Span::default() })).collect();
+        return Some(NodeKind::Array(nodes?));
+    }
+    if let Some(text) = s.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+        return (!text.contains(['"', '\\'])).then(|| NodeKind::Str(text.to_string()));
+    }
+    let number = |extra: u8| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit() || b == b'-' || b == extra);
+    match s {
+        "true" => Some(NodeKind::Bool(true)),
+        "false" => Some(NodeKind::Bool(false)),
+        _ if number(b'-') => s.parse().ok().map(NodeKind::Int),
+        _ if number(b'.') => s.parse().ok().map(NodeKind::Float),
         _ => None,
     }
 }
@@ -1491,6 +1526,24 @@ mod tests {
                     let mut diags = Vec::new();
                     let ok = Checker { src: &src, diags: &mut diags }.value(&node, &f.ty, f.name);
                     assert!(ok, "default for {}.{} is invalid: {:?}", spec.id, f.name, diags);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_default_reads_as_toml_reads_it() {
+        fn kind(n: &Node) -> String {
+            match &n.kind {
+                NodeKind::Array(items) => format!("[{}]", items.iter().map(kind).collect::<Vec<_>>().join(",")),
+                k => format!("{k:?}"),
+            }
+        }
+        for spec in ALL_SPECS {
+            for f in spec.fields {
+                if let Some(d) = f.default {
+                    assert!(literal_value(d).is_some(), "default of {}.{} is not a simple literal", spec.id, f.name);
+                    assert_eq!(kind(&default_node(d)), kind(&parse_default(d)), "default of {}.{}", spec.id, f.name);
                 }
             }
         }

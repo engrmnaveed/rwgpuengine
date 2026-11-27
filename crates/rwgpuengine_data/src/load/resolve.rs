@@ -30,6 +30,8 @@ pub(crate) struct Resolved<'p> {
     pub entities: Vec<EntityDef>,
     /// The [[entity]] tables that gave entities.
     pub tables: Vec<EntityTable<'p>>,
+    /// Each name, and the first entity that gives it.
+    pub index: BTreeMap<String, usize>,
     pub connections: Vec<Connection<'p>>,
     pub signals: Signals,
     /// Prefabs that `spawn` places, decoded at [0, 0, 0], in first-use order.
@@ -54,9 +56,9 @@ pub(crate) struct Connection<'p> {
     pub node: &'p Node,
     pub table: &'p Table,
     pub def: ConnectDef,
-    /// The entity that emits: the named one, or the prefab decoded. `None`
-    /// for the ground, and when it is not given or not found.
-    pub source: Option<EntityDef>,
+    /// Who emits. `None` for the ground, and when it is not given or not
+    /// found.
+    pub source: Option<Source>,
     /// `action`, or a non-empty `actions` with nothing of an action beside
     /// it (`check::connect::form` reports the rest). Only then are its
     /// actions resolved and checked.
@@ -71,11 +73,51 @@ pub(crate) struct Action<'p> {
     pub table: &'p Table,
     pub span: Span,
     /// What it changes (not for `spawn`): its `to`, or the source for `self`.
-    pub target: Option<EntityDef>,
+    pub target: Option<Target>,
     /// The prefab a `spawn` places, decoded.
     pub template: Option<EntityDef>,
-    /// Who pays for a `spawn` with `cost`.
-    pub payer: Option<EntityDef>,
+    /// Who pays for a `spawn` with `cost` (an entity of the scene).
+    pub payer: Option<usize>,
+}
+
+/// Who a [[connect]] listens to.
+pub(crate) enum Source {
+    /// An entity of the scene.
+    Entity(usize),
+    /// Every copy of a prefab: the prefab, decoded.
+    Prefab(Box<EntityDef>),
+}
+
+/// What an action changes.
+#[derive(Clone, Copy)]
+pub(crate) enum Target {
+    /// An entity of the scene.
+    Entity(usize),
+    /// The one that emitted (`to = "self"`).
+    Source,
+}
+
+impl Resolved<'_> {
+    /// The definition of a [[connect]]'s source.
+    pub fn source<'a>(&'a self, c: &'a Connection) -> Option<&'a EntityDef> {
+        match c.source.as_ref()? {
+            Source::Entity(i) => Some(&self.entities[*i]),
+            Source::Prefab(def) => Some(def),
+        }
+    }
+
+    /// The definition of what an action changes.
+    pub fn target<'a>(&'a self, c: &'a Connection, a: &Action) -> Option<&'a EntityDef> {
+        match a.target? {
+            Target::Entity(i) => Some(&self.entities[i]),
+            Target::Source => self.source(c),
+        }
+    }
+
+    /// The first entity named `name`.
+    pub fn named(&self, name: &str) -> Option<&EntityDef> {
+        self.index.get(name).map(|&i| &self.entities[i])
+    }
 }
 
 /// What a scene's connections say about the signals entities emit (W0203).
@@ -86,12 +128,19 @@ pub(crate) struct Signals {
     pub changed_prefabs: BTreeSet<String>,
     /// Prefabs that `spawn` places (their copies emit `spawned`).
     pub spawned: BTreeSet<String>,
-    /// Sources of spawns: they emit `refused` when a placement fails.
-    pub spawn_sources: Vec<ConnectFrom>,
+    /// Sources of spawns: they emit `refused` when a placement fails. The
+    /// ground, entities by name, and prefabs.
+    pub ground_spawns: bool,
+    pub spawning_names: BTreeSet<String>,
+    pub spawning_prefabs: BTreeSet<String>,
+    /// Prefabs with a copy, by name, in `changed_names`.
+    pub changed_copies: BTreeSet<String>,
+    /// Prefabs with a copy, by name, in `spawning_names`.
+    pub spawning_copies: BTreeSet<String>,
 }
 
 impl Signals {
-    fn of(decoded: &[ConnectDef]) -> Signals {
+    fn of(decoded: &[ConnectDef], entities: &[EntityDef]) -> Signals {
         // Who emits `changed` (a connection changes their props) and which
         // prefabs get spawned (their copies emit `spawned`).
         let mut changed_names: BTreeSet<String> = BTreeSet::new();
@@ -120,14 +169,48 @@ impl Signals {
         let is_spawn = |a: &&ActionDef| a.action == ConnectAction::Spawn;
         let spawned: BTreeSet<String> =
             decoded.iter().flat_map(|c| c.actions.iter().filter(is_spawn)).filter_map(|a| a.prefab.clone()).collect();
-        let spawn_sources: Vec<ConnectFrom> =
-            decoded.iter().filter(|c| c.actions.iter().any(|a| is_spawn(&a))).map(|c| c.from.clone()).collect();
-        Signals { changed_names, changed_prefabs, spawned, spawn_sources }
+        let (mut ground_spawns, mut spawning_names, mut spawning_prefabs) = (false, BTreeSet::new(), BTreeSet::new());
+        for c in decoded.iter().filter(|c| c.actions.iter().any(|a| is_spawn(&a))) {
+            match &c.from {
+                ConnectFrom::Ground => ground_spawns = true,
+                ConnectFrom::Entity(n) => {
+                    spawning_names.insert(n.clone());
+                }
+                ConnectFrom::Prefab(p) => {
+                    spawning_prefabs.insert(p.clone());
+                }
+            }
+        }
+        let (mut changed_copies, mut spawning_copies) = (BTreeSet::new(), BTreeSet::new());
+        for e in entities {
+            if let (Some(p), Some(n)) = (&e.prefab, &e.name) {
+                if changed_names.contains(n) {
+                    changed_copies.insert(p.clone());
+                }
+                if spawning_names.contains(n) {
+                    spawning_copies.insert(p.clone());
+                }
+            }
+        }
+        Signals {
+            changed_names,
+            changed_prefabs,
+            spawned,
+            ground_spawns,
+            spawning_names,
+            spawning_prefabs,
+            changed_copies,
+            spawning_copies,
+        }
     }
 
     /// `from` starts a spawn, so it emits `refused`.
     pub fn refuses(&self, from: &ConnectFrom) -> bool {
-        self.spawn_sources.contains(from)
+        match from {
+            ConnectFrom::Ground => self.ground_spawns,
+            ConnectFrom::Entity(n) => self.spawning_names.contains(n),
+            ConnectFrom::Prefab(p) => self.spawning_prefabs.contains(p),
+        }
     }
 }
 
@@ -135,6 +218,12 @@ pub(crate) fn scene<'p>(loader: &mut SceneLoader, parsed: &'p Parsed, out: &mut 
     let (src, root) = (&parsed.src, &parsed.root);
     let ground = ground::ground(root, src, &mut out.at(At::Ground));
     let (entities, tables, names) = entities(loader, parsed, out);
+    let mut index: BTreeMap<String, usize> = BTreeMap::new();
+    for (i, e) in entities.iter().enumerate() {
+        if let Some(n) = &e.name {
+            index.entry(n.clone()).or_insert(i);
+        }
+    }
     let connect_nodes: Vec<(usize, &Node, &Table)> = root
         .array("connect")
         .unwrap_or(&[])
@@ -143,15 +232,15 @@ pub(crate) fn scene<'p>(loader: &mut SceneLoader, parsed: &'p Parsed, out: &mut 
         .filter_map(|(i, n)| Some((i, n, n.as_table()?)))
         .collect();
     let decoded: Vec<ConnectDef> = connect_nodes.iter().map(|(_, _, t)| defs::decode_connect(t)).collect();
-    let signals = Signals::of(&decoded);
-    let mut templates: Vec<EntityDef> = Vec::new();
+    let signals = Signals::of(&decoded, &entities);
+    let mut templates = Templates::default();
     let mut connections = Vec::new();
     for ((item, node, t), def) in connect_nodes.into_iter().zip(decoded) {
         let mut c = Connection { item, node, table: t, def, source: None, well_formed: false, actions: Vec::new() };
-        connection(loader, &mut c, &entities, &names, src, out, &mut templates);
+        connection(loader, &mut c, &entities, &index, &names, src, out, &mut templates);
         connections.push(c);
     }
-    Resolved { ground, entities, tables, connections, signals, templates }
+    Resolved { ground, entities, tables, index, connections, signals, templates: templates.defs }
 }
 
 /// Every [[entity]] merged onto its prefab and decoded, the tables that gave
@@ -169,9 +258,9 @@ fn entities<'p>(
     for (item, node) in root.array("entity").unwrap_or(&[]).iter().enumerate() {
         let Some(t) = node.as_table() else { continue };
         let at = |step| At::Entity(item, step);
-        let base = match t.str("prefab") {
+        let merged = match t.str("prefab") {
             Some(name) if loader.prefab_exists(name) => match loader.prefab_at(name, out, at(EntityStep::Prefab)) {
-                Some(p) => p,
+                Some(p) => p.merged_with(t),
                 None => continue, // prefab file has errors, already reported
             },
             Some(name) => {
@@ -185,9 +274,8 @@ fn entities<'p>(
                 );
                 continue;
             }
-            None => Table::default(),
+            None => Table::default().merged_with(t),
         };
-        let merged = base.merged_with(t);
         let origin = Origin { file: path.to_string(), line: src.locate(node.span.start).0, span: node.span };
         let z = t.get("pos").and_then(schema::node_pos).map_or(0.0, |p| p[2]);
         if let Some(cells_node) = t.get("cells") {
@@ -242,15 +330,24 @@ fn well_formed(t: &Table, c: &ConnectDef) -> bool {
 /// Keys of an action, which go inside the items of `actions`.
 pub(crate) const ACTION_KEYS: [&str; 5] = ["to", "prop", "value", "prefab", "cost"];
 
+/// The prefabs `spawn` places, in first-use order.
+#[derive(Default)]
+struct Templates {
+    defs: Vec<EntityDef>,
+    seen: BTreeSet<String>,
+}
+
 /// Who a [[connect]] listens to, and what its actions refer to.
+#[allow(clippy::too_many_arguments)]
 fn connection(
     loader: &mut SceneLoader,
     c: &mut Connection,
     entities: &[EntityDef],
+    index: &BTreeMap<String, usize>,
     names: &BTreeMap<String, usize>,
     src: &SourceFile,
     out: &mut Diags,
-    templates: &mut Vec<EntityDef>,
+    templates: &mut Templates,
 ) {
     let (t, span, item) = (c.table, c.node.span, c.item);
     let at = |step| At::Connect(item, step);
@@ -261,8 +358,8 @@ fn connection(
         (true, true) | (false, false) => None,
         _ => match &c.def.from {
             ConnectFrom::Ground => None,
-            ConnectFrom::Entity(name) => match entities.iter().find(|e| e.name.as_deref() == Some(name)) {
-                Some(e) => Some(e.clone()),
+            ConnectFrom::Entity(name) => match index.get(name) {
+                Some(&i) => Some(Source::Entity(i)),
                 None => {
                     let hint = did_you_mean(name, names.keys().map(String::as_str))
                         .unwrap_or_else(|| format!("give an entity `name = \"{name}\"`"));
@@ -277,9 +374,9 @@ fn connection(
                     None
                 }
             },
-            ConnectFrom::Prefab(p) => {
-                loader.prefab_def(p, src, t.value_span("from_prefab", span), out, at(ConnectStep::Source))
-            }
+            ConnectFrom::Prefab(p) => loader
+                .prefab_def(p, src, t.value_span("from_prefab", span), out, at(ConnectStep::Source))
+                .map(|def| Source::Prefab(Box::new(def))),
         },
     };
     c.well_formed = well_formed(t, &c.def);
@@ -294,22 +391,22 @@ fn connection(
                 && let Some(def) =
                     loader.prefab_def(p, src, table.value_span("prefab", aspan), out, step(ActionStep::Prefab))
             {
-                if !templates.iter().any(|t| t.prefab.as_deref() == Some(p.as_str())) {
-                    templates.push(def.clone());
+                if templates.seen.insert(p.clone()) {
+                    templates.defs.push(def.clone());
                 }
                 action.template = Some(def);
             }
             if let Some(cost) = &a.cost {
-                action.payer = payer(cost, table, aspan, entities, src, &mut out.at(step(ActionStep::Cost)));
+                action.payer = payer(cost, table, aspan, entities, index, src, &mut out.at(step(ActionStep::Cost)));
             }
         } else {
             match a.to.as_deref() {
                 // No `to`, or the ground's `self`: reported by `check::connect::action`.
                 None => {}
                 Some("self") if c.def.from == ConnectFrom::Ground => {}
-                Some("self") => action.target = c.source.clone(),
-                Some(name) => match entities.iter().find(|e| e.name.as_deref() == Some(name)) {
-                    Some(e) => action.target = Some(e.clone()),
+                Some("self") => action.target = Some(Target::Source),
+                Some(name) => match index.get(name) {
+                    Some(&i) => action.target = Some(Target::Entity(i)),
                     None => {
                         let names = entities.iter().filter_map(|e| e.name.as_deref());
                         let hint =
@@ -336,11 +433,12 @@ fn payer(
     t: &Table,
     span: Span,
     entities: &[EntityDef],
+    index: &BTreeMap<String, usize>,
     src: &SourceFile,
     out: &mut super::order::Sink,
-) -> Option<EntityDef> {
-    if let Some(payer) = entities.iter().find(|e| e.name.as_deref() == Some(cost.entity.as_str())) {
-        return Some(payer.clone());
+) -> Option<usize> {
+    if let Some(&i) = index.get(cost.entity.as_str()) {
+        return Some(i);
     }
     let at = t.table("cost").map_or(span, |c| c.value_span("entity", t.value_span("cost", span)));
     let names = entities.iter().filter_map(|e| e.name.as_deref());

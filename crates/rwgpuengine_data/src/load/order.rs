@@ -3,10 +3,13 @@
 //! A scene's problems are reported in the order of its file: the file as a
 //! whole first (its syntax, then the schema), then the ground, then each
 //! [[entity]] table, then each [[connect]] table, and last where the
-//! entities stand. Within one item, in the order of the steps below. The
-//! stages that find problems (resolve, then check) each run over the whole
-//! scene; [`Diags::into_sorted`] puts what they found back in this order.
-//! Problems with the same place keep the order they were found in.
+//! entities stand. Within one item, in the order of the steps below.
+//!
+//! The stages that find problems (resolve, then check) each run over the
+//! whole scene, item by item in file order, so each stage's problems are in
+//! this order already; [`Diags::merge`] interleaves two stages' problems
+//! into it. Problems with the same place keep the order they were found in,
+//! the earlier stage's first.
 //!
 //! `rwgpu check` then sorts every file's problems by line and column
 //! (`diag::sort`). `rwgpu run`, `shot`, `inspect` and the players show a
@@ -115,10 +118,28 @@ impl Diags {
         self.items.iter().any(|(_, d)| d.is_error())
     }
 
+    /// The problems of two stages that each found theirs in order, in order.
+    pub fn merge(first: Diags, then: Diags) -> Diags {
+        debug_assert!(first.in_order() && then.in_order(), "a stage reported out of the file's order");
+        let mut items = Vec::with_capacity(first.items.len() + then.items.len());
+        let (mut a, mut b) = (first.items.into_iter().peekable(), then.items.into_iter().peekable());
+        while let Some(next) = match (a.peek(), b.peek()) {
+            (Some(x), Some(y)) if y.0 < x.0 => b.next(),
+            (Some(_), _) => a.next(),
+            (None, _) => b.next(),
+        } {
+            items.push(next);
+        }
+        Diags { items }
+    }
+
+    fn in_order(&self) -> bool {
+        self.items.windows(2).all(|w| w[0].0 <= w[1].0)
+    }
+
     /// In the order agents read them.
-    pub fn into_sorted(mut self) -> Vec<Diagnostic> {
-        // Stable: problems with the same place keep the order they were found in.
-        self.items.sort_by_key(|(at, _)| *at);
+    pub fn into_diagnostics(self) -> Vec<Diagnostic> {
+        debug_assert!(self.in_order(), "problems out of the file's order");
         self.items.into_iter().map(|(_, d)| d).collect()
     }
 }

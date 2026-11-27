@@ -22,12 +22,12 @@ pub(crate) fn connection(vfs: &Vfs, c: &Connection, r: &Resolved, src: &SourceFi
     debug_assert_eq!(ok, c.well_formed, "resolve and check read the form of a [[connect]] alike");
     if c.well_formed {
         for (k, (a, ra)) in c.def.actions.iter().zip(&c.actions).enumerate() {
-            action(vfs, a, &c.def.from, ra, src, out, item, k);
+            action(vfs, a, &c.def.from, ra, r, src, out, item, k);
             let step = At::Connect(item, ConnectStep::Action(k, ActionStep::Logic));
-            logic(a, &c.def.from, ra.table, ra.span, ra.target.as_ref(), src, &mut out.at(step));
+            logic(a, &c.def.from, ra.table, ra.span, r.target(c, ra), src, &mut out.at(step));
         }
     }
-    when::when(&c.def, t, &r.entities, src, &mut out.at(at(ConnectStep::When)));
+    when::when(&c.def, t, r, src, &mut out.at(at(ConnectStep::When)));
 }
 
 /// Exactly one of `from` and `from_prefab`.
@@ -59,7 +59,7 @@ fn signal(c: &Connection, r: &Resolved, src: &SourceFile, out: &mut Sink) {
             }
             Some(v)
         }
-        ConnectFrom::Entity(n) => c.source.as_ref().map(|e| {
+        ConnectFrom::Entity(n) => r.source(c).map(|e| {
             let mut v = vec!["tapped".to_string()];
             v.extend(e.trigger.iter().flat_map(|tr| [tr.on_enter.clone(), tr.on_exit.clone()]));
             if s.changed_names.contains(n) || !e.counts.is_empty() {
@@ -70,23 +70,16 @@ fn signal(c: &Connection, r: &Resolved, src: &SourceFile, out: &mut Sink) {
             }
             v
         }),
-        ConnectFrom::Prefab(p) => c.source.as_ref().map(|e| {
+        ConnectFrom::Prefab(p) => r.source(c).map(|e| {
             let mut v = vec!["tapped".to_string()];
             v.extend(e.trigger.iter().flat_map(|tr| [tr.on_enter.clone(), tr.on_exit.clone()]));
-            let named_copy_changes = r.entities.iter().any(|x| {
-                x.prefab.as_deref() == Some(p) && x.name.as_ref().is_some_and(|n| s.changed_names.contains(n))
-            });
-            if s.changed_prefabs.contains(p) || named_copy_changes || !e.counts.is_empty() {
+            if s.changed_prefabs.contains(p) || s.changed_copies.contains(p) || !e.counts.is_empty() {
                 v.push("changed".into());
             }
             if s.spawned.contains(p) {
                 v.push("spawned".into());
             }
-            let named_copy_refuses = r.entities.iter().any(|x| {
-                x.prefab.as_deref() == Some(p)
-                    && x.name.as_ref().is_some_and(|n| s.refuses(&ConnectFrom::Entity(n.clone())))
-            });
-            if s.refuses(&c.def.from) || named_copy_refuses {
+            if s.refuses(&c.def.from) || s.spawning_copies.contains(p) {
                 v.push("refused".into());
             }
             v
@@ -181,6 +174,7 @@ fn action(
     a: &defs::ActionDef,
     from: &ConnectFrom,
     ra: &Action,
+    r: &Resolved,
     src: &SourceFile,
     out: &mut Diags,
     item: usize,
@@ -220,8 +214,8 @@ fn action(
                 }
             }
         }
-        if let (Some(cost), Some(payer)) = (&a.cost, &ra.payer) {
-            self::cost(cost, payer, t, span, src, &mut out.at(at(ActionStep::Cost)));
+        if let (Some(cost), Some(payer)) = (&a.cost, ra.payer) {
+            self::cost(cost, &r.entities[payer], t, span, src, &mut out.at(at(ActionStep::Cost)));
         }
     } else {
         for key in ["prefab", "cost"].into_iter().filter(|k| t.has(k)) {

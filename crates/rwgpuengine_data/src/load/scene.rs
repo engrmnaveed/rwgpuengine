@@ -59,18 +59,20 @@ impl<'a> SceneLoader<'a> {
     /// on its own), build. Their problems are reported in the order of the
     /// file (`order::At`).
     pub fn load_scene(&mut self, path: &str) -> Option<SceneDef> {
-        let mut out = Diags::default();
         let mut found = Vec::new();
         let parsed = parse::parse_checked(self.vfs, path, &schema::SCENE_FILE, &mut found);
-        out.extend(At::File, found);
         let Some(parsed) = parsed else {
-            self.diags.extend(out.into_sorted());
+            self.diags.extend(found);
             return None;
         };
+        let mut out = Diags::default();
+        out.extend(At::File, found);
         let resolved = resolve::scene(self, &parsed, &mut out);
-        check::scene(self.vfs, &parsed, &resolved, &mut out);
+        let mut checked = Diags::default();
+        check::scene(self.vfs, &parsed, &resolved, &mut checked);
+        let out = Diags::merge(out, checked);
         let failed = !parsed.ok || out.has_errors();
-        self.diags.extend(out.into_sorted());
+        self.diags.extend(out.into_diagnostics());
         if failed {
             return None;
         }
@@ -79,11 +81,13 @@ impl<'a> SceneLoader<'a> {
 
     /// A prefab's table (see [`SceneLoader::prefab`]). The problems of its
     /// file are reported at `at`: where it is first used.
-    pub(crate) fn prefab_at(&mut self, name: &str, out: &mut Diags, at: At) -> Option<Table> {
-        let before = self.diags.len();
-        let table = self.prefab(name);
-        out.extend(at, self.diags.drain(before..));
-        table
+    pub(crate) fn prefab_at(&mut self, name: &str, out: &mut Diags, at: At) -> Option<&Table> {
+        if !self.prefabs.contains_key(name) {
+            let before = self.diags.len();
+            self.prefab(name);
+            out.extend(at, self.diags.drain(before..));
+        }
+        self.prefabs.get(name)?.as_ref()
     }
 
     /// A prefab decoded as an entity at [0, 0, 0], reporting E0201 at `span`
@@ -105,7 +109,7 @@ impl<'a> SceneLoader<'a> {
             );
             return None;
         }
-        let mut table = self.prefab_at(name, out, at)?;
+        let mut table = self.prefab_at(name, out, at)?.clone();
         table.set_str("prefab", name);
         let origin = Origin { file: src.path.clone(), line: src.locate(span.start).0, span };
         Some(defs::decode_entity(&table, [0.0, 0.0, 0.0], origin))

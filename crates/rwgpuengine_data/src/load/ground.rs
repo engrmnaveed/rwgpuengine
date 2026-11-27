@@ -5,6 +5,8 @@
 //! the terrains, then `size` or the rows of `map`, then the keys that do not
 //! go with a map.
 
+use std::collections::BTreeMap;
+
 use rwgpuengine_core::codes;
 use rwgpuengine_core::diag::{Diagnostic, SourceFile, Span};
 
@@ -19,6 +21,11 @@ pub(crate) fn ground(root: &Table, src: &SourceFile, out: &mut Sink) -> Option<G
     let g = root.table("ground")?;
     let gspan = root.value_span("ground", Span::default());
     let mut terrains: Vec<defs::TerrainDef> = Vec::new();
+    // Each terrain's character, and where it is in `terrains`. Keyed by text,
+    // a type of map the module has already (a map of `char` costs the web
+    // module 4.8 KB).
+    let mut by_char: BTreeMap<String, usize> = BTreeMap::new();
+    let mut key = [0u8; 4];
     for node in root.array("terrain").unwrap_or(&[]) {
         let Some(t) = node.as_table() else { continue };
         let raw = t.str("char").unwrap_or_default();
@@ -35,7 +42,7 @@ pub(crate) fn ground(root: &Table, src: &SourceFile, out: &mut Sink) -> Option<G
             continue;
         }
         let def = defs::decode_terrain(t);
-        if let Some(first) = terrains.iter().find(|x| x.ch == def.ch) {
+        if let Some(first) = by_char.get(def.ch.encode_utf8(&mut key) as &str).map(|&i| &terrains[i]) {
             out.push(
                 Diagnostic::new(
                     &codes::INVALID_VALUE,
@@ -46,6 +53,7 @@ pub(crate) fn ground(root: &Table, src: &SourceFile, out: &mut Sink) -> Option<G
             );
             continue;
         }
+        by_char.insert(def.ch.to_string(), terrains.len());
         terrains.push(def);
     }
     let Some(map_node) = g.get("map") else {
@@ -66,13 +74,20 @@ pub(crate) fn ground(root: &Table, src: &SourceFile, out: &mut Sink) -> Option<G
     if width == 0 {
         out.push(Diagnostic::new(&codes::INVALID_VALUE, "`map` rows must not be empty").at(src, map_node.span));
     }
-    let declared = || {
-        if terrains.is_empty() {
-            "no terrain is declared yet".to_string()
-        } else {
-            let list: Vec<String> = terrains.iter().map(|t| format!("{:?} ({})", t.ch.to_string(), t.name)).collect();
-            format!("declared: {}", list.join(", "))
-        }
+    // The note of an unknown character: the same for every row, made once.
+    let mut declared: Option<String> = None;
+    let mut declared = || {
+        declared
+            .get_or_insert_with(|| {
+                if terrains.is_empty() {
+                    "no terrain is declared yet".to_string()
+                } else {
+                    let list: Vec<String> =
+                        terrains.iter().map(|t| format!("{:?} ({})", t.ch.to_string(), t.name)).collect();
+                    format!("declared: {}", list.join(", "))
+                }
+            })
+            .clone()
     };
     let mut cells = Vec::with_capacity(width * rows.len());
     for (y, (row, at)) in rows.iter().enumerate() {
@@ -90,8 +105,8 @@ pub(crate) fn ground(root: &Table, src: &SourceFile, out: &mut Sink) -> Option<G
             continue;
         }
         for (x, ch) in row.chars().enumerate() {
-            match terrains.iter().position(|t| t.ch == ch) {
-                Some(i) => cells.push(i as u8),
+            match by_char.get(ch.encode_utf8(&mut key) as &str) {
+                Some(&i) => cells.push(i as u8),
                 None => {
                     ok = false;
                     let col = Span::new(at.start + 1 + row.char_indices().nth(x).map_or(0, |(b, _)| b), 0);

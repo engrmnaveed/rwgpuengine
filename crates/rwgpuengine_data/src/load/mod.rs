@@ -132,6 +132,7 @@ pub fn check_project(vfs: &Vfs) -> CheckReport {
     }
 
     let playtests: Vec<String> = vfs.paths_under("tests", ".toml").map(str::to_string).collect();
+    let mut named: BTreeMap<String, playtest::Names> = BTreeMap::new();
     for path in &playtests {
         let (def, diags) = load_playtest_lenient(vfs, path);
         diagnostics.extend(diags);
@@ -147,16 +148,13 @@ pub fn check_project(vfs: &Vfs) -> CheckReport {
             );
             continue;
         }
-        let scene = match scenes.get(&scene_path) {
-            Some(s) => s.clone(),
-            None => {
-                let s = loader.load_scene(&scene_path);
-                scenes.insert(scene_path.clone(), s.clone());
-                s
-            }
-        };
-        let Some(scene) = scene else { continue };
-        playtest::expectations(vfs, &def, &scene, &scene_path, &mut diagnostics);
+        if !scenes.contains_key(&scene_path) {
+            let scene = loader.load_scene(&scene_path);
+            scenes.insert(scene_path.clone(), scene);
+        }
+        let Some(Some(scene)) = scenes.get(&scene_path) else { continue };
+        let names = named.entry(scene_path.clone()).or_insert_with(|| playtest::Names::of(scene));
+        playtest::expectations(vfs, &def, scene, names, &scene_path, &mut diagnostics);
     }
 
     diagnostics.extend(std::mem::take(&mut loader.diags));

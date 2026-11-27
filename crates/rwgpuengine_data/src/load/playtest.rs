@@ -1,6 +1,8 @@
 //! Playtests: parsed (stage 1), then each table decoded with its own rules;
 //! and the checks that need the playtest's scene, which `rwgpu check` runs.
 
+use std::collections::BTreeMap;
+
 use rwgpuengine_core::codes;
 use rwgpuengine_core::diag::{Diagnostic, Span};
 use rwgpuengine_core::text::did_you_mean;
@@ -220,16 +222,43 @@ pub(crate) fn load_playtest_lenient(vfs: &Vfs, path: &str) -> (Option<PlaytestDe
     (Some(def), diags)
 }
 
+/// A scene's names, for the playtests that run it: in file order (for
+/// hints), and each with the first entity that gives it.
+pub(crate) struct Names {
+    order: Vec<String>,
+    first: BTreeMap<String, usize>,
+}
+
+impl Names {
+    pub fn of(scene: &SceneDef) -> Names {
+        let mut first = BTreeMap::new();
+        for (i, e) in scene.entities.iter().enumerate() {
+            if let Some(n) = &e.name {
+                first.entry(n.clone()).or_insert(i);
+            }
+        }
+        Names { order: scene.entities.iter().filter_map(|e| e.name.clone()).collect(), first }
+    }
+
+    fn contains(&self, name: &str) -> bool {
+        self.first.contains_key(name)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &str> {
+        self.order.iter().map(String::as_str)
+    }
+}
+
 /// The checks of a playtest's `[[expect]]`s that need its scene: the prefabs
 /// and entities they name, and the props and labels they read.
 pub(crate) fn expectations(
     vfs: &Vfs,
     def: &PlaytestDef,
     scene: &SceneDef,
+    names: &Names,
     scene_path: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let names: Vec<&str> = scene.entities.iter().filter_map(|e| e.name.as_deref()).collect();
     for exp in &def.expects {
         if let Some(p) = &exp.prefab
             && !prefab_exists(vfs, p)
@@ -244,9 +273,9 @@ pub(crate) fn expectations(
             );
         }
         if let Some(name) = &exp.other
-            && !names.contains(&name.as_str())
+            && !names.contains(name)
         {
-            let hint = did_you_mean(name, names.iter().copied())
+            let hint = did_you_mean(name, names.iter())
                 .unwrap_or_else(|| format!("{scene_path} has no entity named `{name}`"));
             diagnostics.push(
                 Diagnostic::new(&codes::UNKNOWN_ENTITY, format!("[[expect]] `other` names unknown entity `{name}`"))
@@ -255,9 +284,9 @@ pub(crate) fn expectations(
             );
         }
         if let Some(name) = &exp.entity
-            && !names.contains(&name.as_str())
+            && !names.contains(name)
         {
-            let hint = did_you_mean(name, names.iter().copied())
+            let hint = did_you_mean(name, names.iter())
                 .unwrap_or_else(|| format!("{scene_path} has no entity named `{name}`"));
             diagnostics.push(
                 Diagnostic::new(&codes::UNKNOWN_ENTITY, format!("[[expect]] names unknown entity `{name}`"))
@@ -265,9 +294,7 @@ pub(crate) fn expectations(
                     .hint(hint),
             );
         }
-        let Some(target) =
-            exp.entity.as_deref().and_then(|n| scene.entities.iter().find(|e| e.name.as_deref() == Some(n)))
-        else {
+        let Some(target) = exp.entity.as_deref().and_then(|n| names.first.get(n)).map(|&i| &scene.entities[i]) else {
             continue;
         };
         let at = Span::new(exp.span.start, exp.span.start);
