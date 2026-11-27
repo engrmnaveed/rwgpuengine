@@ -1,6 +1,7 @@
 //! The reference scenes: the render lists both renderers draw.
 //!
-//! - The three example games at every frame their playtests shoot.
+//! - The example games at every frame their playtests shoot (River Town's
+//!   catalog: its ten buildings of shapes at every quarter turn, in both views).
 //! - The generated town of 5,000 boxes at 1280 × 720 in perspective.
 //! - Small scenes, one per rule of the reference renderer, each under iso
 //!   and perspective cameras.
@@ -790,7 +791,7 @@ fn example(out: &mut Vec<Scene>, root: &Path, name: &str) -> Result<(), String> 
 
 pub fn all(root: &Path) -> Result<Vec<Scene>, String> {
     let mut out = Vec::new();
-    for name in ["iso_garden", "coin_vault", "tiny_town"] {
+    for name in ["iso_garden", "coin_vault", "tiny_town", "river_town"] {
         example(&mut out, root, name)?;
     }
     out.push(Scene { name: "town of 5,000 boxes".into(), list: town_list(5_000, false)?, source: None });

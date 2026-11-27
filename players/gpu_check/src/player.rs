@@ -20,7 +20,7 @@ use rwgpuengine_runtime::{DataOnly, Session, SessionConfig};
 
 use crate::{Args, compare, write_pictures};
 
-pub const EXAMPLES: [&str; 3] = ["iso_garden", "coin_vault", "tiny_town"];
+pub const EXAMPLES: [&str; 4] = ["iso_garden", "coin_vault", "tiny_town", "river_town"];
 
 /// One replayed playtest.
 pub struct Replayed {

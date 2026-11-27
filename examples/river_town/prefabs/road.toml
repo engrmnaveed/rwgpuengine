@@ -1,0 +1,6 @@
+doc = "A road: one cell of paving. Roads join edge to edge."
+
+[[shape]]
+kind = "box"
+size = [1, 1, 0.0625]
+color = "#9a9488"

@@ -1,0 +1,13 @@
+# river_town — reference game 2 (docs/games/river-town.md): a planning builder
+# on a river valley. Its buildings are shapes written as text, in prefabs/.
+# So far it is their catalog: every building at every quarter turn, with a
+# playtest that pins the picture in both views. The game comes next.
+[project]
+name = "river-town"
+engine = "0.1"
+main_scene = "scenes/catalog.toml"
+
+[display]
+width = 960
+height = 540
+background = "#243042"

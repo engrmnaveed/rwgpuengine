@@ -1,0 +1,59 @@
+[test]
+doc = "The catalog of River Town's buildings: every prefab at every quarter turn, pinned as a picture in each view."
+scene = "scenes/catalog.toml"
+frames = 2
+
+# The whole catalog as the scene starts: the isometric view.
+[[shot]]
+frame = 0
+reference = "tests/refs/catalog_iso.png"
+
+# In perspective.
+[[input]]
+frame = 0
+camera = { view = "perspective", zoom = 1.3, pan = [7, 5] }
+
+[[shot]]
+frame = 1
+reference = "tests/refs/catalog_perspective.png"
+
+# Four of each, turned 0, 90, 180 and 270 (a street of three road cells each).
+[[expect]]
+prefab = "hall"
+count = 4
+
+[[expect]]
+prefab = "market"
+count = 4
+
+[[expect]]
+prefab = "farm"
+count = 4
+
+[[expect]]
+prefab = "workshop"
+count = 4
+
+[[expect]]
+prefab = "mill"
+count = 4
+
+[[expect]]
+prefab = "house"
+count = 4
+
+[[expect]]
+prefab = "bridge"
+count = 4
+
+[[expect]]
+prefab = "well"
+count = 4
+
+[[expect]]
+prefab = "tree"
+count = 4
+
+[[expect]]
+prefab = "road"
+count = 12

@@ -157,7 +157,7 @@ fn a_presenter_shows_the_reference_pixels_and_repaints_only_on_change() {
     // its pixels are the reference rasterizer's; whenever it does not, the
     // reference picture has not changed either.
     let (mut frames, mut repaints) = (0, 0);
-    for name in ["iso_garden", "coin_vault", "tiny_town"] {
+    for name in ["iso_garden", "coin_vault", "tiny_town", "river_town"] {
         let vfs = example(name);
         for path in rwgpuengine_data::check_project(&vfs).playtests {
             let cfg = SessionConfig { script: Some(path.clone()), ..Default::default() };
@@ -186,8 +186,8 @@ fn a_presenter_shows_the_reference_pixels_and_repaints_only_on_change() {
             assert!(presenter.present(&session) && presenter.pixels() == once);
         }
     }
-    // 11 playtests, 1,721 frames; a frame in ten changes the picture.
-    assert_eq!(frames, 1721);
+    // 12 playtests, 1,724 frames (the catalog of River Town has 3); a frame in ten changes the picture.
+    assert_eq!(frames, 1724);
     assert!(repaints >= 9 && repaints * 8 < frames, "{repaints} repaints in {frames} frames");
 }
 

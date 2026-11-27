@@ -1,0 +1,337 @@
+[scene]
+name = "catalog"
+doc = "The ten buildings of River Town, each at every quarter turn: a row for each turn (0 at the back, 270 at the front), a column for each prefab."
+
+[camera]
+zoom = 0.6
+
+[ground]
+map = [
+    "ggggggggggggggggggggggggggggggggg",
+    "ggggggggggggggggggggggggwgggggggg",
+    "ggggggggggggggggggggggggwgggggggg",
+    "ggggggggggggggggggggggggwgggggggg",
+    "ggggggggggggggggggggggggggggggggg",
+    "ggggggggggggggggggggggggggggggggg",
+    "gggggggggggggggggggggggwwwggggggg",
+    "ggggggggggggggggggggggggggggggggg",
+    "ggggggggggggggggggggggggggggggggg",
+    "ggggggggggggggggggggggggwgggggggg",
+    "ggggggggggggggggggggggggwgggggggg",
+    "ggggggggggggggggggggggggwgggggggg",
+    "ggggggggggggggggggggggggggggggggg",
+    "ggggggggggggggggggggggggggggggggg",
+    "gggggggggggggggggggggggwwwggggggg",
+    "ggggggggggggggggggggggggggggggggg",
+    "ggggggggggggggggggggggggggggggggg",
+    "ggggggggggggggggggggggggggggggggg",
+]
+
+[[terrain]]
+char = "g"
+name = "grass"
+color = "#7fb069"
+alt_color = "#78a862"
+
+[[terrain]]
+char = "w"
+name = "river"
+color = "#3f7fc4"
+alt_color = "#3a78bb"
+build = false
+
+# Each prefab at turn 0, 90, 180 and 270.
+
+[[entity]]
+name = "hall_0"
+prefab = "hall"
+pos = [1, 1]
+turn = 0
+
+[[entity]]
+name = "hall_90"
+prefab = "hall"
+pos = [1, 5]
+turn = 90
+
+[[entity]]
+name = "hall_180"
+prefab = "hall"
+pos = [1, 9]
+turn = 180
+
+[[entity]]
+name = "hall_270"
+prefab = "hall"
+pos = [1, 13]
+turn = 270
+
+[[entity]]
+name = "market_0"
+prefab = "market"
+pos = [5, 1]
+turn = 0
+
+[[entity]]
+name = "market_90"
+prefab = "market"
+pos = [5, 5]
+turn = 90
+
+[[entity]]
+name = "market_180"
+prefab = "market"
+pos = [5, 9]
+turn = 180
+
+[[entity]]
+name = "market_270"
+prefab = "market"
+pos = [5, 13]
+turn = 270
+
+[[entity]]
+name = "farm_0"
+prefab = "farm"
+pos = [9, 1]
+turn = 0
+
+[[entity]]
+name = "farm_90"
+prefab = "farm"
+pos = [9, 5]
+turn = 90
+
+[[entity]]
+name = "farm_180"
+prefab = "farm"
+pos = [9, 9]
+turn = 180
+
+[[entity]]
+name = "farm_270"
+prefab = "farm"
+pos = [9, 13]
+turn = 270
+
+[[entity]]
+name = "workshop_0"
+prefab = "workshop"
+pos = [13, 1]
+turn = 0
+
+[[entity]]
+name = "workshop_90"
+prefab = "workshop"
+pos = [13, 5]
+turn = 90
+
+[[entity]]
+name = "workshop_180"
+prefab = "workshop"
+pos = [13, 9]
+turn = 180
+
+[[entity]]
+name = "workshop_270"
+prefab = "workshop"
+pos = [13, 13]
+turn = 270
+
+[[entity]]
+name = "mill_0"
+prefab = "mill"
+pos = [17, 1]
+turn = 0
+
+[[entity]]
+name = "mill_90"
+prefab = "mill"
+pos = [17, 5]
+turn = 90
+
+[[entity]]
+name = "mill_180"
+prefab = "mill"
+pos = [17, 9]
+turn = 180
+
+[[entity]]
+name = "mill_270"
+prefab = "mill"
+pos = [17, 13]
+turn = 270
+
+[[entity]]
+name = "house_0"
+prefab = "house"
+pos = [20, 1]
+turn = 0
+
+[[entity]]
+name = "house_90"
+prefab = "house"
+pos = [20, 5]
+turn = 90
+
+[[entity]]
+name = "house_180"
+prefab = "house"
+pos = [20, 9]
+turn = 180
+
+[[entity]]
+name = "house_270"
+prefab = "house"
+pos = [20, 13]
+turn = 270
+
+[[entity]]
+name = "bridge_0"
+prefab = "bridge"
+pos = [24, 2]
+turn = 0
+
+[[entity]]
+name = "bridge_90"
+prefab = "bridge"
+pos = [24, 6]
+turn = 90
+
+[[entity]]
+name = "bridge_180"
+prefab = "bridge"
+pos = [24, 10]
+turn = 180
+
+[[entity]]
+name = "bridge_270"
+prefab = "bridge"
+pos = [24, 14]
+turn = 270
+
+[[entity]]
+name = "well_0"
+prefab = "well"
+pos = [26, 1]
+turn = 0
+
+[[entity]]
+name = "well_90"
+prefab = "well"
+pos = [26, 5]
+turn = 90
+
+[[entity]]
+name = "well_180"
+prefab = "well"
+pos = [26, 9]
+turn = 180
+
+[[entity]]
+name = "well_270"
+prefab = "well"
+pos = [26, 13]
+turn = 270
+
+[[entity]]
+name = "tree_0"
+prefab = "tree"
+pos = [28, 1]
+turn = 0
+
+[[entity]]
+name = "tree_90"
+prefab = "tree"
+pos = [28, 5]
+turn = 90
+
+[[entity]]
+name = "tree_180"
+prefab = "tree"
+pos = [28, 9]
+turn = 180
+
+[[entity]]
+name = "tree_270"
+prefab = "tree"
+pos = [28, 13]
+turn = 270
+
+[[entity]]
+prefab = "road"
+cells = [[30, 1], [30, 2], [30, 3]]
+turn = 0
+
+[[entity]]
+prefab = "road"
+cells = [[30, 5], [30, 6], [30, 7]]
+turn = 90
+
+[[entity]]
+prefab = "road"
+cells = [[30, 9], [30, 10], [30, 11]]
+turn = 180
+
+[[entity]]
+prefab = "road"
+cells = [[30, 13], [30, 14], [30, 15]]
+turn = 270
+
+# What is where: the prefabs' names, and the turns.
+
+[[entity]]
+pos = [2.0, 17]
+label = { text = "hall" }
+
+[[entity]]
+pos = [6.0, 17]
+label = { text = "market" }
+
+[[entity]]
+pos = [10.0, 17]
+label = { text = "farm" }
+
+[[entity]]
+pos = [14.0, 17]
+label = { text = "workshop" }
+
+[[entity]]
+pos = [17.5, 17]
+label = { text = "mill" }
+
+[[entity]]
+pos = [20.5, 17]
+label = { text = "house" }
+
+[[entity]]
+pos = [23.5, 17]
+label = { text = "bridge" }
+
+[[entity]]
+pos = [26.0, 17]
+label = { text = "well" }
+
+[[entity]]
+pos = [28.0, 17]
+label = { text = "tree" }
+
+[[entity]]
+pos = [30.0, 17]
+label = { text = "road" }
+
+[[entity]]
+pos = [32, 1.5]
+label = { text = "0" }
+
+[[entity]]
+pos = [32, 5.5]
+label = { text = "90" }
+
+[[entity]]
+pos = [32, 9.5]
+label = { text = "180" }
+
+[[entity]]
+pos = [32, 13.5]
+label = { text = "270" }

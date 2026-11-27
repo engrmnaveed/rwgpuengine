@@ -18,7 +18,7 @@
 //!   `inspect`, the players): in the order the loader writes them;
 //! - `load_playtest` per playtest.
 //!
-//! The corpus: the three example games, every input of the loader tests in
+//! The corpus: the example games, every input of the loader tests in
 //! `tests.rs`, inputs made to reach every place the loader reports a problem
 //! (alone, several in one file, and spread over the files of one project),
 //! and generated worlds of a thousand entities. The cases under `limits/`
@@ -1739,7 +1739,7 @@ fn generated() -> Vec<Case> {
 
 fn examples() -> Vec<Case> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-    ["coin_vault", "iso_garden", "tiny_town"]
+    ["coin_vault", "iso_garden", "tiny_town", "river_town"]
         .iter()
         .map(|name| {
             let vfs = Vfs::from_dir(&root.join(name)).unwrap_or_else(|e| panic!("examples/{name}: {e}"));
@@ -2222,6 +2222,7 @@ const PINS: &[(&str, &str)] = &[
     ("examples/coin_vault", "b7e48e8a696ae553"),
     ("examples/iso_garden", "c84862e5a560d2ec"),
     ("examples/tiny_town", "bd8547dbcbc2557a"),
+    ("examples/river_town", "45216ec91e3b7e56"),
     ("base", "156b1dceb27c7367"),
     ("project/syntax", "2e77e8d7e6435ae3"),
     ("project/empty", "4658d7bd83cf6967"),

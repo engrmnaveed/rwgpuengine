@@ -151,7 +151,7 @@ fn ci() -> Result {
     Ok(())
 }
 
-const EXAMPLES: [&str; 3] = ["examples/iso_garden", "examples/coin_vault", "examples/tiny_town"];
+const EXAMPLES: [&str; 4] = ["examples/iso_garden", "examples/coin_vault", "examples/tiny_town", "examples/river_town"];
 
 /// Native equals web: for every example playtest, the wasm module (run under
 /// Node by `web/check.mjs`) must reach the native command's state hash and

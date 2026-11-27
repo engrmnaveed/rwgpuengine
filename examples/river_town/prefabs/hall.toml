@@ -1,0 +1,26 @@
+doc = "The town hall, 3 x 3 cells: the hall under a gable roof, and a tower with a spire at its +y side."
+footprint = [3, 3]
+
+[[shape]]
+kind = "box"
+at = [0.15, 0.3, 0]
+size = [2.7, 1.8, 1.4]
+color = "#d8cdb8"
+
+[[shape]]
+kind = "roof"
+at = [0.05, 0.2, 1.4]
+size = [2.9, 2.0, 0.9]
+color = "#4a6a8a"
+
+[[shape]]
+kind = "box"
+at = [1.1, 2.05, 0]
+size = [0.8, 0.8, 2.6]
+color = "#c9bda6"
+
+[[shape]]
+kind = "cone"
+at = [1.0, 1.95, 2.6]
+size = [1.0, 1.0, 1.1]
+color = "#3a5a7a"

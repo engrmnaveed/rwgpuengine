@@ -1,0 +1,20 @@
+doc = "A house, 2 x 2 cells: walls, a gable roof and a chimney."
+footprint = [2, 2]
+
+[[shape]]
+kind = "box"
+at = [0.15, 0.15, 0]
+size = [1.7, 1.7, 1.1]
+color = "#e8d8b0"
+
+[[shape]]
+kind = "roof"
+at = [0.05, 0.05, 1.1]
+size = [1.9, 1.9, 0.85]
+color = "#b5523b"
+
+[[shape]]
+kind = "box"
+at = [1.35, 0.4, 1.1]
+size = [0.25, 0.25, 0.95]
+color = "#7a6a5a"

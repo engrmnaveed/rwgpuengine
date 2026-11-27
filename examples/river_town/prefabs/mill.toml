@@ -1,0 +1,27 @@
+doc = "A mill, 2 x 2 cells: the mill house and a round tower, which stands toward +x (toward the water)."
+footprint = [2, 2]
+
+[[shape]]
+kind = "box"
+at = [0.1, 0.1, 0]
+size = [1.0, 1.8, 0.9]
+color = "#d9c9a0"
+
+[[shape]]
+kind = "roof"
+at = [0.05, 0.05, 0.9]
+size = [1.1, 1.9, 0.6]
+color = "#8b5a3c"
+turn = 90
+
+[[shape]]
+kind = "cylinder"
+at = [1.05, 0.55, 0]
+size = [0.85, 0.85, 1.9]
+color = "#c8c2b4"
+
+[[shape]]
+kind = "cone"
+at = [0.975, 0.475, 1.9]
+size = [1.0, 1.0, 0.8]
+color = "#5a6ea0"

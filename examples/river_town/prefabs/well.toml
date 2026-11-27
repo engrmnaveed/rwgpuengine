@@ -1,0 +1,31 @@
+doc = "A well: a round wall with water in it, under a small roof on two posts."
+
+[[shape]]
+kind = "cylinder"
+at = [0.2, 0.2, 0]
+size = [0.6, 0.6, 0.3125]
+color = "#a8a39a"
+
+[[shape]]
+kind = "cylinder"
+at = [0.275, 0.275, 0]
+size = [0.45, 0.45, 0.34375]
+color = "#3a7ac0"
+
+[[shape]]
+kind = "box"
+at = [0.14, 0.45, 0]
+size = [0.08, 0.1, 0.95]
+color = "#6a4a2a"
+
+[[shape]]
+kind = "box"
+at = [0.78, 0.45, 0]
+size = [0.08, 0.1, 0.95]
+color = "#6a4a2a"
+
+[[shape]]
+kind = "roof"
+at = [0.08, 0.28, 0.95]
+size = [0.84, 0.44, 0.25]
+color = "#b5523b"

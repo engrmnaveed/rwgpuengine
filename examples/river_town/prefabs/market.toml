@@ -1,0 +1,58 @@
+doc = "A market, 3 x 3 cells: a paved floor, four posts and striped awnings."
+footprint = [3, 3]
+
+[[shape]]
+kind = "box"
+at = [0.1, 0.1, 0]
+size = [2.8, 2.8, 0.08]
+color = "#c9b38a"
+
+[[shape]]
+kind = "box"
+at = [0.3, 0.3, 0.08]
+size = [0.15, 0.15, 1.0]
+color = "#6a4a2a"
+
+[[shape]]
+kind = "box"
+at = [2.55, 0.3, 0.08]
+size = [0.15, 0.15, 1.0]
+color = "#6a4a2a"
+
+[[shape]]
+kind = "box"
+at = [0.3, 2.55, 0.08]
+size = [0.15, 0.15, 1.0]
+color = "#6a4a2a"
+
+[[shape]]
+kind = "box"
+at = [2.55, 2.55, 0.08]
+size = [0.15, 0.15, 1.0]
+color = "#6a4a2a"
+
+[[shape]]
+kind = "wedge"
+at = [0.2, 0.2, 1.08]
+size = [1.3, 1.3, 0.5]
+color = "#c0392b"
+
+[[shape]]
+kind = "wedge"
+at = [0.2, 1.5, 1.08]
+size = [1.3, 1.3, 0.5]
+color = "#ece4d2"
+
+[[shape]]
+kind = "wedge"
+at = [1.5, 0.2, 1.08]
+size = [1.3, 1.3, 0.5]
+color = "#ece4d2"
+turn = 180
+
+[[shape]]
+kind = "wedge"
+at = [1.5, 1.5, 1.08]
+size = [1.3, 1.3, 0.5]
+color = "#c0392b"
+turn = 180
