@@ -7,6 +7,35 @@ findings that are not code (experiment results, surprises, things to remember).
 > keep it: read `slate` as `rwgpu` and `slate_*` crates as `rwgpuengine_*`
 > ([ADR 0019](decisions/0019-name-rwgpuengine.md)).
 
+## 2026-11-28 — Pieces 6.1 and 6.2 are on `river-town`; one fetch failed on the Windows runner
+
+- Reviewed and merged by fast-forward into the step's branch: piece 6.2 (pull request 16, the camera's bound
+  and touch) and piece 6.1 (pull request 17, shapes and quarter turns). On each last commit the supervisor
+  ran `cargo xtask ci` and `cargo xtask gpu` again, and on piece 6.1's also `cargo xtask gpu --fast --
+  --random 3000` (6,000 scenes, none failed, at most 13 pixels apart in one, 823 in all). The eleven older
+  example playtests keep their state hashes through both.
+- The loader's oracle, checked apart from the pieces' own word. Piece 6.2: with Tiny Town's new playtest
+  taken away, the old pin of `examples/tiny_town` holds on the new code, so that pin moved only because the
+  example got a file. Piece 6.1: every record of the 474 older cases compared before and after; five differ,
+  and only by `shape, turn` at the end of the "valid keys" hint of an unknown key. **The pin of an example
+  follows its files**; `AGENTS.md` now says so.
+- **Found, not explained: one fetch from `rwgpu serve` failed on GitHub's Windows runner.** In the first CI
+  run of pull request 17 the job `gpu (windows-latest)` failed in the second of its three browser runs: the
+  page of `examples/river_town` on the CPU path asked for `project.json` and Chrome answered
+  `net::ERR_NO_BUFFER_SPACE` (Windows' "no buffer space", WSAENOBUFS). The first of the three runs had passed
+  the same step, the other five jobs were green, the pull request touches neither `serve.rs` nor the check,
+  and the same job passed when run again on the same commit. What is known: `rwgpu serve` closes the
+  connection after every answer, and a page asks for `bundle-hash.txt` once a second (a failure there is
+  not reported: the page takes it for a stopped server). By the page's code a job opens some hundreds of
+  connections, far from the 16,384 ports Windows hands out, so running out of ports does not explain it.
+  Nothing was built for it. **If it happens again** with the same error name: count the connections of one
+  browser run first, then consider answering several requests on one connection in `serve.rs`; not a retry
+  in the check, which would also hide a fault of the server.
+- Sizes on `river-town` now: web module 735,503 of 800,000 bytes (64,497 left for the rest of step 6 and
+  for step 7), `rwgpu` 2,368,560 of 3,000,000, players' web download 872,382 of 1,500,000.
+- Carried to the next piece that adds loader cases: `crates/rwgpuengine_data/src/corpus.rs` is 138,310 of
+  the 150,000 bytes a tracked file may have; it is split before more cases go in.
+
 ## 2026-11-28 — Step 6, piece 1: shapes as text, and entities that turn
 
 - Built ([ADR 0029](decisions/0029-shapes-as-text-and-quarter-turns.md)): a `[[shape]]` list in a prefab or
